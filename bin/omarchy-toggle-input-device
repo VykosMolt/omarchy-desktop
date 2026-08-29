@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Enable, disable, or toggle a Hyprland input device
 # omarchy:args=<touchpad|touchscreen> [on|off|toggle]
@@ -25,7 +26,7 @@ esac
 # device. Names come from USB descriptors and must not be interpolated into
 # shell or Lua. The path is hardcoded to ~/.local/state like the sibling
 # toggle tools, so it keeps working when XDG_STATE_HOME diverges.
-NAME_FILE="$HOME/.local/state/omarchy/toggles/hypr/$KIND-disabled-name"
+NAME_FILE="$OMARCHY_STATE_HOME/toggles/hypr/$KIND-disabled-name"
 
 device="$("omarchy-hw-$KIND")"
 

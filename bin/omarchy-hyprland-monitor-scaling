@@ -1,11 +1,12 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Show, set, or adjust focused Hyprland monitor scaling
 # omarchy:args=[up|down|SCALE]
 # omarchy:examples=omarchy hyprland monitor scaling | omarchy hyprland monitor scaling 1.6 | omarchy hyprland monitor scaling up | omarchy hyprland monitor scaling down
 
 SCALES=(1 1.25 1.6 2 3 4)
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+STATE_DIR="$OMARCHY_STATE_HOME"
 SCALE_LOG="$STATE_DIR/monitor-scaling.log"
 
 usage() {

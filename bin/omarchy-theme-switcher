@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Open the Omarchy theme switcher
 
@@ -9,9 +10,9 @@ if [[ $1 == "--preload" ]]; then
   shift
 fi
 
-USER_THEMES_PATH="$HOME/.config/omarchy/themes"
+USER_THEMES_PATH="$OMARCHY_CONFIG_HOME/themes"
 OMARCHY_THEMES_PATH="$OMARCHY_PATH/themes"
-CACHE_PATH="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/theme-selector"
+CACHE_PATH="$OMARCHY_CACHE_HOME/theme-selector"
 preview_dir="$CACHE_PATH/previews"
 signature_file="$CACHE_PATH/signature"
 fast_signature_file="$CACHE_PATH/fast-signature"
@@ -102,7 +103,7 @@ if [[ ! -f $fast_signature_file ]] || ! cmp -s "$fast_signature_file" <(printf '
   printf '%s' "$fast_signature" >"$fast_signature_file"
 fi
 
-current_theme=$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null)
+current_theme=$(cat "$OMARCHY_STATE_HOME/current/theme.name" 2>/dev/null)
 selected_preview=""
 for extension in png jpg jpeg webp gif bmp; do
   if [[ -e $preview_dir/$current_theme.$extension ]]; then

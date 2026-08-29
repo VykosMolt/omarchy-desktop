@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Sync the generated Omarchy theme to Claude Code
 # omarchy:args=[--activate]
@@ -6,7 +7,7 @@
 
 set -euo pipefail
 
-CLAUDE_SOURCE_PATH="$HOME/.local/state/omarchy/current/theme/claude.json"
+CLAUDE_SOURCE_PATH="$OMARCHY_STATE_HOME/current/theme/claude.json"
 CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CLAUDE_THEME_PATH="$CLAUDE_CONFIG_DIR/themes/omarchy.json"
 CLAUDE_SETTINGS_PATH="$CLAUDE_CONFIG_DIR/settings.json"

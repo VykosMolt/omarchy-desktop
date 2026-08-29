@@ -1,9 +1,10 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Apply the current theme keyboard color to ASUS ROG keyboards
 # omarchy:hidden=true
 
-ASUSCTL_THEME=$HOME/.local/state/omarchy/current/theme/keyboard.rgb
+ASUSCTL_THEME=$OMARCHY_STATE_HOME/current/theme/keyboard.rgb
 
 if omarchy-cmd-present asusctl && [[ -f $ASUSCTL_THEME ]]; then
   color=$(sed 's/^#//' "$ASUSCTL_THEME")

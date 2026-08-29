@@ -1,9 +1,10 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Apply the current theme keyboard color to Framework Laptop 16 keyboards
 # omarchy:hidden=true
 
-FRAMEWORK16_THEME=$HOME/.local/state/omarchy/current/theme/keyboard.rgb
+FRAMEWORK16_THEME=$OMARCHY_STATE_HOME/current/theme/keyboard.rgb
 
 if omarchy-cmd-present qmk_hid && [[ -f $FRAMEWORK16_THEME ]]; then
   hex=$(cat "$FRAMEWORK16_THEME")

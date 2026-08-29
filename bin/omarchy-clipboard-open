@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Open a clipboard history entry
 # omarchy:group=clipboard
@@ -6,7 +7,7 @@
 # omarchy:hidden=true
 
 history_index=""
-history_path="$HOME/.local/state/omarchy/clipboard-history.json"
+history_path="$OMARCHY_STATE_HOME/clipboard-history.json"
 
 while (( $# > 0 )); do
   case "$1" in
@@ -48,7 +49,7 @@ open_text() {
     exec omarchy-launch-browser "$url"
   fi
 
-  open_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/clipboard-open"
+  open_dir="$OMARCHY_STATE_HOME/clipboard-open"
   mkdir -p "$open_dir"
   open_file=$(mktemp --tmpdir="$open_dir" clipboard.XXXXXX.txt) || exit 1
   printf '%s' "$text" >"$open_file"

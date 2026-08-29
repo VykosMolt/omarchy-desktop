@@ -1,9 +1,10 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Launch the default editor selected via Omarchy defaults.
 # omarchy:args=[--inline] <path>
 
-default_editor="$HOME/.local/state/omarchy/defaults/editor"
+default_editor="$OMARCHY_STATE_HOME/defaults/editor"
 
 if [[ ${1:-} == "--inline" ]]; then
   inline=true

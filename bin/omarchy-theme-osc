@@ -1,9 +1,10 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Print OSC sequences for an Omarchy color theme
 # omarchy:hidden=true
 
-theme="${1:-$HOME/.local/state/omarchy/current/theme/colors.toml}"
+theme="${1:-$OMARCHY_STATE_HOME/current/theme/colors.toml}"
 
 [[ -f $theme ]] || exit 0
 

@@ -1,8 +1,9 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Refresh the current theme from its templates.
 
-THEME_NAME_PATH="$HOME/.local/state/omarchy/current/theme.name"
+THEME_NAME_PATH="$OMARCHY_STATE_HOME/current/theme.name"
 
 if [[ -f $THEME_NAME_PATH ]]; then
   OMARCHY_THEME_SKIP_BACKGROUND=1 omarchy-theme-set "$(cat $THEME_NAME_PATH)"

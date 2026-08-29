@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Save or restore the focused Hyprland window width
 # omarchy:args=<save|restore>
@@ -6,7 +7,7 @@
 
 set -euo pipefail
 
-STATE_DIR="$HOME/.local/state/omarchy/windows"
+STATE_DIR="$OMARCHY_STATE_HOME/windows"
 
 usage() {
   echo "Usage: omarchy-hyprland-window-width save|restore" >&2

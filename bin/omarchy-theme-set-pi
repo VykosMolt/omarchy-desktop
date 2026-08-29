@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Sync the generated Omarchy Pi theme
 # omarchy:args=[--activate]
@@ -6,7 +7,7 @@
 
 set -euo pipefail
 
-CURRENT_THEME_PATH="$HOME/.local/state/omarchy/current/theme"
+CURRENT_THEME_PATH="$OMARCHY_STATE_HOME/current/theme"
 PI_SOURCE_PATH="$CURRENT_THEME_PATH/pi.json"
 PI_AGENT_DIR="$HOME/.pi/agent"
 PI_THEME_DIR="$PI_AGENT_DIR/themes"

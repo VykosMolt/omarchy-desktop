@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Copy text to the clipboard and type or paste it
 # omarchy:group=clipboard
@@ -32,7 +33,7 @@ while (( $# > 0 )); do
 done
 
 copy_history_entry() {
-  local history_path="$HOME/.local/state/omarchy/clipboard-history.json"
+  local history_path="$OMARCHY_STATE_HOME/clipboard-history.json"
 
   [[ $history_index =~ ^[0-9]+$ ]] || exit
   jq -e --argjson index "$history_index" '.[$index].type == "text" and (.[$index].text | type == "string")' "$history_path" >/dev/null || exit

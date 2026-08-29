@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Export the current theme's gum styling into the environment
 # omarchy:hidden=true
@@ -7,7 +8,7 @@
 # hl.env at login, but that environment is captured once and is not refreshed on
 # a theme switch, so anything launched from the session would otherwise inherit
 # the login-time theme's gum colors. Export the current values instead.
-_omarchy_gum_env="$HOME/.local/state/omarchy/current/theme/gum_env.lua"
+_omarchy_gum_env="$OMARCHY_STATE_HOME/current/theme/gum_env.lua"
 
 if [[ -f $_omarchy_gum_env ]]; then
   while IFS=$'\t' read -r _omarchy_gum_key _omarchy_gum_value; do

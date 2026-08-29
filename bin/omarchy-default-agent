@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Set and launch the default coding agent
 # omarchy:args=[pi|omp|opencode|ori|claude|codex|grok|agy|copilot|crush]
@@ -10,7 +11,7 @@ if [[ ${1:-} == "--install" ]]; then
   shift
 fi
 
-agent_file="$HOME/.config/omarchy/defaults/agent"
+agent_file="$OMARCHY_CONFIG_HOME/defaults/agent"
 
 if (($# == 0)); then
   if [[ -f $agent_file ]]; then

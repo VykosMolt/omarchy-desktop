@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Measure live disk read and write speed
 # omarchy:args=[target-dir]
@@ -10,7 +11,7 @@ if [[ -n ${1:-} && ! -d $1 ]]; then
   exit 2
 fi
 
-target_dir="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/omarchy}"
+target_dir="${1:-$OMARCHY_CACHE_HOME}"
 phase_seconds=8
 parallel=4
 chunk_mb=4

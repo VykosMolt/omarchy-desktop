@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Apply the current theme to GNOME color mode and icon settings
 # omarchy:hidden=true
@@ -10,7 +11,7 @@ if [[ -z ${DBUS_SESSION_BUS_ADDRESS:-} ]]; then
   exit 0
 fi
 
-THEME_DIR=$HOME/.local/state/omarchy/current/theme
+THEME_DIR=$OMARCHY_STATE_HOME/current/theme
 COLORS_FILE="$THEME_DIR/colors.toml"
 
 # omarchy-theme-color resolves mode from colors.toml (`mode = "light"`), a
@@ -26,7 +27,7 @@ else
 fi
 
 # Change gnome icon theme color
-GNOME_ICONS_THEME=$HOME/.local/state/omarchy/current/theme/icons.theme
+GNOME_ICONS_THEME=$OMARCHY_STATE_HOME/current/theme/icons.theme
 if [[ -f $GNOME_ICONS_THEME ]]; then
   gsettings set org.gnome.desktop.interface icon-theme "$(<$GNOME_ICONS_THEME)"
 else

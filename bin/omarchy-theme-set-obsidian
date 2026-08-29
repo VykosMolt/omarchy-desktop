@@ -1,9 +1,10 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Sync Omarchy theme to all Obsidian vaults
 # omarchy:hidden=true
 
-CURRENT_THEME_DIR="$HOME/.local/state/omarchy/current/theme"
+CURRENT_THEME_DIR="$OMARCHY_STATE_HOME/current/theme"
 
 [[ -f $CURRENT_THEME_DIR/obsidian.css ]] || exit 0
 

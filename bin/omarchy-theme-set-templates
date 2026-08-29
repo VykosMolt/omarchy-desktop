@@ -1,11 +1,12 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Generate themed config files from Omarchy templates
 # omarchy:hidden=true
 
 TEMPLATES_DIR="$OMARCHY_PATH/default/themed"
-USER_TEMPLATES_DIR="$HOME/.config/omarchy/themed"
-NEXT_THEME_DIR="$HOME/.local/state/omarchy/current/next-theme"
+USER_TEMPLATES_DIR="$OMARCHY_CONFIG_HOME/themed"
+NEXT_THEME_DIR="$OMARCHY_STATE_HOME/current/next-theme"
 COLORS_FILE="$NEXT_THEME_DIR/colors.toml"
 
 declare -A THEME_COLORS

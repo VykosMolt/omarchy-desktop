@@ -1,6 +1,7 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
-# omarchy:summary=Install a hook into ~/.config/omarchy/hooks/<type>.d/
+# omarchy:summary=Install a hook into $OMARCHY_CONFIG_HOME/hooks/<type>.d/
 # omarchy:group=hook
 # omarchy:name=install
 # omarchy:args=<type> <file>
@@ -15,7 +16,7 @@ fi
 
 HOOK_TYPE=$1
 HOOK_FILE=$2
-HOOK_DIR="$HOME/.config/omarchy/hooks/$HOOK_TYPE.d"
+HOOK_DIR="$OMARCHY_CONFIG_HOME/hooks/$HOOK_TYPE.d"
 HOOK_NAME=$(basename "$HOOK_FILE")
 HOOK_PATH="$HOOK_DIR/$HOOK_NAME"
 
