@@ -4,7 +4,7 @@ PartOf=omarchy-arch-session.target
 After=wayland-session-waitenv.service
 ConditionEnvironment=OMARCHY_ARCH_SESSION=1
 ConditionEnvironment=WAYLAND_DISPLAY
-ConditionPathIsExecutable=/usr/bin/fcitx5
+ConditionFileIsExecutable=/usr/bin/fcitx5
 
 [Service]
 Type=simple
