@@ -13,8 +13,8 @@ QtObject {
   id: root
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string stateHome: home + "/.local/state"
-  readonly property string currentThemePath: stateHome + "/omarchy/current/theme"
+  readonly property string stateHome: Paths.stateHome
+  readonly property string currentThemePath: Paths.omarchyState + "/current/theme"
 
   property color foreground: "#cacccc"
   property color background: "#101315"
@@ -241,7 +241,7 @@ QtObject {
   // CLI takes effect live without restarting the shell; absent by default.
   property FileView userShellFile: FileView {
     id: userShellFile
-    path: root.home + "/.config/omarchy/shell.toml"
+    path: Paths.omarchyConfig + "/shell.toml"
     watchChanges: true
     printErrors: false
     onLoaded: root.loadUserShell(text())

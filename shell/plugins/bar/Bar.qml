@@ -31,8 +31,8 @@ Item {
   // without an exclusion zone; updated by the FileView watcher further down.
   property bool barHidden: false
   property string home: Quickshell.env("HOME")
-  property string stateHome: home + "/.local/state"
-  property string omarchyConfigDir: home + "/.config/omarchy"
+  property string stateHome: Paths.stateHome
+  property string omarchyConfigDir: Paths.omarchyConfig
   property var fallbackBarConfig: ({
     position: "top",
     transparent: false,
@@ -938,11 +938,11 @@ Item {
   Process {
     id: barHiddenProbe
     running: true
-    command: ["bash", "-c", "[[ -f $HOME/.local/state/omarchy/toggles/bar-off ]] && echo yes || echo no"]
+    command: ["bash", "-c", "[[ -f ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/bar-off ]] && echo yes || echo no"]
     stdout: SplitParser { onRead: function(line) { root.barHidden = String(line).trim() === "yes" } }
   }
   FileView {
-    path: root.home + "/.local/state/omarchy/toggles"
+    path: Paths.omarchyState + "/toggles"
     watchChanges: true
     printErrors: false
     onFileChanged: barHiddenProbe.running = true

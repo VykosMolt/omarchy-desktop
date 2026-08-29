@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import "IdleModel.js" as IdleModel
+import qs.Commons
 
 Item {
   id: root
@@ -12,7 +13,7 @@ Item {
   property var shell: null
 
   readonly property string home: Quickshell.env("HOME")
-  readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
+  readonly property string stayAwakeStateDir: Paths.omarchyState + "/indicators"
   readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
   readonly property int defaultScreensaverSeconds: 150
   readonly property int defaultLockSeconds: 300
@@ -208,8 +209,8 @@ Item {
 
   function persistStayAwake(value) {
     var command = value
-      ? "mkdir -p \"$HOME/.local/state/omarchy/indicators\" && touch \"$HOME/.local/state/omarchy/indicators/stay-awake\""
-      : "rm -f \"$HOME/.local/state/omarchy/indicators/stay-awake\""
+      ? "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; mkdir -p \"$STATE/indicators\" && touch \"$STATE/indicators/stay-awake\""
+      : "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; rm -f \"$STATE/indicators/stay-awake\""
 
     if (stayAwakeStateWriter.running) {
       root.pendingStayAwakePersist = !!value
@@ -300,7 +301,7 @@ Item {
 
   Process {
     id: stayAwakeStateProbe
-    command: ["bash", "-c", "mkdir -p \"$HOME/.local/state/omarchy/indicators\"; if [[ -f $HOME/.local/state/omarchy/indicators/stay-awake ]]; then echo yes; else echo no; fi"]
+    command: ["bash", "-c", "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; mkdir -p \"$STATE/indicators\"; if [[ -f \"$STATE/indicators/stay-awake\" ]]; then echo yes; else echo no; fi"]
     stdout: SplitParser {
       onRead: function(line) { root.applyStayAwake(String(line).trim() === "yes", false, "state-file") }
     }
