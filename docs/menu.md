@@ -20,8 +20,8 @@ user entry while the shipped menu keeps working.
 
 ## Entry schema
 
-Entries are object keys. The dotted id is the tree: `trigger.share.file` is a
-child of `trigger.share`, and an id with no dot sits on the root menu. There
+Entries are object keys. The dotted id is the tree: `setup.default.browser` is
+a child of `setup.default`, and an id with no dot sits on the root menu. There
 is no separate parent field to keep in sync — where an entry appears follows
 from what it is called (an explicit `parent` is accepted but nothing shipped
 uses one).

@@ -1,9 +1,6 @@
 o.bind("SUPER + SPACE", "Omarchy menu", "omarchy-menu toggle")
 o.bind("SUPER + ALT + SPACE", "Apps menu", "omarchy-menu toggle apps")
 o.bind("SUPER + CTRL + E", "Emojis", "omarchy-shell shell toggle omarchy.emojis")
-o.bind("SUPER + CTRL + C", "Capture menu", "omarchy-menu toggle capture")
-o.bind("SUPER + CTRL + O", "Toggle menu", "omarchy-menu toggle toggle")
-o.bind("SUPER + CTRL + H", "Hardware menu", "omarchy-menu toggle hardware")
 o.bind("SUPER + SHIFT + code:201", "Omarchy menu", "omarchy-menu toggle root")
 o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
 o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })
@@ -35,7 +32,7 @@ o.bind("switch:on:Lid Switch", nil, "omarchy-system-lid-close", { locked = true 
 o.bind("switch:off:Lid Switch", nil, "omarchy-hyprland-monitor-clamshell", { locked = true })
 
 o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")
-o.bind("ALT + PRINT", "Screenrecording", "omarchy-capture-screenrecording --stop-recording || omarchy-menu toggle trigger.capture.screenrecord")
+o.bind("ALT + PRINT", "Screenrecording", "omarchy-capture-screenrecording --stop-recording || omarchy-capture-screenrecording")
 o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "omarchy-capture-webcam-resize smaller")
 o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "omarchy-capture-webcam-resize larger")
 o.bind("SUPER + PRINT", "Color picker", "pkill hyprpicker || hyprpicker -a")
@@ -81,11 +78,10 @@ hl.on("layer.closed", function(layer)
   end
 end)
 
-o.bind("SUPER + CTRL + S", "Share", "omarchy-menu toggle share")
 
 o.bind("SUPER + CTRL + PERIOD", "Transcode", "omarchy-transcode")
 
-o.bind("SUPER + CTRL + R", "Set reminder", "omarchy-menu toggle reminder-set")
+o.bind("SUPER + CTRL + R", "Set reminder", "omarchy-reminder -i")
 o.bind("SUPER + CTRL + ALT + R", "Show reminders", "omarchy-reminder show")
 o.bind("SUPER + SHIFT + CTRL + R", "Clear reminders", "omarchy-reminder clear")
 

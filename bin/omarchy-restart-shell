@@ -77,13 +77,6 @@ for (( attempt = 0; attempt < 20; attempt++ )); do
       echo "Omarchy shell restarted, but the session lock was not re-secured." >&2
       exit 1
     fi
-    # Invitation toasts (like Voxtype/fingerprint setup) die with the old
-    # shell, and their notify-send waiters hang forever: the dying server
-    # never emits NotificationClosed. A still-running omarchy-*-invitation
-    # unit is therefore an unanswered invitation — re-run it so its toast
-    # reappears on the new shell. Answered invitations have already exited
-    # and been collected, so the glob no longer matches them.
-    systemctl --user try-restart 'omarchy-*-invitation.service' 2>/dev/null || true
     exit 0
   fi
   sleep 0.1
