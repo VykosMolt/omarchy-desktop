@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+marker="$OMARCHY_STATE_HOME/done/arch-session-bootstrap"
+
+[[ -f $marker ]] && exit 0
+
+mkdir -p \
+  "$OMARCHY_CONFIG_HOME" \
+  "$OMARCHY_STATE_HOME/done" \
+  "$OMARCHY_CACHE_HOME" \
+  "$OMARCHY_DATA_HOME"
+
+# Only establish state owned by the independent Omarchy Arch session here.
+# Global user integration from omarchy-provision-first-run is ported separately.
+touch "$marker"

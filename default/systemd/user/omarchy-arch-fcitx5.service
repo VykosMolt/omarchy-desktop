@@ -1,0 +1,13 @@
+[Unit]
+Description=Omarchy Arch Fcitx5 input method
+PartOf=omarchy-arch-session.target
+After=wayland-session-waitenv.service
+ConditionEnvironment=OMARCHY_ARCH_SESSION=1
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathIsExecutable=/usr/bin/fcitx5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fcitx5 --disable notificationitem
+Restart=always
+RestartSec=2

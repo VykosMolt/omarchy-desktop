@@ -1,14 +1,12 @@
 hl.on("hyprland.start", function()
-  -- Slow app launch fix -- set systemd vars before starting session services.
-  hl.exec_cmd("systemctl --user import-environment $(env | cut -d'=' -f 1)")
-  hl.exec_cmd("dbus-update-activation-environment --systemd --all")
+  -- All long-lived Omarchy processes belong to this session-specific target.
+  -- UWSM already owns propagation of the graphical session environment.
+  hl.exec_cmd("systemctl --user start omarchy-arch-session.target")
 
-  hl.exec_cmd("omarchy-launch-shell")
-  hl.exec_cmd("omarchy-provision-first-run")
-  hl.exec_cmd("omarchy-powerprofiles-init")
-  hl.exec_cmd(o.launch("omarchy-hyprland-monitor-watch"))
-  hl.exec_cmd(o.launch("udiskie --automount --no-notify --no-tray"))
+  -- Only initialize Omarchy-Arch-owned state automatically.
+  -- Upstream global first-run integration is ported independently.
+  hl.exec_cmd("omarchy-arch-provision-first-run")
 
-  -- Run post-boot hooks after startup config has loaded.
+  -- User post-boot hooks live entirely under the isolated Omarchy config root.
   hl.exec_cmd("sleep 2 && omarchy-hook post-boot")
 end)

@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Silence crash notifications for one program, or list what is silenced
 # omarchy:args=[--] [<program>] [on|off|toggle]
@@ -9,7 +10,7 @@
 
 set -uo pipefail
 
-readonly MUTES="$HOME/.local/state/omarchy/toggles/crash-ignore"
+readonly MUTES="$OMARCHY_STATE_HOME/toggles/crash-ignore"
 
 usage() {
   echo "Usage: omarchy crash mute [--] [<program>] [on|off|toggle]" >&2

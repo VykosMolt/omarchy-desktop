@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+
+ENV_FILE="$HOME/omarchy-arch-port/runtime/env.sh"
+
+if [[ ! -r $ENV_FILE ]]; then
+    echo "Omarchy Arch environment not found: $ENV_FILE" >&2
+    exit 1
+fi
+
+source "$ENV_FILE"
+
+HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
+
+if [[ ! -f $HYPR_CONFIG ]]; then
+    echo "Omarchy Arch Hyprland config not found: $HYPR_CONFIG" >&2
+    exit 1
+fi
+
+uwsm_args=(
+    start
+    -g -1
+    -e
+    -D Hyprland
+    -N "Omarchy Arch"
+    -C "Omarchy Quattro port for Arch Linux"
+)
+
+dry_run=0
+if [[ ${1:-} == "--dry-run" ]]; then
+    dry_run=1
+    uwsm_args+=(-n)
+    shift
+fi
+
+if (( ! dry_run )); then
+    # Recover from a stale "internal display disabled" state before Hyprland
+    # starts. The probe uses sysfs only and changes Omarchy-Arch-owned state.
+    omarchy-hw-recover-internal-monitor
+
+    units=(
+        omarchy-arch-session.target
+        omarchy-arch-shell.service
+        omarchy-arch-sleep-lock.service
+        omarchy-arch-crash-watch.service
+        omarchy-arch-fcitx5.service
+        omarchy-arch-bt-agent.service
+        omarchy-arch-monitor-watch.service
+        omarchy-arch-udiskie.service
+    )
+
+    for unit in "${units[@]}"; do
+        systemctl --user link --runtime --force \
+            "$OMARCHY_PATH/default/systemd/user/$unit" >/dev/null
+    done
+
+    systemctl --user daemon-reload
+fi
+
+exec uwsm "${uwsm_args[@]}" -- \
+    hyprland.desktop \
+    --config "$HYPR_CONFIG" \
+    "$@"

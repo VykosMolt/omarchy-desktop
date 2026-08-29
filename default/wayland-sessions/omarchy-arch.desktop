@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Omarchy Arch (Hyprland uwsm)
+Comment=Omarchy Quattro port for Arch Linux
+Exec=/usr/local/bin/omarchy-arch-session
+TryExec=/usr/local/bin/omarchy-arch-session
+Type=Application
+DesktopNames=Hyprland
