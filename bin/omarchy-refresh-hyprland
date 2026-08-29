@@ -1,14 +1,15 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Overwrite all the user Hyprland Lua configs in ~/.config/hypr with the Omarchy defaults.
 
-omarchy-refresh-config hypr/.luarc.json
-omarchy-refresh-config hypr/autostart.lua
-omarchy-refresh-config hypr/bindings.lua
-omarchy-refresh-config hypr/input.lua
-omarchy-refresh-config hypr/looknfeel.lua
-omarchy-refresh-config hypr/hyprland.lua
-omarchy-refresh-config hypr/monitors.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/.luarc.json
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/autostart.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/bindings.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/input.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/looknfeel.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/hyprland.lua
+OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/monitors.lua
 
 mkdir -p ~/.local/state/omarchy/toggles/hypr
 cp "$OMARCHY_PATH/default/hypr/toggles/flags.lua" ~/.local/state/omarchy/toggles/hypr/

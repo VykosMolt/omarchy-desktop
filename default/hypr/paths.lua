@@ -14,9 +14,41 @@ local function env_or(name, fallback)
   return value
 end
 
+local config_home =
+  env_or("OMARCHY_SESSION_CONFIG_HOME",
+    env_or("XDG_CONFIG_HOME", home .. "/.config"))
+
+local state_home =
+  env_or("OMARCHY_SESSION_STATE_HOME",
+    env_or("XDG_STATE_HOME", home .. "/.local/state"))
+
+local cache_home =
+  env_or("OMARCHY_SESSION_CACHE_HOME",
+    env_or("XDG_CACHE_HOME", home .. "/.cache"))
+
+local data_home =
+  env_or("OMARCHY_SESSION_DATA_HOME",
+    env_or("XDG_DATA_HOME", home .. "/.local/share"))
+
 return {
   home = home,
-  config_home = env_or("XDG_CONFIG_HOME", home .. "/.config"),
-  state_home = env_or("XDG_STATE_HOME", home .. "/.local/state"),
+
+  config_home = config_home,
+  state_home = state_home,
+  cache_home = cache_home,
+  data_home = data_home,
+
+  omarchy_config_home =
+    env_or("OMARCHY_CONFIG_HOME", config_home .. "/omarchy"),
+
+  omarchy_state_home =
+    env_or("OMARCHY_STATE_HOME", state_home .. "/omarchy"),
+
+  omarchy_cache_home =
+    env_or("OMARCHY_CACHE_HOME", cache_home .. "/omarchy"),
+
+  omarchy_data_home =
+    env_or("OMARCHY_DATA_HOME", data_home .. "/omarchy"),
+
   omarchy_path = env_or("OMARCHY_PATH", "/usr/share/omarchy"),
 }

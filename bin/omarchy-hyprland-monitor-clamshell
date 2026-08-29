@@ -8,7 +8,7 @@ TOGGLES_DIR="$OMARCHY_STATE_HOME/toggles/hypr"
 CLAMSHELL_FLAG="$TOGGLES_DIR/internal-monitor-clamshell.lua"
 MANUAL_DISABLE_FLAG="$TOGGLES_DIR/internal-monitor-disable.lua"
 SCALE_STATE="$TOGGLES_DIR/internal-monitor-scale"
-MONITOR_LUA="$HOME/.config/hypr/monitors.lua"
+MONITOR_LUA="$OMARCHY_SESSION_CONFIG_HOME/hypr/monitors.lua"
 
 INTERNAL=$(omarchy-hyprland-monitor-laptop)
 

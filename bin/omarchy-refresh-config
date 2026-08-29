@@ -1,4 +1,5 @@
 #!/bin/bash
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Copy a shipped user config from $OMARCHY_PATH/config into ~/.config (backs up your version).
 # omarchy:args=<config-path>
@@ -17,7 +18,7 @@ USAGE
   exit 1
 fi
 
-user_config_file="${HOME}/.config/$config_file"
+user_config_file="${OMARCHY_REFRESH_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}}/$config_file"
 default_config_file="$OMARCHY_PATH/config/$config_file"
 backup_config_file="$user_config_file.bak.$(date +%s)"
 

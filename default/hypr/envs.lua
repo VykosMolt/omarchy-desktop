@@ -27,6 +27,16 @@ hl.env("XCOMPOSEFILE", paths.home .. "/.XCompose")
 -- hyprctl setenv doesn't reach keybind dispatcher env; use hl.env.
 hl.env("OMARCHY_PATH", paths.omarchy_path)
 
+hl.env("OMARCHY_SESSION_CONFIG_HOME", paths.config_home)
+hl.env("OMARCHY_SESSION_STATE_HOME", paths.state_home)
+hl.env("OMARCHY_SESSION_CACHE_HOME", paths.cache_home)
+hl.env("OMARCHY_SESSION_DATA_HOME", paths.data_home)
+
+hl.env("OMARCHY_CONFIG_HOME", paths.omarchy_config_home)
+hl.env("OMARCHY_STATE_HOME", paths.omarchy_state_home)
+hl.env("OMARCHY_CACHE_HOME", paths.omarchy_cache_home)
+hl.env("OMARCHY_DATA_HOME", paths.omarchy_data_home)
+
 local bin_dir = paths.omarchy_path .. "/bin"
 local kept = {}
 for entry in (os.getenv("PATH") or "/usr/local/bin:/usr/bin"):gmatch("[^:]+") do

@@ -1,6 +1,18 @@
 -- Hyprland bootstrap for Omarchy's Lua module path.
 
 local home = os.getenv("HOME")
+
+local function env_or(name, fallback)
+  local value = os.getenv(name)
+  if value == nil or value == "" then
+    return fallback
+  end
+  return value
+end
+
+local config_home = env_or("OMARCHY_SESSION_CONFIG_HOME", home .. "/.config")
+local state_home = env_or("OMARCHY_SESSION_STATE_HOME", home .. "/.local/state")
+
 local reload_prefixes = {
   "default.hypr",
   "hypr",
@@ -28,12 +40,12 @@ for _, module in ipairs(modules_to_reload) do
   package.loaded[module] = nil
 end
 
--- Load generated state from ~/.local/state, user modules from ~/.config, and
--- Omarchy defaults from $OMARCHY_PATH.
-package.path = home
-  .. "/.local/state/?.lua;"
-  .. home
-  .. "/.config/?.lua;"
+-- Load generated state and user modules from the active Omarchy session
+-- roots, then Omarchy defaults from $OMARCHY_PATH.
+package.path = state_home
+  .. "/?.lua;"
+  .. config_home
+  .. "/?.lua;"
   .. (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy")
   .. "/?.lua;"
   .. package.path
