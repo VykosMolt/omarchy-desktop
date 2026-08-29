@@ -1,7 +1,14 @@
 -- Learn how to configure Hyprland: https://wiki.hypr.land/Configuring/Start/
 
--- Omarchy's bootstrap keeps path setup out of this user config.
-dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")
+-- Omarchy's bootstrap keeps path setup out of this user config. There is no
+-- packaged install to fall back on, so an unset OMARCHY_PATH means this config
+-- was not started through omarchy-arch-session: say so rather than loading a
+-- half-configured desktop.
+local omarchy_path = os.getenv("OMARCHY_PATH")
+if omarchy_path == nil or omarchy_path == "" then
+  error("OMARCHY_PATH is unset; start this session with omarchy-arch-session")
+end
+dofile(omarchy_path .. "/default/hypr/bootstrap.lua")
 
 -- Disable all Omarchy default bindings. Add your own in hypr/bindings.lua.
 -- omarchy_default_bindings = false

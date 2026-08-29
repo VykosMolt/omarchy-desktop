@@ -1,8 +1,9 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Launch the default editor selected via Omarchy defaults.
 # omarchy:args=[--inline] <path>
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 default_editor="$OMARCHY_STATE_HOME/defaults/editor"
 

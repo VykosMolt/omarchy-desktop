@@ -9,7 +9,7 @@
 #   2. Customize it as needed
 #   3. Change your theme to apply the template
 #
-# User templates in ~/.config/omarchy/themed/ take priority over the built-in
+# User templates in $OMARCHY_CONFIG_HOME/themed/ take priority over the built-in
 # templates in the Omarchy default/themed/ directory. This lets you override
 # any built-in template or create templates for applications not included
 # by default.

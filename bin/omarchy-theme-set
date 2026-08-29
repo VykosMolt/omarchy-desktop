@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Apply an Omarchy theme
 # omarchy:args=<theme-name>
 # omarchy:examples=omarchy theme list | omarchy theme set "Tokyo Night"
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 if [[ -z $1 ]]; then
   echo "Usage: omarchy-theme-set <theme-name>"

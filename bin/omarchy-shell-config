@@ -1,8 +1,9 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Shared helpers for editing $OMARCHY_CONFIG_HOME/shell.json (source this, don't run it).
 # omarchy:hidden=true
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 CONFIG_FILE="$OMARCHY_CONFIG_HOME/shell.json"
 DEFAULTS_FILE="$OMARCHY_PATH/config/omarchy/shell.json"

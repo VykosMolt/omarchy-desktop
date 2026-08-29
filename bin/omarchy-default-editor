@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Set the default editor used by omarchy-launch-editor
 # omarchy:args=[code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
 # omarchy:examples=omarchy default editor | omarchy default editor code | omarchy default editor helix
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 editor_file="$OMARCHY_STATE_HOME/defaults/editor"
 

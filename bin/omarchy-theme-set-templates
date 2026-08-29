@@ -1,8 +1,9 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Generate themed config files from Omarchy templates
 # omarchy:hidden=true
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 TEMPLATES_DIR="$OMARCHY_PATH/default/themed"
 USER_TEMPLATES_DIR="$OMARCHY_CONFIG_HOME/themed"

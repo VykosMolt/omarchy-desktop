@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Show or set the location used for weather reports
 #
@@ -12,6 +11,8 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 #                       IP-detected city when nothing is set
 #   --set <name> [lat,lon]  store a location
 #   --clear             return to IP auto-detect
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 LOC_FILE="$OMARCHY_STATE_HOME/settings/weather.json"
 COORDS_PATTERN='^(-?[0-9]+(\.[0-9]+)?),(-?[0-9]+(\.[0-9]+)?)$'

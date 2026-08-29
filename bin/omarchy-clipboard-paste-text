@@ -1,11 +1,12 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Copy text to the clipboard and type or paste it
 # omarchy:group=clipboard
 # omarchy:args=[--shift-insert] [--copy-only] [--history-index <index>|<text>]
 # omarchy:examples=omarchy clipboard paste text "hello" | omarchy clipboard paste text --shift-insert "hello"
 # omarchy:hidden=true
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 use_shift_insert=false
 copy_only=false

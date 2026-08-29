@@ -1,10 +1,11 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Toggle idle behavior so the system either idles normally or stays awake
 # omarchy:group=toggle
 # omarchy:args=[toggle|stay-awake|allow-idle|status]
 # omarchy:examples=omarchy toggle idle | omarchy toggle idle stay-awake | omarchy-toggle-idle --status
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 STATE_DIR="$OMARCHY_STATE_HOME/indicators"
 STATE_FILE="$STATE_DIR/stay-awake"

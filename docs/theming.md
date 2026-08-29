@@ -2,7 +2,7 @@
 
 Omarchy themes live under `themes/<name>/` in the source tree (installed at
 `/usr/share/omarchy/themes/<name>/`), with optional user themes under
-`~/.config/omarchy/themes/<name>/`. A theme normally starts with a
+`$OMARCHY_CONFIG_HOME/themes/<name>/`. A theme normally starts with a
 `colors.toml`; Omarchy generates the active theme files from
 `default/themed/*.tpl` when `omarchy-theme-set <name>` runs.
 
@@ -21,7 +21,7 @@ A theme installed from a git repo is held to a much shorter list; see [What an i
 `~/.local/state/omarchy/current/next-theme`:
 
 1. Copy the first-party theme from `themes/<name>/`.
-2. Overlay `~/.config/omarchy/themes/<name>/`, in full when the user wrote it and filtered when it came from a git repo, naming anything it dropped on stderr.
+2. Overlay `$OMARCHY_CONFIG_HOME/themes/<name>/`, in full when the user wrote it and filtered when it came from a git repo, naming anything it dropped on stderr.
 3. If needed, generate `colors.toml` from `alacritty.toml`.
 4. Run `omarchy-theme-set-templates` to render templates into the staging
    theme.
@@ -38,24 +38,26 @@ built-in templates. If a user template has the same output filename as a
 built-in template, the built-in output is skipped.
 
 After activation, `omarchy-theme-set` fires the `theme-set` hook
-(`~/.config/omarchy/hooks/theme-set*`, theme name in `$1`) and dispatches a
-parallel retint of running apps — terminals, Hyprland, btop, browser, editors,
-and the rest of the `post_theme_commands` list in `bin/omarchy-theme-set`.
-Making a new app follow theme changes means adding its restart/retint command
-to that list. Runs serialize on a `flock`, so scripted theme changes queue
-instead of racing.
+(`$OMARCHY_CONFIG_HOME/hooks/theme-set*`, theme name in `$1`) and dispatches a
+parallel retint of running apps — terminals, Hyprland, btop, helix, tmux, GNOME
+colour mode and supported keyboards, the `post_theme_commands` list in
+`bin/omarchy-theme-set`. That list is deliberately limited to this desktop and
+to programs that reload a colour scheme they already have: an integration that
+rewrites an unrelated application's configuration, or needs root, belongs in a
+`theme-set` hook the user opts into, not in the list. Runs serialize on a
+`flock`, so scripted theme changes queue instead of racing.
 
 ## What an installed theme may not ship
 
-`themes/<name>/` in this repo is Omarchy's own code and is trusted. So is a theme the user wrote by hand in `~/.config/omarchy/themes/<name>/`: it is their machine and their file, and both stage in full.
+`themes/<name>/` in this repo is Omarchy's own code and is trusted. So is a theme the user wrote by hand in `$OMARCHY_CONFIG_HOME/themes/<name>/`: it is their machine and their file, and both stage in full.
 
-`omarchy theme install <url>` is different. It clones a stranger's git repo straight into that same directory, so the contents are whatever the theme author pushed. `omarchy-theme-set` tells the two apart the way `omarchy-theme-extras` already does — a `.git` directory means it was cloned, while a plain directory or a symlink to a working copy is the user's own — and from a cloned one it drops only what can run code:
+A theme cloned from a git repo is different. Its contents are whatever the theme author pushed, so the contents are whatever the theme author pushed. `omarchy-theme-set` tells the two apart the way `omarchy-theme-extras` already does — a `.git` directory means it was cloned, while a plain directory or a symlink to a working copy is the user's own — and from a cloned one it drops only what can run code:
 
 - any `*.lua` — Hyprland `require`s a theme's `hyprland.lua` and `gum_env.lua` at login, and Neovim loads its `neovim.lua` at startup
 - `alacritty.toml`, `foot.ini`, `ghostty.conf`, `kitty.conf` — each names the program the terminal launches
-- `vscode.json` — names the extension `omarchy-theme-set-vscode` installs, and a VS Code extension is arbitrary JavaScript
+- `vscode.json` — names a VS Code extension to install, and a VS Code extension is arbitrary JavaScript
 
-Symlinks are dropped with them, at any depth; in a cloned theme they point wherever the theme author chose. Everything a cloned theme ships that is colour is kept, including files Omarchy would otherwise have generated — `btop.theme`, `chromium.theme`, `helix.toml`, `shell.toml`, `icons.theme`, `keyboard.rgb` and the rest — so a theme can still say exactly how it wants each app to look. What is dropped gets generated from `default/themed/*.tpl` instead, and is named on stderr.
+Symlinks are dropped with them, at any depth; in a cloned theme they point wherever the theme author chose. Everything a cloned theme ships that is colour is kept, including files Omarchy would otherwise have generated — `btop.theme`, `helix.toml`, `shell.toml`, `icons.theme`, `keyboard.rgb` and the rest — so a theme can still say exactly how it wants each app to look. What is dropped gets generated from `default/themed/*.tpl` instead, and is named on stderr.
 
 A denylist is only right while it is maintained. Adding a template for another terminal, or for another editor that loads Lua, means adding it to `INSTALLED_THEME_DENIED` in `bin/omarchy-theme-set`; `test/shell.d/theme-staging-test.sh` fails on any `default/themed/*.tpl` whose output is recorded as neither code nor colour, so a new template cannot be added without that decision being made.
 

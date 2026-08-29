@@ -3,7 +3,9 @@
 # omarchy:summary=List available themes
 # omarchy:examples=omarchy theme list | omarchy theme set "Tokyo Night"
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 {
-  find ~/.config/omarchy/themes/ -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -printf '%f\n'
+  find "$OMARCHY_CONFIG_HOME/themes"/ -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -printf '%f\n'
   find "$OMARCHY_PATH/themes/" -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
 } | sort -u | sed -E 's/(^|-)([a-z])/\1\u\2/g; s/-/ /g'

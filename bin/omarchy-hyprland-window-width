@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Save or restore the focused Hyprland window width
 # omarchy:args=<save|restore>
 # omarchy:examples=omarchy hyprland window width save | omarchy-hyprland-window-width restore
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 set -euo pipefail
 

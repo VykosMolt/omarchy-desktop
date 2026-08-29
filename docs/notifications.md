@@ -21,9 +21,9 @@ it — new text deserves a full look. Left-click invokes the default action,
 right-click or the hover-revealed close button dismisses.
 
 Every on-screen popup is mirrored to its own file under
-`~/.local/state/omarchy/notifications/` (one JSON line per file, named
-`<timestamp>-<id>.json`), so live toasts survive the shell restart that
-`omarchy-update` performs. When a toast leaves the screen — expiry, dismissal,
+`$OMARCHY_STATE_HOME/notifications/` (one JSON line per file, named
+`<timestamp>-<id>.json`), so live toasts survive a shell restart. When a toast
+leaves the screen — expiry, dismissal,
 or click — its file moves into `notifications/history/`, trimmed to the newest
 ten. That directory *is* the history: `showHistory` replays exactly what has
 been moved in there. Referenced avatars/images are copied into
@@ -173,10 +173,6 @@ Everything goes through the same sender contract, so the pieces are small:
   hostile process name stays a discrete argument). It waits for the
   server first: a shell crash takes the notification server down with it, and
   that crash is the one most worth reporting.
-- **Pending migrations** — `omarchy-migrate-notify` (from its user service
-  after `graphical-session.target`) waits for the server, then sends a
-  critical toast whose click opens a terminal running `omarchy-migrate`,
-  falling back to printing in the terminal if the hand-off fails.
 
 ## Reminders
 

@@ -418,8 +418,8 @@ Item {
   // ---------------------------------------------------- popup persistence
   //
   // Mirror every on-screen popup to its own file under popupStateDir so
-  // toasts survive shell restarts (notably the restart `omarchy-update`
-  // performs). Writes, moves and deletes go through one serialized queue: a
+  // toasts survive a shell restart. Writes, moves and deletes go through one
+  // serialized queue: a
   // burst of replaces_id updates must not race a single reused Process, and
   // ordering guarantees a delete issued after a write wins.
 

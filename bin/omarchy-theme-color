@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Resolve semantic colors from an Omarchy theme colors.toml
 # omarchy:args=[--file <colors.toml>] (--all | --raw | <key> [fallback])
@@ -17,6 +16,8 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 #
 # Theme mode precedence: `mode` key, legacy `theme_type` key, a light.mode
 # file beside the colors.toml, background luminance auto-detect, dark.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 COLORS_FILE="$OMARCHY_STATE_HOME/current/theme/colors.toml"
 OUTPUT=""

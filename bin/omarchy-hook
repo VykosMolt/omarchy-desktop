@@ -1,8 +1,9 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Run a named hook from $OMARCHY_CONFIG_HOME/hooks/<name> and $OMARCHY_CONFIG_HOME/hooks/<name>.d/.
 # omarchy:args=[name] [args...]
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 set -e
 

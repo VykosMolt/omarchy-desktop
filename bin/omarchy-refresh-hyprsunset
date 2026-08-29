@@ -1,7 +1,0 @@
-#!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
-
-# omarchy:summary=Overwrite the user config for hyprsunset with the Omarchy default and restart the service.
-
-OMARCHY_REFRESH_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME" omarchy-refresh-config hypr/hyprsunset.conf
-omarchy-restart-hyprsunset

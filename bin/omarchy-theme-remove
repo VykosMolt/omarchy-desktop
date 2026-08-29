@@ -4,8 +4,10 @@
 # omarchy:args=[theme-name]
 # omarchy:examples=omarchy theme remove "Tokyo Night"
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 if [[ -z $1 ]]; then
-  mapfile -t extra_themes < <(find ~/.config/omarchy/themes -mindepth 1 -maxdepth 1 -type d ! -xtype l -printf '%f\n')
+  mapfile -t extra_themes < <(find "$OMARCHY_CONFIG_HOME/themes" -mindepth 1 -maxdepth 1 -type d ! -xtype l -printf '%f\n')
 
   if (( ${#extra_themes[@]} > 0 )); then
     mapfile -t extra_themes < <(printf '%s\n' "${extra_themes[@]}" | sort)
@@ -18,7 +20,7 @@ else
   THEME_NAME="$1"
 fi
 
-THEMES_DIR="$HOME/.config/omarchy/themes"
+THEMES_DIR="$OMARCHY_CONFIG_HOME/themes"
 THEME_PATH="$THEMES_DIR/$THEME_NAME"
 
 # Ensure a theme was set, and that the name cannot climb out of THEMES_DIR

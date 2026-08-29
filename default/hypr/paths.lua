@@ -50,5 +50,5 @@ return {
   omarchy_data_home =
     env_or("OMARCHY_DATA_HOME", data_home .. "/omarchy"),
 
-  omarchy_path = env_or("OMARCHY_PATH", "/usr/share/omarchy"),
+  omarchy_path = assert(os.getenv("OMARCHY_PATH"), "OMARCHY_PATH is unset"),
 }

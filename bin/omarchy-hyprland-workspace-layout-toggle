@@ -1,7 +1,8 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Toggle the layout on the current active workspace between dwindle and scrolling
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 ACTIVE_WORKSPACE=$(hyprctl activeworkspace -j | jq -r '.id')
 [[ $ACTIVE_WORKSPACE =~ ^-?[0-9]+$ ]] || exit 1

@@ -46,6 +46,6 @@ package.path = state_home
   .. "/?.lua;"
   .. config_home
   .. "/?.lua;"
-  .. (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy")
+  .. assert(os.getenv("OMARCHY_PATH"), "OMARCHY_PATH is unset")
   .. "/?.lua;"
   .. package.path

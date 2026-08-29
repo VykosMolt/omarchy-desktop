@@ -4,6 +4,8 @@
 # omarchy:args=<theme-name>
 # omarchy:examples=omarchy theme dir tokyo-night
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 theme="${1:-}"
 
 if [[ -z $theme ]]; then
@@ -11,8 +13,8 @@ if [[ -z $theme ]]; then
   exit 1
 fi
 
-if [[ -d $HOME/.config/omarchy/themes/$theme ]]; then
-  echo "$HOME/.config/omarchy/themes/$theme"
+if [[ -d $OMARCHY_CONFIG_HOME/themes/$theme ]]; then
+  echo "$OMARCHY_CONFIG_HOME/themes/$theme"
 else
   echo "$OMARCHY_PATH/themes/$theme"
 fi

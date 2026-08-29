@@ -1,8 +1,9 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Enable, disable, toggle, or recover the internal laptop display
 # omarchy:args=<on|off|toggle|recover>
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 TOGGLE="internal-monitor-disable"
 TOGGLE_FLAG="$OMARCHY_STATE_HOME/toggles/hypr/$TOGGLE.lua"

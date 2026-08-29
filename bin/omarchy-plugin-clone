@@ -4,9 +4,11 @@
 # omarchy:group=plugin
 # omarchy:args=<source-id> [--edit]
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 set -euo pipefail
 
-PLUGINS_DIR="$HOME/.config/omarchy/plugins"
+PLUGINS_DIR="$OMARCHY_CONFIG_HOME/plugins"
 
 fail() {
   echo "omarchy-plugin-clone: $*" >&2
@@ -83,7 +85,7 @@ usage() {
   cat <<USAGE
 Usage: omarchy plugin clone <source-id> [--edit]
 
-Copies a built-in plugin into ~/.config/omarchy/plugins/<username>.<id>/ so you
+Copies a built-in plugin into $OMARCHY_CONFIG_HOME/plugins/<username>.<id>/ so you
 can edit it freely. The clone keeps all of the source plugin's files and kinds
 and uses "My <name>" as its display name, then replaces the built-in with the
 clone. The username prefix keeps the id yours, so a shared clone does not

@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# omarchy:summary=Start the isolated Omarchy Arch session under uwsm
+# omarchy:args=[--dry-run]
+# omarchy:hidden=true
+
 set -euo pipefail
 
 ENV_FILE="$HOME/omarchy-arch-port/runtime/env.sh"

@@ -1,10 +1,11 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Open the Omarchy background switcher
 # omarchy:group=theme
 # omarchy:name=bg-switcher
 # omarchy:aliases=omarchy background
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 theme_name=$(cat "$OMARCHY_STATE_HOME/current/theme.name" 2>/dev/null)
 current_background=$(readlink -f "$OMARCHY_STATE_HOME/current/background" 2>/dev/null)

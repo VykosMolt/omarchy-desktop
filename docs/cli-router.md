@@ -14,15 +14,14 @@ actually work.
 The stem after `omarchy-` splits at the first hyphen: `omarchy-theme-set` gets
 group `theme` and name `set`, with remaining hyphens becoming spaces
 (`omarchy-hw-asus-rog` → group `hw`, name `asus rog`). A single-segment stem
-(`omarchy-update`) is the root command of its own group, with an empty name.
+(`omarchy-transcode`) is the root command of its own group, with an empty name.
 
 Every command registers two routes: the canonical route `omarchy <group>
 <name>` after metadata overrides, and the filename route with *all* hyphens
 turned to spaces. When metadata moves nothing, they are the same route. When it
-does, both keep working — `# omarchy:name=gaming xbox-cloud` on
-`omarchy-install-gaming-xbox-cloud` keeps the hyphen inside the name, so
-`omarchy install gaming xbox-cloud` is canonical while the filename route
-`omarchy install gaming xbox cloud` still resolves. An explicitly *empty* `#
+does, both keep working — `# omarchy:name=output volume` on
+`omarchy-audio-output-volume` keeps the canonical route `omarchy audio output
+volume` while the filename route still resolves. An explicitly *empty* `#
 omarchy:name=` makes a command the root of its group: `omarchy-menu-share` sets
 `group=share` and an empty name, so its canonical route is `omarchy share`
 while `omarchy menu share` remains as the filename route. Alias routes register

@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Enable, disable, or toggle a Hyprland input device
 # omarchy:args=<touchpad|touchscreen> [on|off|toggle]
 # omarchy:hidden=true
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 KIND="${1:-}"
 ACTION="${2:-toggle}"

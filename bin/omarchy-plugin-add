@@ -6,12 +6,14 @@
 # omarchy:examples=omarchy plugin add https://github.com/acme/omarchy-weather.git --enable
 # omarchy:alias=omarchy plugin install
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 set -euo pipefail
 
 export GIT_TERMINAL_PROMPT=0
 export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes}"
 
-PLUGINS_DIR="$HOME/.config/omarchy/plugins"
+PLUGINS_DIR="$OMARCHY_CONFIG_HOME/plugins"
 ASSUME_YES=0
 
 fail() {

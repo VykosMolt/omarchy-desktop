@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=List the user-installed themes that came from a git clone
 # omarchy:examples=omarchy theme extras
@@ -7,6 +6,9 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 # Exits nonzero when there are none, so a caller can ask whether any exist
 # without reading the list. A symlinked theme is someone's working copy and a
 # `.git` file is a worktree pointing elsewhere; neither is ours to pull.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 status=1
 
 for theme in $OMARCHY_CONFIG_HOME/themes/*; do

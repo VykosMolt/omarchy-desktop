@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# omarchy:summary=Create this session's own config, state, cache and data roots
+# omarchy:hidden=true
+
 set -euo pipefail
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"

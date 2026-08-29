@@ -1,73 +1,77 @@
-# Task Guides
+# Omarchy Arch Port
 
-Deeper instructions for specific kinds of work live in `agents/skills/`. Read the
-matching guide before starting:
+This repository is the Omarchy Quattro desktop — Hyprland plus the Quickshell
+shell — ported to run as one ordinary session on a stock Arch Linux install. It
+is not a distribution and it does not own the machine.
 
-- [`agents/skills/command-metadata.md`](agents/skills/command-metadata.md) - adding or changing commands in `bin/`
-- [`agents/skills/install-scripts.md`](agents/skills/install-scripts.md) - working under `install/` or on system/user setup commands
-- [`agents/skills/shell-dev.md`](agents/skills/shell-dev.md) - editing the Quickshell desktop under `shell/`
-- [`agents/skills/icon-font.md`](agents/skills/icon-font.md) - adding branded glyphs to `default/fonts/omarchy/omarchy.ttf`
-- [`agents/skills/acceptance-tests.md`](agents/skills/acceptance-tests.md) - writing or running graphical acceptance tests under `test/acceptance.d/`
-- [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md) - verifying any change with a visual effect in the running UI
-- [`agents/skills/migrations.md`](agents/skills/migrations.md) - creating or changing migrations under `migrations/`
+Everything Omarchy used to do as an operating system has been removed: the
+installer, migrations, release channels and self-update, package install/remove
+wrappers, account provisioning, host security setup (PAM, sudoers, SSHD, docker
+group), bootloader and Plymouth configuration, and the files it wrote into
+`/etc`. Do not reintroduce any of it. A change that installs a package, edits a
+file outside the session's own roots, or asks for root to do something other
+than a narrowly scoped hardware operation does not belong here.
 
-# Documentation Layout
+# Session Isolation
 
-Three documentation trees, split by genre and audience:
+The session runs from `bin/omarchy-arch-session`, which sources
+`~/omarchy-arch-port/runtime/env.sh` and launches `Hyprland --config` against
+the isolated config root. `HOME` and the XDG variables stay untouched; Omarchy's
+own state is redirected instead:
 
-- `agents/skills/` - task procedure ("do this when doing X"), for anyone working on the codebase
-- `docs/` - reference on how the system is shaped (file layout, update pipeline, theming, shell architecture), for anyone working on the codebase; skills link here for depth
-- `manual/` - end-user documentation for using Omarchy, published; never codebase internals
+- `OMARCHY_SESSION_{CONFIG,STATE,CACHE,DATA}_HOME` — `~/.config/omarchy-arch` and friends
+- `OMARCHY_{CONFIG,STATE,CACHE,DATA}_HOME` — the `omarchy/` directory under each of those
+
+`lib/omarchy-paths.sh` is the shell contract for those variables and
+`default/hypr/paths.lua` the Lua one; `shell/Commons/Paths.qml` is the QML one.
+Read paths from them. Never hardcode `~/.config/omarchy`, `~/.local/state/omarchy`
+or `/usr/share/omarchy` — those belong to a packaged Omarchy install that does
+not exist here.
+
+The session holds an advisory flock on `$XDG_RUNTIME_DIR/omarchy-arch-session.lock`
+for its whole lifetime. The `omarchy-arch-*` units in `default/systemd/user/`
+refuse to start unless that lock is held, and a runtime drop-in applies the
+inverse condition to `dms.service`, so the two Hyprland sessions on this account
+never run each other's services. Do not weaken that, and do not enable any of
+those units permanently.
 
 # Style
 
-- In markdown documents (`plans/`, `docs/`, `manual/`), write full lines — no hard wrapping at 80 columns; break only at structural boundaries like headings and list items
+- In markdown documents, write full lines — no hard wrapping at 80 columns; break only at structural boundaries like headings and list items
 - Two spaces for indentation, no tabs
 - Use bash 5 conditionals: use `[[ ]]` for string/file tests and `(( ))` for numeric tests
 - In `[[ ]]`, don't quote variables, but do quote string literals when comparing values (e.g., `[[ $branch == "dev" ]]`)
 - Prefer `(( ))` over numeric operators inside `[[ ]]` (e.g., `(( count < 50 ))`, not `[[ $count -lt 50 ]]`)
 - Prefer a full `if`/`else` conditional for simple two-path control flow; don't rely on `exec` or `exit` in one branch to make following statements unreachable
-- For strings/paths with spaces, quote them instead of escaping spaces with `\ ` (e.g., `"$APP_DIR/Disk Usage.desktop"`, not `$APP_DIR/Disk\ Usage.desktop`)
+- For strings/paths with spaces, quote them instead of escaping spaces with `\ `
 - Shebangs must use `#!/bin/bash` consistently (never `#!/usr/bin/env bash`)
-- Scripts under `install/` and `migrations/` may be sourced and intentionally omit shebangs
 
 # Command Naming
 
-All commands start with `omarchy-`. Prefixes indicate purpose.
+All commands start with `omarchy-`. Prefixes indicate purpose. The authoritative
+list of user-facing groups lives in `bin/omarchy` in `GROUP_DESCRIPTIONS`; keep
+it in step when adding or removing a prefix. A group whose commands are all
+`# omarchy:hidden=true` gets no entry.
 
-The authoritative list of user-facing command groups lives in `bin/omarchy` in `GROUP_DESCRIPTIONS`. Keep `GROUP_DESCRIPTIONS` updated when adding a new command prefix users are meant to browse to.
-
-A group whose commands are all `# omarchy:hidden=true` gets no entry. That table drives the top-level group listing on its own, so an entry there advertises the group even when every command in it is hidden. `apply-` and `provision-` are deliberately absent for that reason; both still route, and `omarchy <group>` still prints a group header without one.
-
-Common prefixes include:
-
-- `cmd-` - check if commands exist, misc utility commands
-- `capture-` - screenshots, screen recordings, and other capture tools
-- `pkg-` - package management helpers
-- `hw-` - hardware detection (return exit codes for use in conditionals)
-- `refresh-` - copy default config to user's `~/.config/`
-- `restart-` - restart a component
-- `launch-` - open applications
-- `install-` - install optional software
-- `setup-` - interactive setup wizards
-- `toggle-` - toggle features on/off
-- `theme-` - theme management
-- `update-` - update components
-
-Do not maintain a second exhaustive prefix list here. Consult
-`GROUP_DESCRIPTIONS` when selecting or checking a command group so this
-guidance does not drift from the router.
+Surviving prefixes include `audio-`, `bar-`, `bluetooth-`, `brightness-`,
+`capture-`, `clipboard-`, `cmd-`, `hw-`, `hyprland-`, `launch-`, `menu-`,
+`network-`, `notification-`, `plugin-`, `system-`, `theme-`, `toggle-` and
+`weather-`. `install-`, `remove-`, `update-`, `pkg-`, `refresh-`, `provision-`,
+`apply-`, `migrate-`, `channel-`, `version-` and `dev-` were the distro layer
+and are gone.
 
 # Runtime Environment
 
-- `$OMARCHY_PATH` is set at the top level by the uwsm session environment and is always available to Omarchy runtime code.
-- Commands in `bin/` and Quickshell QML should rely on `$OMARCHY_PATH` / `Quickshell.env("OMARCHY_PATH")`; do not derive fallback paths from `HOME`, `Quickshell.shellDir`, or re-export/default `OMARCHY_PATH` manually.
+- `$OMARCHY_PATH` points at this checkout and is set by the session launcher, the per-service `EnvironmentFile`, and `hl.env()` in `default/hypr/envs.lua`.
+- Commands in `bin/` and Quickshell QML should rely on `$OMARCHY_PATH` / `Quickshell.env("OMARCHY_PATH")`; do not derive fallback paths from `HOME` or `Quickshell.shellDir`.
 
 # Privileged Commands
 
-- Follow the "Privilege Escalation" section of `default/agents/skills/omarchy/SKILL.md`. It draws the
-  `sudo`/`pkexec` line by whether the caller has a terminal to enter a password in, and the repo's
-  own scripts follow it.
+Prefer no privilege at all. Where a desktop action genuinely needs it for a
+narrow hardware or system operation, escalate through `sudo` when the caller has
+a terminal to type a password into and `pkexec` otherwise, and re-exec this
+checkout's own script rather than a packaged path. Never rely on a passwordless
+sudoers rule, and never grant a group (such as `docker`) that is root-equivalent.
 
 # Git
 
@@ -76,58 +80,28 @@ guidance does not drift from the router.
 
 # Helper Commands
 
-Use these instead of raw shell commands:
-
 - `omarchy-cmd-missing` / `omarchy-cmd-present` - check for commands
-- `omarchy-pkg-missing` / `omarchy-pkg-present` - check for packages (don't use these if you can just use `omarchy-pkg-add`/`omarchy-pkg-drop`)
-- `omarchy-pkg-add` - install packages (handles both pacman and AUR)
-- `omarchy-pkg-drop` - remove packages; use this instead of raw `pacman -R*`
 - `omarchy-notification-send` - send desktop notifications; do not call `notify-send` directly
-- `omarchy-hw-asus-rog` - detect ASUS ROG hardware (and similar `hw-*` commands)
-
-Commands installed by Omarchy's default package set are runtime invariants. Invoke them directly; do not add defensive `omarchy-cmd-present` / `omarchy-cmd-missing` checks around them. Use command-presence helpers only for genuinely optional dependencies or code that can run before the default package set is installed.
-
-Exceptions are allowed for migration and package-helper scripts where the helper may not be available yet, where the helper itself is being implemented, or where direct package-manager behavior is required.
+- `omarchy-hw-*` - hardware detection, returning exit codes for use in conditionals
 
 # Menu
 
-- The menu definition lives in `default/omarchy/omarchy-menu.jsonc`;
-  [`docs/menu.md`](docs/menu.md) covers the schema, guards, and providers.
-- Do not add `aliases` to new menu entries. Aliases are reserved for
-  established alternate names users already type, kept for compatibility.
+- The menu definition lives in `default/omarchy/omarchy-menu.jsonc`; [`docs/menu.md`](docs/menu.md) covers the schema, guards, and providers.
+- Guards run in one batched shell; only `omarchy-cmd-present` / `omarchy-cmd-missing` are shimmed inside it. Nothing may ask what packages are installed.
+- Do not add `aliases` to new menu entries. Aliases are reserved for established alternate names users already type.
 
 # Config Structure
 
-- `config/` - default configs copied to `~/.config/`
+- `config/` - the port's own shipped defaults (`hypr/`, `omarchy/shell.json`, `tmux/`)
+- `default/hypr/` - Hyprland defaults loaded at config-parse time
 - `default/themed/*.tpl` - templates with `{{ variable }}` placeholders for theme colors
-- `themes/*/colors.toml` - theme color definitions (accent, background, foreground, red/green/yellow/blue/magenta/cyan and bright_* variants)
+- `themes/*/colors.toml` - theme color definitions
 
 # Tests
 
-Run focused automated tests for the area you changed;
-[`docs/testing.md`](docs/testing.md) covers how the suites are shaped. Current
-test entry points:
-
-- `./test/all` - aggregate runner for CLI and shell tests; it intentionally does not run graphical acceptance tests
+- `./test/all` - aggregate runner for CLI and shell tests; it does not run graphical acceptance tests
 - `./test/cli` - CLI routing, command metadata, theme helpers, and safe dispatch coverage
-- `./test/shell` - all Omarchy shell tests under `test/shell.d/`
+- `./test/shell` - all shell tests under `test/shell.d/`
 
-New Omarchy shell tests should live in `test/shell.d/*-test.sh` so `./test/shell` picks them up automatically. Source `test/shell.d/base-test.sh` for shared root-path discovery, assertions, and Node test helpers.
-
-The graphical acceptance suite runs in a disposable VM, not in the active
-development session; see [`agents/skills/acceptance-tests.md`](agents/skills/acceptance-tests.md).
-
-Visual changes must be verified in the running UI in addition to automated
-tests; follow [`agents/skills/visual-verification.md`](agents/skills/visual-verification.md).
-
-# Refresh Pattern
-
-To copy a default config to user config with automatic backup:
-
-```bash
-omarchy-refresh-config hypr/hyprland.lua
-```
-
-This copies `$OMARCHY_PATH/config/hypr/hyprland.lua` to `~/.config/hypr/hyprland.lua`. The argument
-is interpolated into both paths and only checked with `[[ -e ]]`, so pass a plain relative path: a
-name containing `..` resolves and copies, landing outside `~/.config` rather than being rejected.
+New tests live in `test/shell.d/*-test.sh`. Source `test/shell.d/base-test.sh`
+for shared root-path discovery, assertions, and Node test helpers.

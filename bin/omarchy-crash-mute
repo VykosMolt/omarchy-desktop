@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Silence crash notifications for one program, or list what is silenced
 # omarchy:args=[--] [<program>] [on|off|toggle]
@@ -7,6 +6,8 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 
 # The flag omarchy-crash-watch reads before announcing a crash. Muting is per
 # program; Trigger > Toggle > Crash Capture is the switch for all of them.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 set -uo pipefail
 

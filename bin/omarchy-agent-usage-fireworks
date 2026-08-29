@@ -7,7 +7,7 @@
 Token stats come from the Fireworks billing API grouped by day and model for
 the last 30 days. Fireworks does not expose its prepaid ledger, so the record
 carries an estimated balance instead of rate limits: the credits configured in
-~/.config/omarchy/agents/fireworks.json minus rated account costs since the
+$OMARCHY_CONFIG_HOME/agents/fireworks.json minus rated account costs since the
 funding date. The agents panel only ever reads the JSON this prints.
 """
 

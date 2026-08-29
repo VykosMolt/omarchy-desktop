@@ -5,9 +5,11 @@
 # omarchy:args=[id] [--yes]
 # omarchy:alias=omarchy plugin rm
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 set -euo pipefail
 
-PLUGINS_DIR="$HOME/.config/omarchy/plugins"
+PLUGINS_DIR="$OMARCHY_CONFIG_HOME/plugins"
 ASSUME_YES=0
 
 fail() {

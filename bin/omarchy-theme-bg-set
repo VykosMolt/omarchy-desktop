@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Set the current background image
 # omarchy:args=<path-to-image>
 # omarchy:examples=omarchy theme bg set ~/Pictures/background.png
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 if [[ -z $1 ]]; then
   echo "Usage: omarchy-theme-bg-set <path-to-image>" >&2

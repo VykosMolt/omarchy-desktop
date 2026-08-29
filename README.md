@@ -1,79 +1,37 @@
-# Omarchy
+# Omarchy Arch Port
 
-Omarchy is a beautiful, modern & opinionated Linux distribution by DHH.
+The Omarchy Quattro desktop — Hyprland with the Quickshell shell, bar, launcher,
+notifications, lock screen and theming — running as one ordinary session on a
+stock Arch Linux install, alongside whatever else is already there.
 
-Read more at [omarchy.org](https://omarchy.org).
+Omarchy's operating-system layer is not part of this port. There is no
+installer, no migrations, no release channels or self-update, no package
+install/remove wrappers, no account provisioning, no factory reset, and nothing
+that edits `/etc`, PAM, sudoers or the bootloader. The desktop keeps its own
+config, state, cache and data under `~/.config/omarchy-arch` and its siblings;
+`HOME` and the XDG directories are left alone.
 
-## The Omarchy Manual
+## Running it
 
-The manual lives in [`manual/`](manual/), which is its authoritative source. It's
-mirrored to [learn.omacom.io](https://learn.omacom.io/2/the-omarchy-manual), where
-its screenshots are also hosted.
+`bin/omarchy-arch-session` is the session entry point, published to the display
+manager through `default/wayland-sessions/omarchy-arch.desktop`. It sources
+`~/omarchy-arch-port/runtime/env.sh`, links the `omarchy-arch-*` user units,
+takes an advisory lock that keeps those units out of any other Hyprland session
+on the account, and starts `Hyprland --config` against the isolated config.
 
-- [Welcome to Omarchy!](manual/01-welcome-to-omarchy.md)
+## Layout
 
-**The Basics**
+- `bin/` — the `omarchy-*` commands and the `omarchy` CLI router
+- `shell/` — the Quickshell desktop (bar, menu, panels, lock, notifications)
+- `default/hypr/` — Hyprland defaults loaded at config-parse time
+- `default/omarchy/omarchy-menu.jsonc` — the launcher definition
+- `default/systemd/user/` — the session's own units
+- `config/` — shipped defaults for the isolated config root
+- `themes/`, `default/themed/` — theme palettes and the templates they fill
+- `docs/` — how the shell, menu, theming and notifications are put together
 
-- [Getting Started](manual/02-getting-started.md)
-- [Coming From Mac or Windows](manual/03-coming-from-mac-or-windows.md)
-- [Navigation](manual/04-navigation.md)
-- [The top bar](manual/05-the-top-bar.md)
-- [Themes](manual/06-themes.md)
-- [Hotkeys](manual/07-hotkeys.md)
-- [Unified Clipboard & History](manual/08-unified-clipboard-history.md)
-- [Reminders](manual/09-reminders.md)
-- [Notices](manual/10-notices.md)
-- [Text Extraction & Dictation](manual/11-text-extraction-dictation.md)
-- [Screenshots & Recording](manual/12-screenshots-recording.md)
-- [Toggles, idle & screensaver](manual/13-toggles-idle-screensaver.md)
-- [Omarchy CLI](manual/14-omarchy-cli.md)
+## Upstream
 
-**The Applications**
-
-- [Terminal](manual/15-terminal.md)
-- [Neovim](manual/16-neovim.md)
-- [AI](manual/17-ai.md)
-- [Development Tools](manual/18-development-tools.md)
-- [Shell Tools](manual/19-shell-tools.md)
-- [Shell Functions](manual/20-shell-functions.md)
-- [TUIs](manual/21-tuis.md)
-- [GUIs](manual/22-guis.md)
-- [Browsers](manual/23-browsers.md)
-- [Commercial apps/services](manual/24-commercial-apps-services.md)
-- [Web Apps](manual/25-web-apps.md)
-- [Gaming](manual/26-gaming.md)
-- [Filling out PDFs](manual/27-filling-out-pdfs.md)
-- [Windows VM](manual/28-windows-vm.md)
-- [Other Packages](manual/29-other-packages.md)
-
-**Configuration**
-
-- [Updates](manual/30-updates.md)
-- [Dotfiles](manual/31-dotfiles.md)
-- [Shell plugins](manual/32-shell-plugins.md)
-- [Monitors](manual/33-monitors.md)
-- [Keyboard, Mouse, Trackpad](manual/34-keyboard-mouse-trackpad.md)
-- [Networking](manual/35-networking.md)
-- [System sleep](manual/36-system-sleep.md)
-- [Hardware authentication](manual/37-hardware-authentication.md)
-- [Fonts](manual/38-fonts.md)
-- [Backgrounds](manual/39-backgrounds.md)
-- [Prompt](manual/40-prompt.md)
-- [Branding](manual/41-branding.md)
-- [Common tweaks](manual/42-common-tweaks.md)
-- [Making your own theme](manual/43-making-your-own-theme.md)
-
-**The Rest**
-
-- [Mac support](manual/44-mac-support.md)
-- [Troubleshooting](manual/45-troubleshooting.md)
-- [FAQ](manual/46-faq.md)
-- [System snapshots](manual/47-system-snapshots.md)
-- [Security](manual/48-security.md)
-- [Omarchy on...](manual/49-omarchy-on.md)
-- [Dual Boot Install](manual/50-dual-boot-install.md)
-- [Unattended Installs](manual/51-unattended-installs.md)
-
-## License
-
-Omarchy is released under the [MIT License](https://opensource.org/licenses/MIT).
+Ported from [Omarchy](https://github.com/basecamp/omarchy) at
+`56fbaf4689e3eb6867c0b7f375ae49964f183774`. Licensed under the MIT License; see
+[LICENSE](LICENSE).

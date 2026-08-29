@@ -4,7 +4,7 @@
 # omarchy:group=transcode
 # omarchy:name=ascii
 # omarchy:args=<input-image.svg|png> <output-path> [--width <columns>] [--height <rows>] [--mode <braille|block>] [--threshold <percent>] [--invert]
-# omarchy:examples=omarchy transcode ascii ~/logo.svg /tmp/logo.txt | omarchy transcode ascii ~/logo.png ~/.config/omarchy/branding/screensaver.txt --width 80
+# omarchy:examples=omarchy transcode ascii ~/logo.svg /tmp/logo.txt | omarchy transcode ascii ~/logo.png $OMARCHY_CONFIG_HOME/branding/screensaver.txt --width 80
 
 set -o pipefail
 

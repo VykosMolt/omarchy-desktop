@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Emit every first-party and user plugin manifest as JSON
 # omarchy:group=plugin
@@ -10,6 +9,8 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 # computed fields (sourceDir, barWidgetPath, barPath, firstParty). This is the
 # single source of truth used by bar selection and plugin enable/clone, so
 # those commands never re-implement manifest walking.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 set -o pipefail
 

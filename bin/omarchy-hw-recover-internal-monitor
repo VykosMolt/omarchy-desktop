@@ -1,7 +1,8 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Clear the internal-monitor-disable toggle if no external display is connected.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 TOGGLE="$OMARCHY_STATE_HOME/toggles/hypr/internal-monitor-disable.lua"
 

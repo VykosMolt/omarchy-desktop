@@ -1,9 +1,10 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Set and launch the default coding agent
 # omarchy:args=[pi|omp|opencode|ori|claude|codex|grok|agy|copilot|crush]
 # omarchy:examples=omarchy default agent | omarchy default agent codex | omarchy default agent claude
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 agent_file="$OMARCHY_CONFIG_HOME/defaults/agent"
 

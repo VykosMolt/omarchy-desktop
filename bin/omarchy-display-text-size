@@ -1,5 +1,4 @@
 #!/bin/bash
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 # omarchy:summary=Scale text everywhere — omarchy shell, GTK apps, and terminals
 # omarchy:args=[size|reset]
@@ -14,6 +13,8 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 # The shell override layers on top of the active theme (so the size survives
 # theme switches) and the shell watches the file, so shell text re-flows live.
 # Accepts an integer from 9 to 20 (px).
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 MIN=9
 MAX=20
