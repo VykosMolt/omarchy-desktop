@@ -393,44 +393,21 @@ function displayRow(items, itemOrder, checkedResults, disabledResults, entry, de
 // cached while one expression runs lives in that subshell only, so a lazy
 // memo never survives to the expression after it.
 var GUARD_READERS = [
-  "omarchy-channel-current",
   "omarchy-default-agent",
   "omarchy-default-browser",
   "omarchy-default-editor",
-  "omarchy-default-terminal",
-  "omarchy-dns"
+  "omarchy-default-terminal"
 ]
 
-// Package and command presence account for most of what the guards ask, and
-// asked one at a time they are almost all fork: the shipped menu spends over
-// a second on them. Answer them inside the guard process instead. These
-// shadow the real commands for the batch only, so they have to agree with
-// them everywhere, including for no arguments at all (present is true of
-// nothing, missing is not).
+// Command presence accounts for most of what the guards ask, and asked one at
+// a time they are almost all fork. Answer them inside the guard process
+// instead. These shadow the real commands for the batch only, so they have to
+// agree with them everywhere, including for no arguments at all (present is
+// true of nothing, missing is not).
 //
-// `pacman -Q` resolves a name through what installed packages provide, not
-// just what they are called -- with gvim installed it reports `vim` as
-// present -- so the set has to carry provides too, or `install.editor.vim`
-// comes back and offers to install what is already there. A version
-// constraint (`bash>=1`) is not a name any set can answer, so it goes to
-// pacman itself; no shipped guard writes one.
-//
-// `pacman -Qi` wraps a long list across continuation lines whenever COLUMNS
-// is set in the environment, which a login shell may well have done, so the
-// parser follows the indented lines rather than reading the first one and
-// dropping half of what is installed.
+// No guard asks about installed packages: this desktop does not manage them.
 function guardHelpers() {
-  return 'declare -A __omarchy_pkgs=()\n'
-    + 'mapfile -t __omarchy_pkg_names < <({ pacman -Qq; LC_ALL=C pacman -Qi'
-    + " | awk '/^[A-Za-z]/ { provides = ($0 ~ /^Provides/); sub(/^[^:]*: /, \"\") }"
-    + ' provides && $0 != "None" { n = split($0, p, " ");'
-    + ' for (i = 1; i <= n; i++) { sub(/[<>=].*/, "", p[i]); print p[i] } }\'; } 2>/dev/null)\n'
-    + 'for __omarchy_pkg in "${__omarchy_pkg_names[@]}"; do __omarchy_pkgs[$__omarchy_pkg]=1; done\n'
-    + '__omarchy_pkg_has() { [[ -n ${__omarchy_pkgs[$1]-} ]] && return 0; '
-    + '[[ $1 == *[\\<\\>=]* ]] && { pacman -Q "$1" &>/dev/null; return; }; return 1; }\n'
-    + 'omarchy-pkg-present() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 1; done; return 0; }\n'
-    + 'omarchy-pkg-missing() { local p; for p in "$@"; do __omarchy_pkg_has "$p" || return 0; done; return 1; }\n'
-    + 'omarchy-cmd-present() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 1; done; return 0; }\n'
+  return 'omarchy-cmd-present() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 1; done; return 0; }\n'
     + 'omarchy-cmd-missing() { local c; for c in "$@"; do command -v "$c" &>/dev/null || return 0; done; return 1; }\n'
 }
 
