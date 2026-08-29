@@ -2,10 +2,11 @@
 Description=Omarchy Arch monitor watcher
 PartOf=omarchy-arch-session.target
 After=wayland-session-waitenv.service
-ConditionEnvironment=OMARCHY_ARCH_SESSION=1
 ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
+EnvironmentFile=%t/omarchy-arch-session.env
+ExecCondition=/usr/bin/bash -c '! /usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true'
 Type=simple
 ExecStart=/usr/bin/env omarchy-hyprland-monitor-watch
 Restart=on-failure

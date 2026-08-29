@@ -10,7 +10,37 @@ fi
 
 source "$ENV_FILE"
 
+SESSION_RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+SESSION_ENV_FILE="$SESSION_RUNTIME/omarchy-arch-session.env"
+SESSION_LOCK_FILE="$SESSION_RUNTIME/omarchy-arch-session.lock"
+
 HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
+
+write_systemd_env() {
+    local name value
+
+    for name in \
+        OMARCHY_PATH \
+        OMARCHY_ARCH_SESSION \
+        OMARCHY_SESSION_CONFIG_HOME \
+        OMARCHY_SESSION_STATE_HOME \
+        OMARCHY_SESSION_CACHE_HOME \
+        OMARCHY_SESSION_DATA_HOME \
+        OMARCHY_CONFIG_HOME \
+        OMARCHY_STATE_HOME \
+        OMARCHY_CACHE_HOME \
+        OMARCHY_DATA_HOME \
+        OMARCHY_CRASH_WATCH_UNIT \
+        OMARCHY_FCITX5_UNIT \
+        OMARCHY_SLEEP_LOCK_UNIT \
+        PATH
+    do
+        value=${!name}
+        value=${value//\\/\\\\}
+        value=${value//\"/\\\"}
+        printf '%s="%s"\n' "$name" "$value"
+    done
+}
 
 if [[ ! -f $HYPR_CONFIG ]]; then
     echo "Omarchy Arch Hyprland config not found: $HYPR_CONFIG" >&2
@@ -54,10 +84,35 @@ if (( ! dry_run )); then
             "$OMARCHY_PATH/default/systemd/user/$unit" >/dev/null
     done
 
+    # Give only Omarchy-owned services the session environment. Do not import
+    # it into the persistent systemd user manager.
+    umask 077
+    write_systemd_env > "$SESSION_ENV_FILE"
+
+    # DMS is normally enabled for every Hyprland session on this account.
+    # Add a runtime-only guard: DMS may start unless this lock is currently
+    # held by the Omarchy Arch session launcher.
+    dms_dropin="$SESSION_RUNTIME/systemd/user/dms.service.d/20-omarchy-arch-session.conf"
+    mkdir -p "$(dirname "$dms_dropin")"
+    cat > "$dms_dropin" <<'DMS_EOF'
+[Service]
+ExecCondition=/usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true
+DMS_EOF
+
     systemctl --user daemon-reload
 fi
 
-exec uwsm "${uwsm_args[@]}" -- \
-    hyprland.desktop \
-    --config "$HYPR_CONFIG" \
-    "$@"
+if (( dry_run )); then
+    exec uwsm "${uwsm_args[@]}" -- \
+        hyprland.desktop \
+        --config "$HYPR_CONFIG" \
+        "$@"
+fi
+
+# Hold this advisory lock for the complete lifetime of the Omarchy session.
+# A stale lock file is harmless: flock state disappears when this process dies.
+exec /usr/bin/flock -n "$SESSION_LOCK_FILE" \
+    uwsm "${uwsm_args[@]}" -- \
+        hyprland.desktop \
+        --config "$HYPR_CONFIG" \
+        "$@"

@@ -2,11 +2,12 @@
 Description=Omarchy Arch removable-media automounter
 PartOf=omarchy-arch-session.target
 After=wayland-session-waitenv.service
-ConditionEnvironment=OMARCHY_ARCH_SESSION=1
 ConditionEnvironment=WAYLAND_DISPLAY
 ConditionFileIsExecutable=/usr/bin/udiskie
 
 [Service]
+EnvironmentFile=%t/omarchy-arch-session.env
+ExecCondition=/usr/bin/bash -c '! /usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true'
 Type=simple
 ExecStart=/usr/bin/udiskie --automount --no-notify --no-tray
 Restart=on-failure

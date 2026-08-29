@@ -2,7 +2,6 @@
 Description=Omarchy Arch graphical session services
 PartOf=graphical-session.target
 After=wayland-session-waitenv.service
-ConditionEnvironment=OMARCHY_ARCH_SESSION=1
 
 Wants=omarchy-arch-shell.service
 Wants=omarchy-arch-sleep-lock.service
