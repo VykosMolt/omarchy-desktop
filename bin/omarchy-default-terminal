@@ -4,12 +4,6 @@
 # omarchy:args=[alacritty|foot|ghostty|kitty]
 # omarchy:examples=omarchy default terminal ghostty | omarchy default terminal kitty
 
-installing=false
-if [[ ${1:-} == "--install" ]]; then
-  installing=true
-  shift
-fi
-
 if (($# == 0)); then
   desktop_id=$(xdg-terminal-exec --print-id 2>/dev/null || true)
   desktop_id=${desktop_id%%:*}
@@ -35,11 +29,8 @@ kitty) terminal="kitty"; desktop_id="kitty.desktop"; name="Kitty"; glyph= ;;
 esac
 
 if omarchy-cmd-missing "$terminal"; then
-  if [[ $installing == "false" ]]; then
-    exec omarchy-launch-floating-terminal-with-presentation omarchy-default-terminal --install "$terminal"
-  else
-    omarchy-install-terminal "$terminal" || exit 1
-  fi
+  echo "$name is not installed." >&2
+  exit 1
 fi
 
 cat >~/.config/xdg-terminals.list <<EOF

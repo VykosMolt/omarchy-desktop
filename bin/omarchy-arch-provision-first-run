@@ -14,5 +14,5 @@ mkdir -p \
   "$OMARCHY_DATA_HOME"
 
 # Only establish state owned by the independent Omarchy Arch session here.
-# Global user integration from omarchy-provision-first-run is ported separately.
+# This port has no account-wide provisioning phase, by design.
 touch "$marker"

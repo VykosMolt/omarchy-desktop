@@ -232,7 +232,7 @@ bar_widget_default_section() {
 
 # Asks the shell to place a widget, waiting out one still coming up. Answers 0
 # with the reply in PUT_RESULT, 1 when there was no shell to ask. Only an
-# absent shell is carried on from: omarchy-migrate marks a 0 return as done.
+# absent shell is carried on from: a 0 return counts as done.
 PUT_RESULT=""
 SHELL_ANSWERED=0
 ask_to_put() {

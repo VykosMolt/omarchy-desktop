@@ -22,8 +22,8 @@ OMARCHY_THEMES_PATH="$OMARCHY_PATH/themes"
 # Hyprland requires a theme's hyprland.lua and gum_env.lua at login and Neovim
 # loads its neovim.lua at startup, so no .lua from such a theme is staged at all.
 # Each terminal config names the program the terminal launches, and vscode.json
-# names an extension omarchy-theme-set-vscode installs, a VS Code extension being
-# arbitrary JavaScript. Everything else a theme ships is colour and is kept.
+# names a VS Code extension to install, which is arbitrary JavaScript.
+# Everything else a theme ships is colour and is kept.
 #
 # Adding a template for another terminal, or for another editor that loads Lua,
 # means adding it here. test/shell.d/theme-staging-test.sh fails on a generated
@@ -316,6 +316,12 @@ fi
 # section, not behind slower app-retint hooks and selector cache warmups.
 flock -u 9
 
+# Retinting is limited to this desktop and to programs that reload a colour
+# scheme they already have. Integrations that rewrite an unrelated
+# application's configuration (Claude Code, Pi, VS Code, Obsidian) or need
+# root to install an enterprise browser policy are not the desktop's business
+# and are not shipped; $OMARCHY_CONFIG_HOME/hooks/theme-set.d/ is where a user
+# who wants one puts it.
 post_theme_commands=(
   omarchy-restart-terminal
   omarchy-restart-hyprctl
@@ -325,11 +331,6 @@ post_theme_commands=(
   omarchy-theme-set-foot
   omarchy-theme-set-tmux
   omarchy-theme-set-gnome
-  omarchy-theme-set-pi
-  omarchy-theme-set-claude
-  omarchy-theme-set-browser
-  omarchy-theme-set-vscode
-  omarchy-theme-set-obsidian
   omarchy-theme-set-keyboard
 )
 

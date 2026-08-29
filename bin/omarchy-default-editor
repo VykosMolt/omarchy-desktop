@@ -5,12 +5,6 @@ source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/
 # omarchy:args=[code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
 # omarchy:examples=omarchy default editor | omarchy default editor code | omarchy default editor helix
 
-installing=false
-if [[ ${1:-} == "--install" ]]; then
-  installing=true
-  shift
-fi
-
 editor_file="$OMARCHY_STATE_HOME/defaults/editor"
 
 if (($# == 0)); then
@@ -38,20 +32,8 @@ nvim) selection="nvim"; editor="nvim"; name="Neovim"; glyph= ;;
 esac
 
 if omarchy-cmd-missing "$editor"; then
-  if [[ $installing == "false" ]]; then
-    exec omarchy-launch-floating-terminal-with-presentation omarchy-default-editor --install "$selection"
-  else
-    case "$selection" in
-    code) omarchy-install-editor-vscode ;;
-    cursor) omarchy-pkg-add cursor-bin ;;
-    zed) omarchy-install-editor-zed ;;
-    sublime_text) omarchy-pkg-add sublime-text-4 ;;
-    helix) omarchy-install-editor-helix ;;
-    vim) omarchy-pkg-add vim ;;
-    emacs) omarchy-install-editor-emacs ;;
-    nvim) omarchy-pkg-add neovim ;;
-    esac || exit 1
-  fi
+  echo "$name is not installed." >&2
+  exit 1
 fi
 
 mkdir -p "$(dirname "$editor_file")"

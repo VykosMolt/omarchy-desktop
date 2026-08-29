@@ -15,6 +15,7 @@ SESSION_ENV_FILE="$SESSION_RUNTIME/omarchy-arch-session.env"
 SESSION_LOCK_FILE="$SESSION_RUNTIME/omarchy-arch-session.lock"
 
 HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
+HYPRLAND_BIN=$(command -v Hyprland || echo /usr/bin/Hyprland)
 
 write_systemd_env() {
     local name value
@@ -102,9 +103,15 @@ DMS_EOF
     systemctl --user daemon-reload
 fi
 
+# Launch the compositor binary directly rather than through hyprland.desktop.
+# That entry runs /usr/bin/start-hyprland, which execs `Hyprland --watchdog-fd N`
+# and forwards nothing else, so --config was silently dropped and Hyprland fell
+# back to ~/.config/hypr/hyprland.lua -- the normal session's config, not this
+# one. Giving uwsm a path also puts it in hardcode mode, so the generated unit
+# carries this exact command line.
 if (( dry_run )); then
     exec uwsm "${uwsm_args[@]}" -- \
-        hyprland.desktop \
+        "$HYPRLAND_BIN" \
         --config "$HYPR_CONFIG" \
         "$@"
 fi
@@ -113,6 +120,6 @@ fi
 # A stale lock file is harmless: flock state disappears when this process dies.
 exec /usr/bin/flock -n "$SESSION_LOCK_FILE" \
     uwsm "${uwsm_args[@]}" -- \
-        hyprland.desktop \
+        "$HYPRLAND_BIN" \
         --config "$HYPR_CONFIG" \
         "$@"
