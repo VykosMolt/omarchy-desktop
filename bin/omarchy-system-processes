@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# omarchy:summary=Print running processes with live CPU and memory use as JSON
+# omarchy:group=system
+# omarchy:name=processes
+# omarchy:args=[--limit <n>] [--interval <seconds>]
+# omarchy:examples=omarchy system processes | omarchy system processes --limit 10
+
+# `ps %cpu` averages over a process's whole lifetime, so a busy loop that
+# started an hour ago and one that started a second ago read the same. A system
+# monitor has to answer "what is using the CPU now", which is two samples of
+# /proc/<pid>/stat and the difference between them -- the same thing top does.
+#
+# Output is one JSON array on stdout, already sorted by CPU descending, so the
+# shell parses it once and renders it without deciding anything.
+
+set -euo pipefail
+
+limit=0
+interval=0.5
+
+usage() {
+  echo "Usage: omarchy-system-processes [--limit <n>] [--interval <seconds>]"
+}
+
+while (( $# > 0 )); do
+  case "$1" in
+    --limit)
+      (( $# >= 2 )) || { usage >&2; exit 1; }
+      limit="$2"
+      shift 2
+      ;;
+    --interval)
+      (( $# >= 2 )) || { usage >&2; exit 1; }
+      interval="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+[[ $limit =~ ^[0-9]+$ ]] || { echo "omarchy-system-processes: --limit takes a whole number" >&2; exit 1; }
+[[ $interval =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "omarchy-system-processes: --interval takes seconds" >&2; exit 1; }
+
+# One awk over every stat file, not one per process: at four hundred processes
+# the fork cost was longer than the sampling window itself, which made every
+# reading several times too high.
+#
+# A process that exits between the two samples has no second reading and drops
+# out; one that starts between them has no first and counts from zero.
+sample() {
+  awk '
+    FNR == 1 {
+      split(FILENAME, parts, "/")
+      # comm sits in parentheses and may contain spaces and parentheses of its
+      # own, so index from the last closing one rather than counting fields.
+      close_paren = match($0, /\)[^)]*$/)
+      split(substr($0, close_paren + 1), f, " ")
+      # After the closing parenthesis, utime is the 12th field and stime the
+      # 13th, being fields 14 and 15 of the line.
+      print parts[3] "\t" (f[12] + f[13])
+    }
+  ' /proc/[0-9]*/stat 2>/dev/null || true
+}
+
+# A process that exits between the glob expanding and awk opening its stat file
+# leaves awk with an argument it cannot read, and awk answers that with exit 2
+# even though it processed every other file. Under set -e that took the whole
+# command down and printed nothing at all -- roughly one run in forty on a busy
+# machine. The rows awk did produce are still complete, so the missing process
+# is simply one that is no longer running, which is the honest answer.
+
+# Whatever the requested interval, what the arithmetic needs is how much time
+# actually passed between the two readings. Assuming the nominal interval made
+# every figure wrong by however long the scan took. EPOCHREALTIME renders with
+# the locale's decimal separator, so strip everything that is not a digit and
+# work in microseconds.
+started=${EPOCHREALTIME//[!0-9]/}
+first=$(sample)
+sleep "$interval"
+second=$(sample)
+finished=${EPOCHREALTIME//[!0-9]/}
+
+elapsed=$(awk -v a="$started" -v b="$finished" 'BEGIN { printf "%.6f", (b - a) / 1000000 }')
+
+# A clock that went backwards, or a sample pair with no time between them, has
+# nothing to divide by.
+awk -v e="$elapsed" 'BEGIN { exit (e > 0) ? 0 : 1 }' || {
+  echo "[]"
+  exit 0
+}
+
+ticks_per_second=$(getconf CLK_TCK)
+cpu_count=$(nproc)
+page_kb=$(( $(getconf PAGESIZE) / 1024 ))
+mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
+
+{
+  printf '%s\n' "$first"
+  printf -- '--\n'
+  printf '%s\n' "$second"
+} | awk -v ticks="$ticks_per_second" -v elapsed="$elapsed" -v cpus="$cpu_count" \
+        -v page_kb="$page_kb" -v mem_total="$mem_total_kb" -v limit="$limit" '
+  BEGIN { phase = 0 }
+  /^--$/ { phase = 1; next }
+  phase == 0 { before[$1] = $2; next }
+  {
+    pid = $1
+    if (!(pid in before)) before[pid] = $2
+
+    # Ticks burned between the samples over the time that actually passed, as
+    # a share of one core: 100% is one core busy, and a threaded process can
+    # legitimately read higher, up to 100% per core.
+    used = ($2 - before[pid]) / ticks
+    cpu = (used / elapsed) * 100
+    if (cpu < 0) cpu = 0
+    if (cpu > 100 * cpus) cpu = 100 * cpus
+
+    # awk variables are global, so every one of these has to be cleared per
+    # row: a process that exits mid-scan has no files left to read, and would
+    # otherwise be reported carrying values from the row before it.
+    comm = ""
+    cmdline = ""
+    rss_kb = 0
+    uid = -1
+
+    stat_path = "/proc/" pid "/stat"
+    if ((getline line < stat_path) > 0) {
+      open_paren = index(line, "(")
+      close_paren = match(line, /\)[^)]*$/)
+      comm = substr(line, open_paren + 1, close_paren - open_paren - 1)
+      rest = substr(line, close_paren + 1)
+      split(rest, f, " ")
+      rss_kb = f[22] * page_kb
+    }
+    close(stat_path)
+
+    cmd_path = "/proc/" pid "/cmdline"
+    if ((getline raw < cmd_path) > 0) {
+      gsub(/\0/, " ", raw)
+      sub(/[[:space:]]+$/, "", raw)
+      cmdline = raw
+    }
+    close(cmd_path)
+    if (cmdline == "") cmdline = comm
+
+    status_path = "/proc/" pid "/status"
+    while ((getline sline < status_path) > 0) {
+      if (sline ~ /^Uid:/) { split(sline, u, /[[:space:]]+/); uid = u[2]; break }
+    }
+    close(status_path)
+
+    mem = (mem_total > 0) ? (rss_kb / mem_total) * 100 : 0
+
+    rows[++n] = sprintf("%.4f\t%s\t%s\t%s\t%.4f\t%d\t%s", cpu, pid, comm, cmdline, mem, rss_kb, uid)
+  }
+  END {
+    # Sort by CPU descending. n is small enough that an insertion sort costs
+    # nothing and avoids depending on gawk-only asort.
+    for (i = 2; i <= n; i++) {
+      key = rows[i]
+      split(key, k, "\t")
+      j = i - 1
+      while (j >= 1) {
+        split(rows[j], p, "\t")
+        if (p[1] + 0 >= k[1] + 0) break
+        rows[j + 1] = rows[j]
+        j--
+      }
+      rows[j + 1] = key
+    }
+
+    printed = 0
+    for (i = 1; i <= n; i++) {
+      if (limit > 0 && printed >= limit) break
+      print rows[i]
+      printed++
+    }
+  }
+' | jq -R -s '
+  split("\n")
+  | map(select(length > 0) | split("\t") | {
+      cpu: (.[0] | tonumber),
+      pid: (.[1] | tonumber),
+      name: .[2],
+      command: .[3],
+      memory: (.[4] | tonumber),
+      rssKb: (.[5] | tonumber),
+      uid: (.[6] | tonumber)
+    })
+'

@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.system-monitor",
+  "name": "System monitor",
+  "version": "1.0.0",
+  "author": "Omarchy",
+  "description": "CPU and memory in the bar, with a panel of the processes using them",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "System monitor",
+    "description": "CPU and memory in the bar, with a panel of the processes using them",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "barIntervalSec": 3,
+      "processLimit": 25,
+      "processIntervalSec": 4
+    },
+    "schema": [
+      {
+        "key": "barIntervalSec",
+        "type": "integer",
+        "label": "Bar refresh (seconds)",
+        "description": "How often the bar re-reads CPU and memory. The CPU figure is the difference between two readings, so it always describes this interval.",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 3
+      },
+      {
+        "key": "processLimit",
+        "type": "integer",
+        "label": "Processes listed",
+        "description": "How many processes the panel asks for.",
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "defaultValue": 25
+      },
+      {
+        "key": "processIntervalSec",
+        "type": "integer",
+        "label": "Process refresh (seconds)",
+        "description": "How often the open panel re-samples the process list. Sampling only runs while the panel is open.",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 4
+      }
+    ]
+  }
+}
