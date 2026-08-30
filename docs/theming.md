@@ -9,7 +9,7 @@ Beyond `colors.toml` and hand-written config overrides, a first-party theme can
 ship `backgrounds/` (users overlay their own via
 `~/.config/omarchy/backgrounds/<name>/`; the active image is the
 `~/.local/state/omarchy/current/background` symlink), `preview.png` and
-`preview-unlock.png` for the theme switcher, `icons.theme`, `keyboard.rgb`,
+`preview-unlock.png` for the theme switcher, `icons.theme`,
 `unlock.png`, and a `light.mode` marker file.
 
 A theme installed from a git repo is held to a much shorter list; see [What an installed theme may not ship](#what-an-installed-theme-may-not-ship).
@@ -58,7 +58,7 @@ A theme cloned from a git repo is different. Its contents are whatever the theme
   none of those terminals, because a theme written for stock Omarchy still carries them
 - `vscode.json` — names a VS Code extension to install, and a VS Code extension is arbitrary JavaScript
 
-Symlinks are dropped with them, at any depth; in a cloned theme they point wherever the theme author chose. Everything a cloned theme ships that is colour is kept, including files Omarchy would otherwise have generated — `btop.theme`, `helix.toml`, `shell.toml`, `icons.theme`, `keyboard.rgb` and the rest — so a theme can still say exactly how it wants each app to look. What is dropped gets generated from `default/themed/*.tpl` instead, and is named on stderr.
+Symlinks are dropped with them, at any depth; in a cloned theme they point wherever the theme author chose. Everything a cloned theme ships that is colour is kept, including files Omarchy would otherwise have generated — `shell.toml`, `icons.theme` and the rest — so a theme can still say exactly how it wants each app to look. What is dropped gets generated from `default/themed/*.tpl` instead, and is named on stderr.
 
 A denylist is only right while it is maintained. Adding a template for another terminal, or for another editor that loads Lua, means adding it to `INSTALLED_THEME_DENIED` in `bin/omarchy-theme-set`; `test/shell.d/theme-staging-test.sh` fails on any `default/themed/*.tpl` whose output is recorded as neither code nor colour, so a new template cannot be added without that decision being made.
 

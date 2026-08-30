@@ -359,7 +359,6 @@ post_theme_commands=(
   omarchy-restart-terminal
   omarchy-restart-hyprctl
   omarchy-theme-set-gnome
-  omarchy-theme-set-keyboard
 )
 
 if [[ $THEME_HEADLESS != "1" ]]; then
