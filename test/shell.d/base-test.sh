@@ -28,8 +28,37 @@ unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
 
 # The session also puts this checkout's bin/ on PATH. Tests that want it say so;
 # leaving it here lets a test that means to hide a command still find it.
-PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$ROOT/bin" | paste -sd:)
+# Dropping this checkout alone was not enough: any other Omarchy bin/ on PATH
+# offers the same command names under different code, so a test that hides a
+# command still finds one and a test that means to exercise this checkout runs
+# the other's copy instead. Running the suite from a second worktree, with the
+# first one's bin/ still on PATH, is all it takes -- theme-install-guards-test.sh
+# hides omarchy-git-url-check to check that a missing checker refuses the URL,
+# found the sibling's, and reported a failure this checkout did not have.
+# An Omarchy bin/ holds nothing but omarchy commands, and that is what
+# identifies one here: a system directory that merely happens to carry an
+# omarchy command keeps its place rather than taking coreutils off PATH with it.
+omarchy_test_is_omarchy_bin() {
+  local dir=$1 entry found=1
+
+  for entry in "$dir"/*; do
+    [[ -e $entry ]] || return 1
+    [[ ${entry##*/} == omarchy* ]] || return 1
+    found=0
+  done
+
+  return $found
+}
+
+__kept_path=()
+while IFS= read -r __path_entry; do
+  if ! omarchy_test_is_omarchy_bin "$__path_entry"; then
+    __kept_path+=("$__path_entry")
+  fi
+done < <(printf '%s' "$PATH" | tr ':' '\n')
+PATH=$(IFS=:; printf '%s' "${__kept_path[*]}")
 export PATH
+unset __kept_path __path_entry
 
 # Unsetting the roots is not enough on its own. With them gone the roots are
 # derived from HOME, so a test that forgets to hand a command a throwaway HOME
