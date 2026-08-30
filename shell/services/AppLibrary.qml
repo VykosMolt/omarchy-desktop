@@ -123,12 +123,50 @@ Item {
     // List app/device icons across the XDG icon dirs and /usr/share/pixmaps as
     // "<path>" lines. Some desktop entries, such as Print Settings, use device
     // icons like "printer" instead of app icons. SVGs are emitted before PNGs
-    // so the parser, which keeps the first hit per name, prefers scalable icons.
+    // so the parser, which keeps the first hit per name, prefers scalable ones.
+    //
+    // Order is the whole point, because the parser keeps the first path it sees
+    // for a name. This used to walk every icon root in filesystem order with no
+    // idea which theme an icon belonged to. On a machine with several themes in
+    // ~/.local/share/icons that directory is searched before /usr/share/icons,
+    // so `steam` resolved to Nordzy-cyan-dark's copy while Papirus -- the
+    // configured theme -- sat unconsulted in /usr/share/icons. The launcher
+    // showed whichever theme find happened to reach first, and no icon-theme
+    // setting could change that.
+    //
+    // So: the configured theme first, then hicolor, where an application
+    // installs its own icon, and only then everything else, so an icon no theme
+    // covers is still found.
+    //
+    // -L on the theme passes, because icon themes are built out of symlinked
+    // size directories -- Papirus's 128x128/apps is a symlink to ../64x64/apps
+    // -- and find does not descend those without it. Papirus went from 51,954
+    // visible icons to 122,156. That is why apps whose Papirus icon sat behind a
+    // symlink were not found at all and fell through to whatever theme happened
+    // to use real directories. The catch-all pass stays without -L: following
+    // every symlink under every icon root costs 2.7s against 0.4s, and it only
+    // exists for icons no theme provides.
     return [
-      'dirs="$HOME/.icons $HOME/.local/share/icons";',
-      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
+      'theme=$(omarchy-icon-theme 2>/dev/null); [[ -n $theme ]] || theme=hicolor;',
+      'roots="$HOME/.icons $HOME/.local/share/icons";',
+      'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do roots="$roots $d/icons"; done; unset IFS;',
+      // Within a theme, prefer the largest artwork. Papirus draws less detail in
+      // its small buckets and find returns them in filesystem order, so without
+      // this the launcher got 24x24 for a row it renders much larger. scalable
+      // ranks above every fixed size; anything with no size in its path keeps 0
+      // and sorts last, which is where /usr/share/pixmaps belongs.
+      'rank() { sed -E \'s|^|0\\t|; s|^0\\t(.*/scalable/.*)$|9999\\t\\1|; s|^0\\t(.*/([0-9]+)x[0-9]+(@[0-9]+x)?/.*)$|\\2\\t\\1|\' | sort -rn -s -k1,1 | cut -f2-; };',
+      'scan_theme() {',
+      '  for ext in svg png; do',
+      '    for base in $roots; do',
+      '      [[ -d "$base/$1" ]] && find -L "$base/$1" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
+      '    done;',
+      '  done | rank;',
+      '};',
+      'scan_theme "$theme";',
+      '[[ $theme == hicolor ]] || scan_theme hicolor;',
       'for ext in svg png; do',
-      '  for base in $dirs; do',
+      '  for base in $roots; do',
       '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
       '  done;',
       '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
