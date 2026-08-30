@@ -3,6 +3,39 @@
 # omarchy:summary=Watch Hyprland monitor events and recover monitor toggles when a monitor is removed
 
 SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
+
+# Hyprland's event socket is a unix stream, and bash cannot read one by itself.
+# socat is the usual tool for it but is not part of a stock Arch install: with
+# socat missing the loop below read nothing and the script exited 0, which
+# Restart=on-failure treats as success, so this watcher stayed dead for the rest
+# of the session with nothing in the journal to say so. Fall back to python3,
+# which the desktop already relies on, and refuse to start at all rather than
+# pretend to watch.
+read_events() {
+  if omarchy-cmd-present socat; then
+    socat -U - "UNIX-CONNECT:$SOCKET"
+  else
+    python3 -u -c '
+import signal, socket, sys
+
+# Die on a closed consumer the way any other unix tool does, rather than
+# unwinding into a BrokenPipeError traceback in the journal.
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
+stream = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+stream.connect(sys.argv[1])
+with stream.makefile("r", buffering=1, errors="replace") as events:
+    for event in events:
+        sys.stdout.write(event)
+        sys.stdout.flush()
+' "$SOCKET"
+  fi
+}
+
+if omarchy-cmd-missing socat && omarchy-cmd-missing python3; then
+  echo "omarchy-hyprland-monitor-watch: needs socat or python3 to read $SOCKET" >&2
+  exit 1
+fi
 LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-monitor-clamshell.lock"
 MODELESS_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-monitor-modeless.lock"
 
@@ -110,4 +143,13 @@ while read -r event; do
       recover_modeless
       ;;
   esac
-done < <(socat -U - "UNIX-CONNECT:$SOCKET")
+done < <(read_events)
+
+# The stream ends when the compositor goes -- a clean finish, and the session is
+# leaving anyway -- or because reading it failed, which leaves nothing watching
+# the monitors. Only the second is worth a restart, so say which happened
+# instead of exiting 0 either way.
+if [[ -S $SOCKET ]]; then
+  echo "omarchy-hyprland-monitor-watch: lost Hyprland's event stream" >&2
+  exit 1
+fi

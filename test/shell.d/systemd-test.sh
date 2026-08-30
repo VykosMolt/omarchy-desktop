@@ -42,11 +42,24 @@ pass "sleep lock waits for the session environment before monitoring suspend"
 fcitx_service="$units_dir/omarchy-arch-fcitx5.service"
 grep -Fx 'ConditionFileIsExecutable=/usr/bin/fcitx5' "$fcitx_service" >/dev/null ||
   fail "fcitx5 unit runs on machines without fcitx5 installed"
-grep -Fx 'Restart=always' "$fcitx_service" >/dev/null ||
-  fail "a lost input method never comes back, taking every compose sequence with it until logout"
 ! grep -F 'fcitx5' "$ROOT/default/hypr/autostart.lua" >/dev/null ||
   fail "fcitx5 is autostarted from Hyprland; an unsupervised launch dies silently"
-pass "fcitx5 runs supervised, so a lost input method comes back"
+
+# fcitx5 exits 0 when another instance already owns the input method, which is
+# what happens when the host session started one. Restart=always turned that
+# into a hot loop: one session logged over thirty thousand restarts.
+grep -Fx 'Restart=on-failure' "$fcitx_service" >/dev/null ||
+  fail "a clean fcitx5 exit is restarted, which loops when another instance owns the input method"
+grep -Fx 'StartLimitBurst=5' "$fcitx_service" >/dev/null ||
+  fail "nothing bounds an fcitx5 crash loop"
+pass "fcitx5 restarts on a crash but not when another instance owns the input method"
+
+# A start limit only works where systemd reads it.
+for unit in "$units_dir"/omarchy-arch-*.service; do
+  awk '/^\[Service\]/ { in_service = 1 } in_service && /^StartLimit/ { exit 1 }' "$unit" ||
+    fail "$(basename "$unit") puts a start limit in [Service], where systemd ignores it"
+done
+pass "start limits are declared where systemd reads them"
 
 # Hyprland lives in session.slice under uwsm's wayland-wm@ service. Marking any
 # ancestor of that as an oomd kill candidate puts the compositor back in the
@@ -60,6 +73,20 @@ candidates=$(grep -rlE '^ManagedOOM(MemoryPressure|Swap)=kill' "$ROOT/default/sy
 [[ $candidates == "$oomd_slice" ]] ||
   fail "systemd-oomd kill candidacy is set outside app.slice, which can select the compositor: $candidates"
 pass "only user app scopes are systemd-oomd kill candidates"
+
+# The desktop must not depend on a line inside the compositor's config to
+# appear. A login once produced a bare compositor because Hyprland read another
+# session's config, so autostart.lua never ran and nothing started.
+launcher="$ROOT/bin/omarchy-arch-session"
+grep -F 'wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf' "$launcher" >/dev/null ||
+  fail "the session target is not pulled in by the compositor unit"
+grep -F 'Wants=omarchy-arch-session.target' "$launcher" >/dev/null ||
+  fail "the compositor drop-in does not want the session target"
+! grep -F 'Requires=omarchy-arch-session.target' "$launcher" >/dev/null ||
+  fail "a failing session target would take the compositor down with it"
+grep -F 'systemctl --user start omarchy-arch-session.target' "$ROOT/default/hypr/autostart.lua" >/dev/null ||
+  fail "Hyprland no longer starts the session target itself"
+pass "the session target starts from the compositor unit as well as from Hyprland"
 
 # This port installs nothing into /etc and enables nothing permanently: the
 # session links its own units at runtime and drops them with the session.

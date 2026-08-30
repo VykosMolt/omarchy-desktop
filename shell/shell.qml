@@ -36,7 +36,9 @@ ShellRoot {
   readonly property var builtinShellConfig: ({
     version: 1,
     idle: {
-      lock: 300
+      screenOff: 0,
+      lock: 300,
+      suspend: 0
     },
     bar: {
       position: "top",

@@ -273,8 +273,9 @@ becomes the authoritative file — we do **not** deep-merge defaults back in.
    `allowMultiple: true`. Each instance is independent — e.g. two clock
    widgets in different timezones are just two `{"id":"omarchy.clock", "timezone": ...}`
    entries with their own values.
-7. **Idle timing is top-level.** `idle.lock` is seconds since user idle
-   began, so the default lock fires at 300s.
+7. **Idle timings are top-level.** `idle.screenOff`, `idle.lock` and
+   `idle.suspend` are seconds since user idle began, and 0 turns a stage
+   off. The default locks at 300s and turns nothing else off.
 8. **`version: 1` is required** at the top level. The shell will fall back
    to defaults rather than load an unknown version.
 

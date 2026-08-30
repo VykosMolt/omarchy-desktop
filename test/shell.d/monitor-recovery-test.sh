@@ -52,6 +52,20 @@ pass "modeless recovery retries unanswered queries without waiting on a dead com
 grep -F 'configreloaded\>\>*)' "$monitor_watch" >/dev/null
 pass "modeless recovery also runs after a config reload"
 
+# Reading Hyprland's event socket needs a tool bash does not have. socat is not
+# part of a stock Arch install, and when it was missing the read loop ended at
+# once and the script exited 0 -- which Restart=on-failure reads as success, so
+# the watcher stayed dead for the session with nothing in the journal.
+grep -F 'omarchy-cmd-present socat' "$monitor_watch" >/dev/null ||
+  fail "the watcher does not check for socat before using it"
+grep -F 'AF_UNIX' "$monitor_watch" >/dev/null ||
+  fail "the watcher has no reader for a machine without socat"
+grep -F 'omarchy-cmd-missing socat && omarchy-cmd-missing python3' "$monitor_watch" >/dev/null ||
+  fail "the watcher starts even when it has no way to read the socket"
+grep -F 'lost Hyprland' "$monitor_watch" >/dev/null ||
+  fail "losing the event stream still looks like a clean finish"
+pass "the watcher reads the event socket without socat, and says so when it cannot"
+
 grep -F '.disabled != true and (.width == 0 or .height == 0)' "$ROOT/bin/omarchy-hyprland-monitor-modeless" >/dev/null
 grep -F 'hyprctl monitors all -j' "$ROOT/bin/omarchy-hyprland-monitor-modeless" >/dev/null
 pass "modeless helper sees mirrors and ignores monitors disabled on purpose"

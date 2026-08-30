@@ -109,6 +109,22 @@ if (( ! dry_run )); then
 ExecCondition=/usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true
 DMS_EOF
 
+    # Belt and braces for the session's own services. Hyprland starts them from
+    # default/hypr/autostart.lua, which means the whole desktop -- bar, menu,
+    # notifications -- appears only if that config loaded. It once did not, and
+    # a login produced a bare compositor with no way to tell why. Ask uwsm's
+    # compositor unit for the target as well, so the services follow the
+    # compositor rather than a line inside its config. Wants= is deliberate:
+    # a target that fails must not take the compositor down with it, and
+    # starting an already-started target is a no-op, so the two paths cannot
+    # collide.
+    wm_dropin="$SESSION_RUNTIME/systemd/user/wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf"
+    mkdir -p "$(dirname "$wm_dropin")"
+    cat > "$wm_dropin" <<'WM_EOF'
+[Unit]
+Wants=omarchy-arch-session.target
+WM_EOF
+
     systemctl --user daemon-reload
 fi
 
