@@ -36,11 +36,10 @@ done
 pass "every command that summons the shell honours OMARCHY_NO_UI"
 
 for command in omarchy-menu-select omarchy-menu omarchy-menu-emoji \
-  omarchy-menu-clipboard omarchy-menu-input omarchy-reminder; do
+  omarchy-menu-clipboard omarchy-menu-input; do
   case "$command" in
     omarchy-menu-select) args=(Prompt option) ;;
     omarchy-menu-input) args=(Prompt) ;;
-    omarchy-reminder) args=(-i) ;;
     *) args=() ;;
   esac
 
@@ -54,11 +53,11 @@ for command in omarchy-menu-select omarchy-menu omarchy-menu-emoji \
 done
 pass "each one refuses under OMARCHY_NO_UI=1 and says why"
 
-# A guard that also broke the non-drawing modes would just get switched off.
-OMARCHY_NO_UI=1 OMARCHY_PATH="$ROOT" PATH="$ROOT/bin:$PATH" \
-  "$ROOT/bin/omarchy-reminder" show >/dev/null 2>&1 ||
-  fail "omarchy-reminder show still works under OMARCHY_NO_UI=1"
-pass "the headless modes of a guarded command keep working"
+# This used to check that omarchy-reminder show, the one guarded command with a
+# non-drawing mode, still worked under the guard -- a guard that broke the
+# headless paths would just get switched off. Reminders are gone and every
+# guarded command now does nothing but draw, so there is no such path left to
+# protect. Restore an equivalent check if one gains one.
 
 # The suites themselves run under it, so a test can never summon by accident.
 for suite in "$ROOT/test/shell.d/base-test.sh" "$ROOT/test/cli"; do

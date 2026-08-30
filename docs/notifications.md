@@ -167,23 +167,3 @@ Everything goes through the same sender contract, so the pieces are small:
 
 - **Low battery** — `omarchy-battery-low` sends a critical toast and runs the
   `battery-low` hook.
-
-## Reminders
-
-Reminders ride on notifications rather than being their own daemon.
-`bin/omarchy-reminder <minutes> [message]` creates a transient systemd user
-timer via `systemd-run --user --collect --on-active=<minutes>m` under the
-unit name `omarchy-reminder-<minutes>m-<epoch>`; the timer's payload sends the
-reminder toast, deletes its message file, and refreshes the bar indicator.
-Custom messages are stashed in `$XDG_RUNTIME_DIR/omarchy-reminders/<unit>.message`
-since a unit name cannot carry arbitrary text. `--collect` means fired timers
-leave nothing behind.
-
-The state therefore lives entirely in systemd: `show` and `clear` enumerate
-`systemctl --user list-timers "omarchy-reminder-*.timer"` — `show` as a
-summary toast, `show --json` as the JSON the bar's Reminder indicator polls
-(refreshed by the same `omarchy-shell -q omarchy.indicators refresh` call the
-timers and mutations make). `omarchy-reminder -i` summons the
-`omarchy.reminders` overlay (`shell/plugins/reminders/ReminderFlow.qml`), a
-two-step minutes/message prompt that shells back out to `omarchy-reminder` to
-do the setting.

@@ -37,11 +37,6 @@
             "description": "GPU screen recorder status"
           },
           {
-            "value": "Reminder",
-            "label": "Reminder",
-            "description": "Queued reminder status"
-          },
-          {
             "value": "Dnd",
             "label": "Do not disturb",
             "description": "Notification silencing"

@@ -18,9 +18,16 @@ env_default("HYPRCURSOR_SIZE", "24")
 -- Force all apps to use Wayland.
 hl.env("GDK_BACKEND", "wayland,x11,*")
 hl.env("QT_QPA_PLATFORM", "wayland;xcb")
--- QT_QPA_PLATFORMTHEME is deliberately not set. It decides which style and
--- icon theme every Qt app in the session uses, and that is configured on the
--- host (qt6ct, kdeglobals); forcing gtk3 here would override it.
+-- The Qt platform theme decides which style and icon theme every Qt app in the
+-- session gets, including omarchy-shell itself. It was left unset here on the
+-- reasoning that the host configures it through qt6ct -- but qt6ct only loads
+-- when this names it. Unset means Qt loads no platform theme at all and reads
+-- none of that configuration, so a host with icon_theme=Papirus in qt6ct.conf
+-- still got Qt's built-in fallback icons.
+--
+-- env_default, so a host that has already chosen (kdeglobals, gtk3, a different
+-- qt6ct generation) keeps its choice.
+env_default("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("MOZ_ENABLE_WAYLAND", "1")
 hl.env("ELECTRON_OZONE_PLATFORM_HINT", "wayland")
 hl.env("OZONE_PLATFORM", "wayland")

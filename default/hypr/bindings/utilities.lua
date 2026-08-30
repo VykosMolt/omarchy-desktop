@@ -81,9 +81,6 @@ end)
 
 o.bind("SUPER + CTRL + PERIOD", "Transcode", "omarchy-transcode")
 
-o.bind("SUPER + CTRL + R", "Set reminder", "omarchy-reminder -i")
-o.bind("SUPER + CTRL + ALT + R", "Show reminders", "omarchy-reminder show")
-o.bind("SUPER + SHIFT + CTRL + R", "Clear reminders", "omarchy-reminder clear")
 
 o.bind("SUPER + CTRL + ALT + T", "Show time", "omarchy-notification-time")
 o.bind("SUPER + CTRL + ALT + B", "Show battery remaining", "omarchy-notification-battery")
