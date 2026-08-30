@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 format_remaining() {
   local seconds=$1
   local minutes=$((seconds / 60))
@@ -39,6 +41,8 @@ refresh_indicator() {
 }
 
 open_interactive() {
+  # Only this path draws; `show` and `clear` stay usable headless.
+  omarchy_require_ui || return 1
   omarchy-shell shell summon omarchy.reminders "{}"
 }
 

@@ -26,6 +26,11 @@ mapfile -t __inherited < <(compgen -e | grep '^OMARCHY_' || true)
 unset __inherited
 unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
 
+# Nothing here may draw on the user's screen. The shell's IPC reaches the
+# running desktop over its own socket and ignores HOME, so the sandbox above
+# does not cover it: a summon from a test lands on the real display.
+export OMARCHY_NO_UI=1
+
 # The session also puts this checkout's bin/ on PATH. Tests that want it say so;
 # leaving it here lets a test that means to hide a command still find it.
 # Dropping this checkout alone was not enough: any other Omarchy bin/ on PATH
@@ -77,6 +82,24 @@ omarchy_test_sandbox_cleanup() {
   rm -rf "$OMARCHY_TEST_SANDBOX"
 }
 trap omarchy_test_sandbox_cleanup EXIT
+
+# Bash keeps one EXIT trap, so a test installing its own -- and 74 of them do,
+# to remove a scratch directory of their own -- silently replaced that cleanup
+# and the sandbox stayed behind. Five hundred of them had piled up in /tmp.
+# Intercepting the builtin here chains the sandbox cleanup onto whatever a test
+# installs, rather than asking 74 files to remember, and keeps a new test
+# correct by default.
+trap() {
+  if (( $# >= 2 )) && [[ ${*: -1} == EXIT ]]; then
+    if [[ $1 == - ]]; then
+      builtin trap omarchy_test_sandbox_cleanup EXIT
+    else
+      builtin trap "$1; omarchy_test_sandbox_cleanup" "${@:2}"
+    fi
+  else
+    builtin trap "$@"
+  fi
+}
 
 pass() {
   printf 'ok - %s\n' "$1"

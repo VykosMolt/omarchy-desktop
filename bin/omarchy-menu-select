@@ -14,6 +14,10 @@
 
 set -euo pipefail
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+omarchy_require_ui || exit 1
+
 if (( $# < 1 )); then
   echo "Usage: omarchy-menu-select <prompt> [option...] [-- menu args...]" >&2
   exit 1

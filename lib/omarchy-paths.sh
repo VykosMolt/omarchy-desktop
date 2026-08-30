@@ -42,3 +42,20 @@ omarchy_require_flat_name() {
     return 1
   fi
 }
+
+# Set OMARCHY_NO_UI=1 to make anything that would put a window on the user's
+# screen refuse instead of drawing it.
+#
+# A sandboxed HOME does not stop this. The shell's IPC reaches the running
+# desktop over its own socket and never consults HOME, so a command that summons
+# a menu draws on the real screen no matter what roots the caller set. During
+# this port's development a bare `omarchy-menu-keybindings` -- run only to read
+# what it does -- put the keybindings chooser on the user's screen, where it sat
+# waiting behind the lock screen until they logged back in. The test suites
+# export this, and anything analysing a live session should too.
+omarchy_require_ui() {
+  if [[ ${OMARCHY_NO_UI:-0} == 1 ]]; then
+    echo "${0##*/}: refusing to open a window because OMARCHY_NO_UI=1 is set." >&2
+    return 1
+  fi
+}

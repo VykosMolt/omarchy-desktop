@@ -162,7 +162,12 @@ cmd_defaults() {
   local optional_widgets="[]"
   local service widget
   for service in dropbox tailscale; do
-    if "omarchy-installed-service-$service"; then
+    # omarchy-installed-service-* went with the distro layer, so this asked
+    # for a command that does not exist. Under `if`, errexit does not fire
+    # on the condition, so the 127 read as "not installed" and the widget
+    # was silently never offered. The question a desktop can answer is
+    # whether the tool is on PATH.
+    if omarchy-cmd-present "$service"; then
       widget=$(jq -cn \
         --arg id "omarchy.$service" \
         --arg section "$(bar_widget_default_section "omarchy.$service")" \

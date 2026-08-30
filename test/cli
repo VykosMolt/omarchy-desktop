@@ -17,6 +17,11 @@ mapfile -t __inherited < <(compgen -e | grep '^OMARCHY_' || true)
 (( ${#__inherited[@]} == 0 )) || unset "${__inherited[@]}"
 unset __inherited
 unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
+
+# Nothing here may draw on the user's screen. The shell's IPC reaches the
+# running desktop over its own socket and ignores HOME, so the sandbox above
+# does not cover it: a summon from a test lands on the real display.
+export OMARCHY_NO_UI=1
 export OMARCHY_PATH="$ROOT"
 
 # Unsetting the roots is not enough on its own, and this suite never got the

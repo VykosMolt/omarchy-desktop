@@ -1,8 +1,7 @@
 # Omarchy theming
 
-Omarchy themes live under `themes/<name>/` in the source tree (installed at
-`/usr/share/omarchy/themes/<name>/`), with optional user themes under
-`$OMARCHY_CONFIG_HOME/themes/<name>/`. A theme normally starts with a
+Themes live under `themes/<name>/` in this checkout, with optional user
+themes under `$OMARCHY_CONFIG_HOME/themes/<name>/`. A theme normally starts with a
 `colors.toml`; Omarchy generates the active theme files from
 `default/themed/*.tpl` when `omarchy-theme-set <name>` runs.
 

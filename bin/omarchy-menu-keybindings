@@ -229,7 +229,12 @@ hl = setmetatable({
   end,
 })
 
-local config = os.getenv("HOME") .. "/.config/hypr/hyprland.lua"
+-- The session's own Hyprland config, not ~/.config/hypr/hyprland.lua --
+-- that one belongs to whatever other session the user runs, and listing
+-- its keybindings here described a desktop this is not. Outside the
+-- session the path contract leaves this at $HOME/.config, so the answer
+-- is unchanged there.
+local config = os.getenv("OMARCHY_SESSION_CONFIG_HOME") .. "/hypr/hyprland.lua"
 local file = io.open(config, "r")
 
 if file then

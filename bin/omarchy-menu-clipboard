@@ -3,4 +3,8 @@
 # omarchy:group=menu
 # omarchy:examples=omarchy menu clipboard
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+omarchy_require_ui || exit 1
+
 omarchy-shell shell toggle omarchy.clipboard
