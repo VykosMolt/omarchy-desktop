@@ -23,26 +23,49 @@ battery=$(upower -e 2>/dev/null | grep BAT | head -n 1)
 
 battery_info=$(upower -i "$battery")
 
-percentage=$(awk '/percentage/ { print int($2); exit }' <<<"$battery_info")
-capacity=$(awk '/energy-full:/ { printf "%d", $2; exit }' <<<"$battery_info")
-time_remaining=$(awk '/time to (empty|full)/ {
-  value = $4
-  unit = $5
-  if (unit ~ /^minute/) {
-    printf "%dm", int(value)
-  } else {
-    hours = int(value)
-    minutes = int((value - hours) * 60)
-    if (minutes > 0) {
-      printf "%dh %dm", hours, minutes
+# One pass over upower's output. Every field below comes from the same text,
+# and reading it eight times only bought eight processes: each rule keeps its
+# own first-match flag, so it still takes the line its own pass took.
+while IFS=$'\t' read -r key value; do
+  case "$key" in
+    percentage) percentage=$value ;;
+    capacity) capacity=$value ;;
+    time) time_remaining=$value ;;
+    rate) power_rate_raw=$value ;;
+    native) native_path=$value ;;
+    state) state=$value ;;
+    tstart) threshold_start=$value ;;
+    tend) threshold_end=$value ;;
+  esac
+done < <(awk '
+  /percentage/ && !seen_percentage { printf "percentage\t%d\n", int($2); seen_percentage = 1 }
+  /energy-full:/ && !seen_capacity { printf "capacity\t%d\n", $2; seen_capacity = 1 }
+  /time to (empty|full)/ && !seen_time {
+    value = $4
+    unit = $5
+    if (unit ~ /^minute/) {
+      printf "time\t%dm\n", int(value)
     } else {
-      printf "%dh", hours
+      hours = int(value)
+      minutes = int((value - hours) * 60)
+      if (minutes > 0) {
+        printf "time\t%dh %dm\n", hours, minutes
+      } else {
+        printf "time\t%dh\n", hours
+      }
     }
+    seen_time = 1
   }
-  exit
-}' <<<"$battery_info")
-power_rate_raw=$(awk '/energy-rate/ { print $2; exit }' <<<"$battery_info")
-native_path=$(awk '/native-path/ { print $2; exit }' <<<"$battery_info")
+  /energy-rate/ && !seen_rate { printf "rate\t%s\n", $2; seen_rate = 1 }
+  /native-path/ && !seen_native { printf "native\t%s\n", $2; seen_native = 1 }
+  /state/ && !seen_state { printf "state\t%s\n", $2; seen_state = 1 }
+  /charge-start-threshold:/ && !seen_start {
+    value = $2; gsub(/%/, "", value); printf "tstart\t%d\n", int(value); seen_start = 1
+  }
+  /charge-end-threshold:/ && !seen_end {
+    value = $2; gsub(/%/, "", value); printf "tend\t%d\n", int(value); seen_end = 1
+  }
+' <<<"$battery_info")
 battery_path="$power_supply_path/$native_path"
 
 # UPower's energy-rate can lag the kernel telemetry by tens of seconds. Use
@@ -61,12 +84,20 @@ power_rate=$(awk -v rate="${power_rate_raw:-0}" 'BEGIN {
   sub(/\.0$/, "", rounded)
   print rounded
 }')
-state=$(awk '/state/ { print $2; exit }' <<<"$battery_info")
-threshold_start=$(awk '/charge-start-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
-threshold_end=$(awk '/charge-end-threshold:/ { gsub(/%/, "", $2); print int($2); exit }' <<<"$battery_info")
 
-[[ -z $threshold_end ]] && threshold_end=$(cat "$power_supply_path"/BAT*/charge_control_end_threshold 2>/dev/null | head -1)
-[[ -z $threshold_start ]] && threshold_start=$(cat "$power_supply_path"/BAT*/charge_control_start_threshold 2>/dev/null | head -1)
+# cat|head over a glob is two processes to read one small sysfs file.
+read_first_battery_file() {
+  local file
+  for file in "$power_supply_path"/BAT*/"$1"; do
+    [[ -r $file ]] || continue
+    printf '%s' "$(<"$file")"
+    return 0
+  done
+  return 1
+}
+
+[[ -z $threshold_end ]] && threshold_end=$(read_first_battery_file charge_control_end_threshold)
+[[ -z $threshold_start ]] && threshold_start=$(read_first_battery_file charge_control_start_threshold)
 
 ac_online=false
 for supply in "$power_supply_path"/*; do

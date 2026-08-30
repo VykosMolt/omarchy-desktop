@@ -96,11 +96,11 @@ print_ping_samples() {
 
   if [[ -n $router_pid ]]; then
     wait "$router_pid"
-    printf 'router_ping_ms\t%s\n' "$(cat "$router_file")"
+    printf 'router_ping_ms\t%s\n' "$(<"$router_file")"
   fi
 
   wait "$internet_pid"
-  printf 'internet_ping_ms\t%s\n' "$(cat "$internet_file")"
+  printf 'internet_ping_ms\t%s\n' "$(<"$internet_file")"
   rm -rf "$tmpdir"
 }
 
