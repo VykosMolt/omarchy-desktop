@@ -110,13 +110,16 @@ print_verbose() {
   route_json=$(ip -j route get "$internet_probe" 2>/dev/null)
   [[ -z $route_json ]] && return
 
-  iface=$(jq -r '.[0].dev // ""' <<<"$route_json" 2>/dev/null)
-  gw=$(jq -r '.[0].gateway // ""' <<<"$route_json" 2>/dev/null)
-  src=$(jq -r '.[0].prefsrc // ""' <<<"$route_json" 2>/dev/null)
+  # One jq for all three, not three. This runs every 1.5s while the network
+  # panel is open, and a fork costs more than the query does.
+  IFS=$'\t' read -r iface gw src < <(
+    jq -r '.[0] | [(.dev // ""), (.gateway // ""), (.prefsrc // "")] | @tsv' \
+      <<<"$route_json" 2>/dev/null)
 
   [[ -z $iface ]] && return
 
-  prefix=$(ip -j addr show "$iface" 2>/dev/null | jq -r '.[0].addr_info[]? | select(.family == "inet") | .prefixlen // ""' 2>/dev/null | head -n 1)
+  prefix=$(ip -j addr show "$iface" 2>/dev/null |
+    jq -r 'first(.[0].addr_info[]? | select(.family == "inet") | .prefixlen) // ""' 2>/dev/null)
 
   printf 'iface\t%s\n' "$iface"
   printf 'ip\t%s\n' "$src"
@@ -137,10 +140,16 @@ print_verbose() {
       link=$(iw dev "$iface" link 2>/dev/null)
 
       if [[ -n $link ]]; then
-        printf 'ssid\t%s\n' "$(awk '/SSID:/ { sub(/.*SSID: /, ""); print; exit }' <<<"$link")"
-        printf 'signal_dbm\t%s\n' "$(awk '/signal:/ { print $2; exit }' <<<"$link")"
-        printf 'freq\t%s\n' "$(awk '/freq:/ { print $2; exit }' <<<"$link")"
-        printf 'bitrate\t%s %s\n' "$(awk '/tx bitrate:/ { print $3; exit }' <<<"$link")" "$(awk '/tx bitrate:/ { print $4; exit }' <<<"$link")"
+        # One pass over the link report rather than four, for the same reason.
+        awk '
+          /SSID:/ && !ssid { line = $0; sub(/.*SSID: /, "", line); ssid = line }
+          /signal:/ && !sig { sig = $2 }
+          /freq:/ && !freq { freq = $2 }
+          /tx bitrate:/ && !rate { rate = $3 " " $4 }
+          END {
+            printf "ssid\t%s\nsignal_dbm\t%s\nfreq\t%s\nbitrate\t%s\n", ssid, sig, freq, rate
+          }
+        ' <<<"$link"
       fi
     fi
   else

@@ -68,10 +68,26 @@ Item {
     return Quickshell.iconPath("application-x-executable", true)
   }
 
+  // When the index was last rebuilt, so a caller asking to refresh does not
+  // start a full rescan every time.
+  property real lastIconScan: 0
+  readonly property int iconScanMinIntervalMs: 60000
+
   // The shell may start before first-install packages have finished placing
   // their icons; consumers call this when they open so icons appear live.
-  function refreshIcons() {
-    if (!iconIndexScan.running) iconIndexScan.running = true
+  //
+  // The menu calls it on every open, and the scan walks every icon root -- two
+  // seconds of work, and it follows symlinks in the theme passes now, which is
+  // most of that. Icons do not appear that often. A package install already
+  // reaches the index the reliable way, through appsChanged and its debounce,
+  // so this path only exists for icons that land without the desktop entry
+  // list changing. Rate-limit it: still live, no longer a rescan per keypress.
+  function refreshIcons(force) {
+    if (iconIndexScan.running) return
+    var now = Date.now()
+    if (!force && root.lastIconScan > 0 && now - root.lastIconScan < root.iconScanMinIntervalMs) return
+    root.lastIconScan = now
+    iconIndexScan.running = true
   }
 
   function launch(desktopId, name) {
@@ -252,7 +268,7 @@ Item {
   Timer {
     id: iconIndexDebounce
     interval: 750
-    onTriggered: if (!iconIndexScan.running) iconIndexScan.running = true
+    onTriggered: root.refreshIcons(true)
   }
 
   FileView {
@@ -301,6 +317,6 @@ Item {
 
   Component.onCompleted: {
     hiddenEntryScan.running = true
-    iconIndexScan.running = true
+    root.refreshIcons(true)
   }
 }
