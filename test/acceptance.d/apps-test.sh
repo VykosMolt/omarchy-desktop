@@ -34,7 +34,7 @@ launch_and_verify() {
 # Keep launch coverage to the primary daily-use paths. The system acceptance
 # test separately verifies the complete core package manifest.
 # name|command|window class regex|launch timeout
-apps='terminal|foot|^foot$
+apps='terminal|kitty|^kitty$
 browser|chromium --new-window|(?i)chromium
 neovim|xdg-terminal-exec --app-id=org.omarchy.nvim nvim|org.omarchy.nvim
 writer|omawrite|(?i)omawrite'

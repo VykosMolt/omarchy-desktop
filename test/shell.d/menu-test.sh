@@ -208,9 +208,10 @@ assert(
   defaultById['setup.input'].action.includes('input.lua'),
   'menu keeps Input as a direct config action'
 )
+// No terminal row: this desktop ships kitty and nothing else, so a chooser
+// would have been a one-entry radio list that is always already checked.
 const expectedDefaults = {
   browser: ['Chromium', 'Chrome', 'Brave', 'Brave Origin', 'Edge', 'Firefox', 'Zen'],
-  terminal: ['Alacritty', 'Foot', 'Ghostty', 'Kitty'],
   editor: ['Neovim', 'VSCode', 'Cursor', 'Zed', 'Sublime Text', 'Helix', 'Vim', 'Emacs']
 }
 assert(
@@ -219,7 +220,11 @@ assert(
     return entries.map(item => item.label).join('\0') === labels.join('\0')
       && entries.every(item => !item.when)
   }),
-  'menu always exposes every supported browser, terminal, and editor under Defaults'
+  'menu always exposes every supported browser and editor under Defaults'
+)
+assert(
+  !defaultItems.some(item => item.id.startsWith('setup.default.terminal')),
+  'Defaults offers no terminal chooser, because kitty is the only terminal'
 )
 assert(
   defaultById['style.bar.position'].kind === 'menu',

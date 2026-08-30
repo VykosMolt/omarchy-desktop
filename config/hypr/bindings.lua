@@ -13,7 +13,7 @@
 --   omarchy_preinstalled_bindings = false
 
 -- Add a new binding.
--- o.bind("SUPER + SHIFT + R", "SSH", "alacritty -e ssh your-server")
+-- o.bind("SUPER + SHIFT + R", "SSH", "kitty -e ssh your-server")
 
 -- Change an existing binding by unbinding it first, then binding the key again.
 -- This example changes SUPER+SPACE from the launcher to the Omarchy root menu.

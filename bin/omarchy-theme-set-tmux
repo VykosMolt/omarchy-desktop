@@ -73,7 +73,7 @@ sync_tmux_window_style() {
 
   # Apps like nvim clear the per-pane cursor colour with OSC 112. Without a
   # global fallback, tmux then resets the outer terminal's cursor, which in
-  # terminals that can't reload their config (foot) restores the colour from
+  # terminals that can't reload their config restores the colour from
   # whatever theme was active when the terminal launched.
   if [[ -n $cursor ]]; then
     tmux set-option -g cursor-colour "$cursor" 2>/dev/null || true

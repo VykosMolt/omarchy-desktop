@@ -1,15 +1,7 @@
 #!/bin/bash
 
-# omarchy:summary=Reload supported terminal emulators after config changes
-
-if [[ -f ~/.config/alacritty/alacritty.toml ]]; then
-  touch ~/.config/alacritty/alacritty.toml
-fi
+# omarchy:summary=Reload kitty after config changes
 
 if pgrep -x kitty >/dev/null; then
   killall -SIGUSR1 kitty >/dev/null
-fi
-
-if pgrep -x ghostty >/dev/null; then
-  killall -SIGUSR2 ghostty
 fi

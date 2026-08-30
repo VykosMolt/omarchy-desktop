@@ -23,8 +23,8 @@ verify_defaults() {
   [[ $(omarchy-default-browser) == "chromium" ]] || fail "Chromium is the default browser"
   pass "Chromium is the default browser"
 
-  [[ $(omarchy-default-terminal) == "foot" ]] || fail "Foot is the default terminal"
-  pass "Foot is the default terminal"
+  [[ $(omarchy-default-terminal) == "kitty" ]] || fail "Kitty is the default terminal"
+  pass "Kitty is the default terminal"
 
   [[ $(omarchy-default-editor) == "nvim" ]] || fail "Neovim is the default editor"
   pass "Neovim is the default editor"
