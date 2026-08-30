@@ -62,6 +62,10 @@ PopupWindow {
     else root.open = false
   }
 
+  // qmllint reports this as shadowing contentItem on the base window type, and
+  // it is: that is the container idiom. Children declared inside this component
+  // belong in contentHolder, not directly on the window surface. Renaming it
+  // would move that decision to every call site.
   default property alias contentItem: contentHolder.children
 
   visible: open || card.opacity > 0

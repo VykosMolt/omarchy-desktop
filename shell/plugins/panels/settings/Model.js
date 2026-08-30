@@ -198,11 +198,6 @@ function writeViaOf(id) {
   return found ? found.writeVia : ""
 }
 
-function sectionOfIndex(index) {
-  if (index < 0 || index >= ROWS.length) return ""
-  return ROWS[index].section
-}
-
 // One cursor for the whole panel, walking every row in every section in order.
 // Clamped rather than wrapping: the ends of the list are where a user expects
 // the cursor to stop.
@@ -558,7 +553,6 @@ if (typeof module !== "undefined") {
     rowIndex: rowIndex,
     ownerOf: ownerOf,
     writeViaOf: writeViaOf,
-    sectionOfIndex: sectionOfIndex,
     moveRow: moveRow,
     durationChoices: durationChoices,
     durationLabel: durationLabel,
