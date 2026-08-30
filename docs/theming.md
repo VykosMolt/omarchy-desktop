@@ -50,7 +50,7 @@ rewrites an unrelated application's configuration, or needs root, belongs in a
 
 `themes/<name>/` in this repo is Omarchy's own code and is trusted. So is a theme the user wrote by hand in `$OMARCHY_CONFIG_HOME/themes/<name>/`: it is their machine and their file, and both stage in full.
 
-A theme cloned from a git repo is different. Its contents are whatever the theme author pushed, so the contents are whatever the theme author pushed. `omarchy-theme-set` tells the two apart the way `omarchy-theme-extras` already does — a `.git` directory means it was cloned, while a plain directory or a symlink to a working copy is the user's own — and from a cloned one it drops only what can run code:
+A theme cloned from a git repo is different: its contents are whatever the theme author pushed. `omarchy-theme-set` tells the two apart by origin — a `.git` directory means it was cloned, while a plain directory or a symlink to a working copy is the user's own — and from a cloned one it drops only what can run code:
 
 - any `*.lua` — Hyprland `require`s a theme's `hyprland.lua` and `gum_env.lua` at login, and Neovim loads its `neovim.lua` at startup
 - `kitty.conf` — names the program the terminal launches. `alacritty.toml`, `foot.ini`
@@ -64,9 +64,9 @@ A denylist is only right while it is maintained. Adding a template for another t
 
 A theme predating `colors.toml` is not left without a palette: its `alacritty.toml` is read through `omarchy-theme-colors-from-alacritty` into a scratch directory and only the resulting `colors.toml` is staged, so the colours survive and the terminal config does not. That path reads a palette; it installs nothing, and this desktop ships kitty alone.
 
-The restriction lives in `omarchy-theme-set` rather than in `omarchy-theme-install` on purpose. Filtering at staging also covers themes installed before the rule existed and files a theme gains later through `omarchy theme update`.
+The restriction lives in `omarchy-theme-set` rather than at install time on purpose. This desktop has no theme installer — cloning a theme is something the user does by hand — so staging is the only moment every theme passes through, and filtering there also covers files a theme gains later from a `git pull`.
 
-What this does not cover: a theme distributed as an archive rather than a git repo, extracted into `~/.config/omarchy/themes/` by hand, is indistinguishable from one the user wrote and stages in full. `omarchy theme install` only takes git URLs, so the supported path is always filtered, but the check is a statement about where a theme came from and not a sandbox.
+What this does not cover: a theme distributed as an archive rather than a git repo, extracted into `$OMARCHY_CONFIG_HOME/themes/` by hand, is indistinguishable from one the user wrote and stages in full. The check is a statement about where a theme came from, not a sandbox.
 
 ## `colors.toml`
 

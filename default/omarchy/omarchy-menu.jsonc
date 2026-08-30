@@ -76,5 +76,5 @@
   "setup.default.editor.emacs": {"icon":"","label":"Emacs","when":"omarchy-cmd-present emacs","checked":"[[ \"$(omarchy-default-editor)\" == \"emacs\" ]]","action":"omarchy-default-editor emacs"},
   "setup.config": {"icon":"","label":"Config"},
   "setup.config.hyprland": {"icon":"","label":"Hyprland","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua\""},
-  "setup.config.xcompose": {"icon":"󰞅","label":"XCompose","action":"omarchy-launch-config-editor ~/.XCompose && omarchy-restart-xcompose"},
+  "setup.config.xcompose": {"icon":"󰞅","label":"XCompose","action":"omarchy-launch-config-editor ~/.XCompose"},
 }

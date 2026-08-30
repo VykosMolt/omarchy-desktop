@@ -39,20 +39,6 @@ grep -Fx 'ExecStart=/usr/bin/env omarchy-system-sleep-monitor' "$sleep_service" 
   fail "sleep lock does not run the sleep monitor"
 pass "sleep lock waits for the session environment before monitoring suspend"
 
-fcitx_service="$units_dir/omarchy-arch-fcitx5.service"
-grep -Fx 'ConditionFileIsExecutable=/usr/bin/fcitx5' "$fcitx_service" >/dev/null ||
-  fail "fcitx5 unit runs on machines without fcitx5 installed"
-! grep -F 'fcitx5' "$ROOT/default/hypr/autostart.lua" >/dev/null ||
-  fail "fcitx5 is autostarted from Hyprland; an unsupervised launch dies silently"
-
-# fcitx5 exits 0 when another instance already owns the input method, which is
-# what happens when the host session started one. Restart=always turned that
-# into a hot loop: one session logged over thirty thousand restarts.
-grep -Fx 'Restart=on-failure' "$fcitx_service" >/dev/null ||
-  fail "a clean fcitx5 exit is restarted, which loops when another instance owns the input method"
-grep -Fx 'StartLimitBurst=5' "$fcitx_service" >/dev/null ||
-  fail "nothing bounds an fcitx5 crash loop"
-pass "fcitx5 restarts on a crash but not when another instance owns the input method"
 
 # A start limit only works where systemd reads it.
 for unit in "$units_dir"/omarchy-arch-*.service; do

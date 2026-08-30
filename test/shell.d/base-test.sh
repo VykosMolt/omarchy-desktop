@@ -37,9 +37,9 @@ export OMARCHY_NO_UI=1
 # offers the same command names under different code, so a test that hides a
 # command still finds one and a test that means to exercise this checkout runs
 # the other's copy instead. Running the suite from a second worktree, with the
-# first one's bin/ still on PATH, is all it takes -- theme-install-guards-test.sh
-# hides omarchy-git-url-check to check that a missing checker refuses the URL,
-# found the sibling's, and reported a failure this checkout did not have.
+# first one's bin/ still on PATH, is all it takes: a test that hides a command
+# to prove the caller copes without it finds the sibling checkout's copy and
+# reports a failure this checkout does not have.
 # An Omarchy bin/ holds nothing but omarchy commands, and that is what
 # identifies one here: a system directory that merely happens to carry an
 # omarchy command keeps its place rather than taking coreutils off PATH with it.

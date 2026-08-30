@@ -83,7 +83,6 @@ if (( ! dry_run )); then
         omarchy-arch-session.target
         omarchy-arch-shell.service
         omarchy-arch-sleep-lock.service
-        omarchy-arch-fcitx5.service
         omarchy-arch-bt-agent.service
         omarchy-arch-monitor-watch.service
         omarchy-arch-udiskie.service
