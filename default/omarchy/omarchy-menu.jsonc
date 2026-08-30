@@ -50,6 +50,7 @@
   "style.bar.position.right": {"icon":"󰁔","label":"Right","action":"omarchy-bar position right"},
 
   // Setup
+  "setup.settings": {"icon":"","label":"Settings","action":"omarchy-shell shell toggle omarchy.settings"},
   "setup.monitors": {"icon":"󰍹","label":"Monitors","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/monitors.lua\""},
   "setup.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f \"$OMARCHY_SESSION_CONFIG_HOME/hypr/bindings.lua\" ]]","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/bindings.lua\""},
   "setup.input": {"icon":"","label":"Input","when":"[[ -f \"$OMARCHY_SESSION_CONFIG_HOME/hypr/input.lua\" ]]","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/input.lua\""},

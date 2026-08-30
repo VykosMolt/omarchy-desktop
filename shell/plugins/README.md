@@ -19,6 +19,7 @@ User-installed plugins live alongside these conceptually but on disk under
 | Clipboard mgr | `omarchy.clipboard`       | `overlay`               | `clipboard/Clipboard.qml`             |
 | Reminders     | `omarchy.reminders`       | `overlay`               | `reminders/ReminderFlow.qml`          |
 | Omarchy menu  | `omarchy.menu`            | `menu`, `bar-widget`    | `menu/Menu.qml`, `menu/BarWidget.qml` |
+| Settings      | `omarchy.settings`        | `panel`                 | `panels/settings/Panel.qml`           |
 | Notifications | `omarchy.notifications`   | `service`               | `notifications/Service.qml`           |
 | Audio         | `omarchy.audio`           | `bar-widget`            | `panels/audio/Panel.qml`              |
 | Bluetooth     | `omarchy.bluetooth`       | `bar-widget`            | `panels/bluetooth/Panel.qml`          |
@@ -109,6 +110,33 @@ bash expressions in a single batched subprocess, and executes the
 selected `action:` string directly via `Quickshell.execDetached`. The
 long-running shell process keeps the parsed menu in memory, so the
 keybind → IPC → visible path costs ~30ms cold.
+
+## Settings
+
+The desktop's settings panel, summoned with `omarchy-shell shell toggle
+omarchy.settings` and listed in the menu under Setup. Standalone `panel`
+plugin, loaded on demand.
+
+Every setting it exposes is backed by one of two mechanisms and no third one:
+
+- **shell-owned** — the value lives in `shell.json`. The panel reads it from
+  `shell.shellConfig`, so it always shows the file rather than a cached copy,
+  and writes it either through `shell.mutateShellConfig` (the `idle` timings)
+  or through the command that owns the setting's validation (`omarchy-bar` for
+  the bar's position and transparency, so the bar validates the value and
+  patches itself live).
+- **system-owned** — the value lives outside the shell and is read and written
+  by running one of the port's commands: the theme, icon theme, monospace font,
+  text size, the focused monitor's scale, night light, and Stay Awake.
+
+Every system-owned read is a `Process`, so the panel paints immediately and
+each row fills in when its command answers. Every write is followed by a
+re-read, and a command that fails puts its own message on the row.
+
+`panels/settings/Model.js` holds the setting inventory and its ownership, the
+duration choices and their labels, the output parsers, and the argument vector
+for every command — so all of it is testable without a compositor, and the QML
+never builds a command itself.
 
 ## Coming soon
 

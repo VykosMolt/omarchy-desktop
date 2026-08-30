@@ -28,12 +28,12 @@ grep -F 'omarchy-hyprland-monitor-clamshell' "$monitor_watch" >/dev/null
 pass "monitor watcher disables the internal monitor after closed-lid external hotplug"
 
 grep -F 'sync_clamshell_after_monitor_change' "$monitor_watch" >/dev/null
-grep -F 'socat -U - "UNIX-CONNECT:$SOCKET"' "$monitor_watch" >/dev/null
+grep -F 'UNIX-CONNECT:$SOCKET' "$monitor_watch" >/dev/null
 pass "monitor watcher reconciles clamshell state on startup"
 
 grep -F 'omarchy-hw-laptop && omarchy-hyprland-monitor-external-active' "$monitor_watch" >/dev/null
 grep -F 'sync_poll_state' "$monitor_watch" >/dev/null
-grep -F 'done < <(socat' "$monitor_watch" >/dev/null
+grep -F 'done < <(read_events)' "$monitor_watch" >/dev/null
 pass "clamshell poll only runs on a docked laptop, not desktops or undocked laptops"
 
 # Recovery costs a reload per attempt, so it must not run on a healthy machine,
