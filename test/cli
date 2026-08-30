@@ -126,7 +126,7 @@ pass "fallback commands are inferred and documented"
 "$CLI" commands --all --json | jq -e '.commands[] | select(.binary == "omarchy-hyprland-monitor-internal-mirror" and (.routes | length) >= 1)' >/dev/null
 pass "JSON exposes every route a command answers to"
 
-"$CLI" commands --all --json | jq -e '.commands[] | select(.binary == "omarchy-dns" and .requires_sudo == true)' >/dev/null
+"$CLI" commands --all --json | jq -e '.commands[] | select(.binary == "omarchy-restart-audio" and .requires_sudo == true)' >/dev/null
 pass "sudo metadata marks sudo commands"
 
 output=$("$CLI" theme --help)

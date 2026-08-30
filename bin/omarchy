@@ -35,7 +35,6 @@ GROUP_DESCRIPTIONS[brightness]="Display and keyboard brightness"
 GROUP_DESCRIPTIONS[capture]="Screenshots and screen recording"
 GROUP_DESCRIPTIONS[clipboard]="Clipboard helpers"
 GROUP_DESCRIPTIONS[cmd]="Command and shortcut helpers"
-GROUP_DESCRIPTIONS[debug]="Diagnostics"
 GROUP_DESCRIPTIONS[default]="Default application selection"
 GROUP_DESCRIPTIONS[disk]="Disk performance helpers"
 GROUP_DESCRIPTIONS[display]="Display and text scaling"
@@ -503,7 +502,6 @@ Common commands:
   omarchy font list           List available fonts
   omarchy screenshot          Take a screenshot
   omarchy menu                Open the launcher
-  omarchy debug               Print debugging information
 
 Groups:
 EOF
