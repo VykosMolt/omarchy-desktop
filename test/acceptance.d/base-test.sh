@@ -103,6 +103,36 @@ layer_on_screen() {
   ' >/dev/null
 }
 
+# A point on the desktop that no window covers, as "x,y" in logical
+# coordinates, or empty when every part of the screen is covered. Uses the gaps
+# a tiling layout leaves at the screen edge.
+uncovered_point() {
+  hyprctl -j monitors | jq -r --argjson clients "$(hyprctl -j clients)" '
+    .[0] as $m
+    | ($m.width / $m.scale | floor) as $w
+    | ($m.height / $m.scale | floor) as $h
+    | [$clients[] | select(.workspace.id == $m.activeWorkspace.id)] as $on
+    | [range(2; $w; 17) as $x | range(2; $h; 17) as $y
+       | select([$on[] | select($x >= .at[0] and $x < .at[0] + .size[0]
+                              and $y >= .at[1] and $y < .at[1] + .size[1])] | length == 0)
+       | "\($x),\($y)"]
+    | .[0] // ""'
+}
+
+# grim a patch and print its mean colour and standard deviation. A surface that
+# is present, correctly sized and painting nothing still satisfies
+# layer_on_screen -- the wallpaper did exactly that for weeks, showing the
+# compositor's fill through a transparent panel. Only pixels prove paint.
+patch_stats() {
+  local geom="$1" shot
+  shot=$(mktemp "${TMPDIR:-/tmp}/omarchy-patch.XXXXXX.png")
+  if ! timeout 10 grim -g "$geom" "$shot" 2>/dev/null; then rm -f "$shot"; return 1; fi
+  printf '%s %s' \
+    "$(magick "$shot" -resize 1x1 -format '%[hex:p{0,0}]' info: 2>/dev/null)" \
+    "$(magick "$shot" -format '%[fx:standard_deviation*255]' info: 2>/dev/null)"
+  rm -f "$shot"
+}
+
 layer_off_screen() {
   ! layer_on_screen "$1"
 }
