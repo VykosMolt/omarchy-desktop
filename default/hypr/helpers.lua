@@ -81,14 +81,6 @@ local function command_from(value, description)
   return value
 end
 
-function o.preinstalled_bindings_enabled()
-  if _G.omarchy_preinstalled_bindings ~= nil then
-    return _G.omarchy_preinstalled_bindings == true
-  end
-
-  local paths = require("default.hypr.paths")
-  return not file_exists(paths.omarchy_state_home .. "/preinstalls-removed")
-end
 
 function o.bind(keys, description, dispatcher, options)
   local opts = options or {}

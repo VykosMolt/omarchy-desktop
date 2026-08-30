@@ -9,9 +9,6 @@
 -- only the bindings you want below:
 --   omarchy_default_bindings = false
 
--- To disable all preinstalled app/webapp bindings, set:
---   omarchy_preinstalled_bindings = false
-
 -- Add a new binding.
 -- o.bind("SUPER + SHIFT + R", "SSH", "kitty -e ssh your-server")
 

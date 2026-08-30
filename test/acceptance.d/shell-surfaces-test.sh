@@ -96,8 +96,8 @@ wait_until "notification popup closes" 15 layer_absent "omarchy-notifications"
 
 # The menu's Apps submenu does the full launcher loop: open, search by
 # typing, launch the top hit.
-if window_present "(?i)omawrite" >/dev/null 2>&1; then
-  fail "app launch test starts with no Omawrite window" "an Omawrite window is already open"
+if window_present "(?i)kitty" >/dev/null 2>&1; then
+  fail "app launch test starts with no Kitty window" "an Kitty window is already open"
 fi
 
 omarchy-menu summon apps >/dev/null
@@ -105,13 +105,13 @@ wait_until "apps menu opens" 15 layer_present "omarchy-menu"
 sleep 1
 screenshot "success-apps-menu-open"
 
-wtype "omawrite"
+wtype "kitty"
 sleep 1
 screenshot "success-apps-menu-search"
 wtype -k Return
 
-wait_until "apps menu launches the top search hit" 60 window_present "(?i)omawrite"
+wait_until "apps menu launches the top search hit" 60 window_present "(?i)kitty"
 wait_until "apps menu closes after launching" 15 layer_absent "omarchy-menu"
 
-close_windows "(?i)omawrite"
-wait_until "Omawrite window closes" 30 window_absent "(?i)omawrite"
+close_windows "(?i)kitty"
+wait_until "Kitty window closes" 30 window_absent "(?i)kitty"

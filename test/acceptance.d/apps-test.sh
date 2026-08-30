@@ -36,8 +36,7 @@ launch_and_verify() {
 # name|command|window class regex|launch timeout
 apps='terminal|kitty|^kitty$
 browser|chromium --new-window|(?i)chromium
-neovim|xdg-terminal-exec --app-id=org.omarchy.nvim nvim|org.omarchy.nvim
-writer|omawrite|(?i)omawrite'
+neovim|xdg-terminal-exec --app-id=org.omarchy.nvim nvim|org.omarchy.nvim'
 
 status=0
 while IFS='|' read -r name command class timeout; do

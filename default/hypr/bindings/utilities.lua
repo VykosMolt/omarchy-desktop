@@ -6,7 +6,6 @@ o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
 o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
 o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
-o.bind("SUPER + CTRL + K", "Herdr keybindings", "omarchy-menu-herdr-keybindings")
 o.bind("SUPER + CTRL + Q", "Calculator", "omacalc")
 o.bind("XF86Calculator", "Calculator", "omacalc")
 
@@ -32,6 +31,9 @@ o.bind("switch:on:Lid Switch", nil, "omarchy-system-lid-close", { locked = true 
 o.bind("switch:off:Lid Switch", nil, "omarchy-hyprland-monitor-clamshell", { locked = true })
 
 o.bind("PRINT", "Screenshot", "omarchy-capture-screenshot")
+-- The key every other desktop uses for this. It was Google Maps, which is the
+-- kind of thing that went with the preinstalled app bindings.
+o.bind("SUPER + SHIFT + S", "Screenshot", "omarchy-capture-screenshot")
 o.bind("ALT + PRINT", "Screenrecording", "omarchy-capture-screenrecording --stop-recording || omarchy-capture-screenrecording")
 o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "omarchy-capture-webcam-resize smaller")
 o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "omarchy-capture-webcam-resize larger")
