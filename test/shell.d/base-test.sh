@@ -31,6 +31,24 @@ unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
 PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$ROOT/bin" | paste -sd:)
 export PATH
 
+# Unsetting the roots is not enough on its own. With them gone the roots are
+# derived from HOME, so a test that forgets to hand a command a throwaway HOME
+# falls back to the real one and writes into the live session anyway -- one run
+# of this suite appended to a running desktop's monitor-scaling audit log that
+# way. Give HOME itself a scratch directory, so the fallback is a sandbox rather
+# than the user's session. The roots stay derived rather than pinned, so a test
+# that sets its own HOME still gets roots under it.
+OMARCHY_TEST_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-test.XXXXXX")
+export OMARCHY_TEST_SANDBOX
+export HOME="$OMARCHY_TEST_SANDBOX/home"
+mkdir -p "$HOME"
+
+omarchy_test_sandbox_cleanup() {
+  [[ -n ${OMARCHY_TEST_SANDBOX:-} && -d $OMARCHY_TEST_SANDBOX ]] || return 0
+  rm -rf "$OMARCHY_TEST_SANDBOX"
+}
+trap omarchy_test_sandbox_cleanup EXIT
+
 pass() {
   printf 'ok - %s\n' "$1"
 }
