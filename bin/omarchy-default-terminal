@@ -4,11 +4,24 @@
 # omarchy:args=[kitty]
 # omarchy:examples=omarchy default terminal | omarchy default terminal kitty
 
+# Read the preference file rather than asking xdg-terminal-exec to resolve it.
+# The list below is the one this command writes, kitty is the only terminal the
+# setter accepts, and shelling out to a resolver that may not be installed --
+# or may be a local shim that only knows how to exec a terminal -- returned an
+# empty string on exactly the machines where the answer was obvious.
 if (($# == 0)); then
-  desktop_id=$(xdg-terminal-exec --print-id 2>/dev/null || true)
-  desktop_id=${desktop_id%%:*}
+  desktop_id=""
+  if [[ -r ${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list ]]; then
+    while IFS= read -r line; do
+      [[ -z $line || $line == \#* ]] && continue
+      desktop_id=${line%%:*}
+      break
+    done <"${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list"
+  fi
+
   case "$desktop_id" in
   kitty.desktop) echo "kitty" ;;
+  "") omarchy-cmd-missing kitty || echo "kitty" ;;
   *) echo "$desktop_id" ;;
   esac
   exit 0
