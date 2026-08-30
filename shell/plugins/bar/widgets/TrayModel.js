@@ -18,31 +18,17 @@ function entryId(entry) {
   return ""
 }
 
-function layoutHasWidget(layout, id) {
-  var sections = ["left", "center", "right"]
-  for (var s = 0; s < sections.length; s++) {
-    var entries = layout && layout[sections[s]]
-    if (!Array.isArray(entries)) continue
-    for (var i = 0; i < entries.length; i++) {
-      if (entryId(entries[i]) === id) return true
-    }
-  }
-  return false
-}
-
 // LocalSend's item shows no state, offers only Open and Quit, and its primary
 // click is a no-op, so Share > Receive is the whole surface. Hiding it by hand
 // doesn't stick either: LocalSend picks a fresh tray id every launch.
-function ownedByOmarchy(item, layout) {
+function ownedByOmarchy(item) {
   return itemNamed(item, "localsend")
-    || (layoutHasWidget(layout, "omarchy.dropbox") && itemNamed(item, "dropbox"))
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
     itemNamed: itemNamed,
     entryId: entryId,
-    layoutHasWidget: layoutHasWidget,
     ownedByOmarchy: ownedByOmarchy
   }
 }

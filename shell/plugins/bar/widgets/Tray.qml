@@ -160,8 +160,7 @@ BarWidget {
   }
 
   function ownedByOmarchy(item) {
-    var layout = root.bar && root.bar.layoutConfig ? root.bar.layoutConfig : null
-    return TrayModel.ownedByOmarchy(item, layout)
+    return TrayModel.ownedByOmarchy(item)
   }
 
   function bucket(category) {

@@ -64,12 +64,6 @@ local function command_from(value, description)
     return o.launch_sole(value.focus, value.launch)
   elseif value.launch then
     return o.launch(value.launch)
-  elseif value.webapp then
-    if value.focus then
-      return o.launch_webapp_sole(description, value.webapp)
-    else
-      return o.launch_webapp(value.webapp)
-    end
   elseif value.tui then
     if value.focus then
       return "omarchy-launch-or-focus-tui " .. shell_quote(value.tui)
@@ -80,7 +74,6 @@ local function command_from(value, description)
 
   return value
 end
-
 
 function o.bind(keys, description, dispatcher, options)
   local opts = options or {}
@@ -110,14 +103,6 @@ end
 
 function o.launch_on_start(command)
   o.exec_on_start(o.launch(command))
-end
-
-function o.launch_webapp(url)
-  return "omarchy-launch-webapp " .. shell_quote(url)
-end
-
-function o.launch_webapp_sole(name, url)
-  return "omarchy-launch-or-focus-webapp " .. shell_quote(name) .. " " .. shell_quote(url)
 end
 
 function o.launch_sole(match, command)

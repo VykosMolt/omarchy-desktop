@@ -133,8 +133,6 @@ pass "no preinstalled application or web app binding survives"
 
 grep -Fq $'SUPER + RETURN	Terminal' <<<"$default_output" ||
   fail "the essential application bindings are kept"
-grep -Fq $'SUPER + SHIFT + F	File manager' <<<"$default_output" ||
-  fail "the essential application bindings are kept"
 pass "the essential application bindings are kept"
 
 no_bindings_home="$tmpdir/no-bindings-home"

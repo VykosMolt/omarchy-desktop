@@ -160,21 +160,6 @@ cmd_defaults() {
   (( $# == 0 )) || fail "defaults does not take arguments"
 
   local optional_widgets="[]"
-  local service widget
-  for service in dropbox tailscale; do
-    # omarchy-installed-service-* went with the distro layer, so this asked
-    # for a command that does not exist. Under `if`, errexit does not fire
-    # on the condition, so the 127 read as "not installed" and the widget
-    # was silently never offered. The question a desktop can answer is
-    # whether the tool is on PATH.
-    if omarchy-cmd-present "$service"; then
-      widget=$(jq -cn \
-        --arg id "omarchy.$service" \
-        --arg section "$(bar_widget_default_section "omarchy.$service")" \
-        '{id: $id, section: $section}')
-      optional_widgets=$(jq -c --argjson widget "$widget" '. + [$widget]' <<<"$optional_widgets")
-    fi
-  done
 
   # This remains one file mutation so it also works during the headless
   # Quattro upgrade and cannot race the shell's in-memory config.
