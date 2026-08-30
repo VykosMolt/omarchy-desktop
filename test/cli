@@ -89,7 +89,7 @@ pass "a command run without its own HOME resolves its state root into the sandbo
 output=$("$CLI" --help)
 assert_output_contains "main help renders" "$output" "Omarchy command center"
 assert_output_contains "main help includes hardware group" "$output" "hw"
-assert_output_contains "main help includes package group" "$output" "pkg"
+assert_output_contains "main help includes theme group" "$output" "theme"
 if grep -Eq '^  [a-z0-9-]+[[:space:]].*\([0-9]+\)$' <<<"$output"; then
   fail "main help does not show group counts"
 fi
@@ -240,8 +240,8 @@ assert_output_contains "root alias resolves to command help" "$output" "omarchy-
 "$CLI" commands --json | jq -e '.commands[] | select(.binary == "omarchy-capture-screenshot") | .aliases | index("omarchy screenshot")' >/dev/null
 pass "aliases are included in JSON metadata"
 
-output=$("$CLI" pkg present --help)
-assert_output_contains "multi-word route help resolves" "$output" "omarchy-pkg-present"
+output=$("$CLI" cmd present --help)
+assert_output_contains "multi-word route help resolves" "$output" "omarchy-cmd-present"
 
 output=$("$CLI" system reboot --help)
 assert_output_contains "system command help is safe" "$output" "omarchy-system-reboot"
