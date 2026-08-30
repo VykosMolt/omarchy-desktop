@@ -69,9 +69,11 @@ lines. The menu opens immediately on the previous evaluation's answers, so
 the batch's runtime is exactly how long a row can contradict the state it
 describes — which is why the batch works hard to be fast:
 
-- Package and command presence (`omarchy-pkg-present` and friends) are
-  answered in-process from one `pacman -Q` snapshot instead of a fork per
-  row. The snapshot resolves provides too, so gvim answers for vim.
+- Command presence (`omarchy-cmd-present` / `omarchy-cmd-missing`) is answered
+  in-process by shell functions that shadow the real commands for the batch,
+  instead of a fork per row. Nothing asks what packages are installed — this
+  desktop does not manage them — and `menu-guards-test.sh` fails the build if a
+  guard in the shipped menu names an `omarchy-pkg-` command.
 - Commands that several rows read a value from — every Defaults > Browser row
   compares against `$(omarchy-default-browser)` — run once, with the captured
   answer substituted into each expression. The reader list is

@@ -95,12 +95,9 @@ Two hard requirements:
 
 Measuring a laptop and fitting a filter-chain to it is a separate job with its own
 tools, in [omarchy-audio-tuner](https://github.com/omacom-io/omarchy-audio-tuner).
-It is not installed by default — almost nobody authoring a tuning, and it needs
-python, ffmpeg and mpv.
-
-```bash
-omarchy pkg add omarchy-audio-tuner
-```
+It is not shipped here and this desktop does not install packages, so getting it
+and the python, ffmpeg and mpv it needs is the same job as any other AUR package
+on your own machine.
 
 Its README is the walkthrough, and covers both cases: copying a reference that
 already sounds right (how the XPS 14 tuning was made, no microphone needed), and
