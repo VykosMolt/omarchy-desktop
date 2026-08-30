@@ -73,11 +73,36 @@ snapshot_current_background() {
   snapshot_background_path "$current_background" "previous"
 }
 
+# True when the current background came from a folder the user registered
+# themselves rather than from a theme. Picking a wallpaper of your own is a
+# decision about the wallpaper, not about the theme, so switching themes leaves
+# it alone -- while a theme's own wallpaper still advances on every switch.
+current_background_is_the_users() {
+  local current dir
+
+  current=$(readlink -f "$CURRENT_BACKGROUND_LINK" 2>/dev/null) || return 1
+  [[ -n $current ]] || return 1
+
+  while IFS= read -r dir; do
+    [[ -n $dir ]] || continue
+    dir=$(realpath -m "$dir")
+    [[ $current == "$dir"/* ]] && return 0
+  done < <(omarchy-theme-bg-dir list 2>/dev/null)
+
+  return 1
+}
+
 choose_theme_background() {
   local backgrounds=()
   local current_background index next_index i
 
   CHOSEN_THEME_BACKGROUND=""
+
+  if current_background_is_the_users; then
+    CHOSEN_THEME_BACKGROUND=$(readlink "$CURRENT_BACKGROUND_LINK" 2>/dev/null)
+    [[ -n $CHOSEN_THEME_BACKGROUND ]] && return 0
+    CHOSEN_THEME_BACKGROUND=""
+  fi
   mapfile -d '' -t backgrounds < <(
     find -L "$OMARCHY_CONFIG_HOME/backgrounds/$THEME_NAME/" "$CURRENT_THEME_PATH/backgrounds/" -maxdepth 1 -type f \
       \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) \

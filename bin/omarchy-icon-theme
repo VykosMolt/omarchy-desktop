@@ -1,0 +1,267 @@
+#!/bin/bash
+
+# omarchy:summary=Show, list, or set the icon theme used by GTK, Qt, and KDE apps
+# omarchy:args=[get|list|set <name>]
+# omarchy:examples=omarchy icon theme list|omarchy icon theme set Papirus-Dark
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+# This command writes account-wide files -- the GTK, Qt, and KDE configs under
+# the user's own ~/.config -- which a theme switch deliberately never touches.
+# The difference is who asked. An Omarchy colour theme used to replace the icon
+# set behind the user's back on every switch, so omarchy-theme-set-gnome now
+# leaves the icon theme alone; here the user picked an icon theme and expects it
+# to take effect everywhere on this machine, which is only possible by writing
+# the files each toolkit reads. Nothing outside $HOME is touched, and every
+# neighbouring key in those files is preserved.
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+ICON_ROOTS=(
+  /usr/share/icons
+  /usr/local/share/icons
+  "${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+  "$HOME/.icons"
+)
+
+usage() {
+  echo "Usage: omarchy-icon-theme [get|list|set <name>]"
+}
+
+ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+
+  [[ -r $file ]] || return 1
+
+  awk -v section="$section" -v key="$key" '
+    /^[[:space:]]*\[/ {
+      in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+      next
+    }
+    in_section && index($0, key) == 1 {
+      line = $0
+      sub("^" key "[[:space:]]*=[[:space:]]*", "", line)
+      if (line != $0) {
+        print line
+        exit
+      }
+    }
+  ' "$file"
+}
+
+# Writes one key into one section, creating the file and the section when they
+# are missing and leaving every other line exactly as it was.
+set_ini_value() {
+  local file="$1"
+  local section="$2"
+  local key="$3"
+  local value="$4"
+  local temp_file
+
+  # A config kept in a dotfiles repo is a symlink; writing the file it points at
+  # keeps the link, where replacing the link with a regular file would quietly
+  # detach the user's config from the repo that manages it.
+  if [[ -L $file ]]; then
+    file=$(readlink -f "$file") || return 1
+    [[ -n $file ]] || return 1
+  fi
+
+  mkdir -p "${file%/*}" || return 1
+  temp_file=$(mktemp "$file.XXXXXX") || return 1
+
+  if [[ -f $file ]]; then
+    chmod --reference="$file" "$temp_file" 2>/dev/null
+    awk -v section="$section" -v key="$key" -v value="$value" '
+      /^[[:space:]]*\[/ {
+        if (in_section && !done) {
+          print key "=" value
+          done = 1
+        }
+        in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+        print
+        next
+      }
+      in_section && index($0, key) == 1 && $0 ~ "^" key "[[:space:]]*=" {
+        if (!done) {
+          print key "=" value
+          done = 1
+        }
+        next
+      }
+      { print }
+      END {
+        if (!done) {
+          if (!in_section) print "[" section "]"
+          print key "=" value
+        }
+      }
+    ' "$file" >"$temp_file" || {
+      rm -f "$temp_file"
+      return 1
+    }
+  else
+    printf '[%s]\n%s=%s\n' "$section" "$key" "$value" >"$temp_file" || {
+      rm -f "$temp_file"
+      return 1
+    }
+  fi
+
+  mv -f "$temp_file" "$file"
+}
+
+# A cursor theme also ships an index.theme, and offering one as an icon theme
+# would leave the desktop with no icons at all. Its index lists no icon
+# directories, or lists only cursors.
+theme_has_icons() {
+  local theme_dir="$1"
+  local directories entry name
+
+  directories=$(sed -n 's/^Directories[[:space:]]*=[[:space:]]*//p' "$theme_dir/index.theme" 2>/dev/null | head -n 1)
+
+  if [[ -n $directories ]]; then
+    while IFS= read -r entry; do
+      entry=${entry#"${entry%%[![:space:]]*}"}
+      entry=${entry%"${entry##*[![:space:]]}"}
+      [[ -z $entry || $entry == cursors* ]] && continue
+      return 0
+    done < <(printf '%s\n' "$directories" | tr ',' '\n')
+
+    return 1
+  fi
+
+  # No Directories key at all: fall back to what is on disk, so a hand-written
+  # theme that inherits everything is still offered.
+  for entry in "$theme_dir"/*/; do
+    [[ -d $entry ]] || continue
+    name=${entry%/}
+    name=${name##*/}
+    # cursors and cursors_scalable are what a cursor theme ships and nothing
+    # else; a theme with only those has no icons to offer.
+    [[ $name == cursors* ]] && continue
+    return 0
+  done
+
+  return 1
+}
+
+list_themes() {
+  local root theme_dir name
+
+  for root in "${ICON_ROOTS[@]}"; do
+    [[ -d $root ]] || continue
+
+    for theme_dir in "$root"/*/; do
+      [[ -f ${theme_dir}index.theme ]] || continue
+      name=${theme_dir%/}
+      name=${name##*/}
+      theme_has_icons "${theme_dir%/}" || continue
+      printf '%s\n' "$name"
+    done
+  done | sort -u
+}
+
+theme_is_installed() {
+  local name="$1"
+
+  [[ -n $name && $name != .* && $name != */* ]] || return 1
+  list_themes | grep -qxF -- "$name"
+}
+
+get_theme() {
+  local value
+
+  if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
+    value=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null)
+    value=${value#\'}
+    value=${value%\'}
+
+    if [[ -n $value ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  fi
+
+  for value in \
+    "$(ini_value "$CONFIG_HOME/gtk-3.0/settings.ini" Settings gtk-icon-theme-name)" \
+    "$(ini_value "$CONFIG_HOME/gtk-4.0/settings.ini" Settings gtk-icon-theme-name)" \
+    "$(ini_value "$CONFIG_HOME/kdeglobals" Icons Theme)"; do
+    if [[ -n $value ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+
+  # What GTK falls back to when nothing names an icon theme.
+  echo "Adwaita"
+}
+
+set_theme() {
+  local name="$1"
+  local updated=()
+  local file tool
+
+  if ! theme_is_installed "$name"; then
+    echo "Icon theme is not installed: $name" >&2
+    return 1
+  fi
+
+  # gsettings needs a user DBus session; without one there is nothing to tell,
+  # and the files below still carry the choice into the next login.
+  if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
+    if gsettings set org.gnome.desktop.interface icon-theme "$name" 2>/dev/null; then
+      updated+=("gsettings org.gnome.desktop.interface icon-theme")
+    fi
+  fi
+
+  for file in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
+    if set_ini_value "$file" Settings gtk-icon-theme-name "$name"; then
+      updated+=("$file")
+    fi
+  done
+
+  # Only where that toolkit is actually configured on this machine. Creating a
+  # qt5ct config for a machine with no qt5ct would leave a file the user never
+  # asked for and nothing ever reads.
+  for tool in qt5ct qt6ct; do
+    file="$CONFIG_HOME/$tool/$tool.conf"
+    [[ -f $file ]] || omarchy-cmd-present "$tool" || continue
+
+    if set_ini_value "$file" Appearance icon_theme "$name"; then
+      updated+=("$file")
+    fi
+  done
+
+  if set_ini_value "$CONFIG_HOME/kdeglobals" Icons Theme "$name"; then
+    updated+=("$CONFIG_HOME/kdeglobals")
+  fi
+
+  if (( ${#updated[@]} == 0 )); then
+    echo "Nothing accepted the icon theme: $name" >&2
+    return 1
+  fi
+
+  printf '%s\n' "${updated[@]}"
+}
+
+case "${1:-get}" in
+  get)
+    get_theme
+    ;;
+  list)
+    list_themes
+    ;;
+  set)
+    if (( $# < 2 )); then
+      usage >&2
+      exit 1
+    fi
+    set_theme "$2"
+    ;;
+  --help | -h)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

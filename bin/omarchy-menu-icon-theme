@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# omarchy:summary=Select the icon theme used by GTK, Qt, and KDE apps
+
+set -e
+
+current=$(omarchy-icon-theme get)
+options=()
+
+while IFS= read -r theme; do
+  [[ -n $theme ]] || continue
+
+  if [[ $theme == "$current" ]]; then
+    options+=("✓"$'\t'"$theme")
+  else
+    options+=($'\t'"$theme")
+  fi
+done < <(omarchy-icon-theme list)
+
+if (( ${#options[@]} == 0 )); then
+  omarchy-notification-send "No icon themes are installed" -t 2000
+  exit 1
+fi
+
+selection=$(omarchy-menu-select "Icon theme" "${options[@]}" -- --width 520 --maxheight 520) || exit 1
+[[ -n $selection ]] || exit 1
+
+omarchy-icon-theme set "$selection" >/dev/null
+omarchy-notification-send "Icon theme is now $selection"

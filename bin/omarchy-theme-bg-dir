@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# omarchy:summary=Manage the folders the background picker scans
+# omarchy:args=[list|add <path>|remove <path>]
+# omarchy:examples=omarchy theme bg dir|omarchy theme bg dir add ~/Pictures/Wallpapers|omarchy theme bg dir remove ~/Pictures/Wallpapers
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+CONFIG_FILE="$OMARCHY_CONFIG_HOME/backgrounds.conf"
+
+usage() {
+  echo "Usage: omarchy-theme-bg-dir [list|add <path>|remove <path>]"
+}
+
+# Every configured entry, including ones whose directory has since gone away, so
+# remove can still take a stale line out. A missing or unreadable file is not an
+# error: it means no folders are configured.
+configured_dirs() {
+  local line
+
+  [[ -r $CONFIG_FILE ]] || return 0
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line#"${line%%[![:space:]]*}"}
+    line=${line%"${line##*[![:space:]]}"}
+    [[ -z $line || $line == "#"* ]] && continue
+    printf '%s\n' "$line"
+  done <"$CONFIG_FILE"
+}
+
+list_dirs() {
+  local dir
+
+  while IFS= read -r dir; do
+    [[ -d $dir ]] && printf '%s\n' "$dir"
+  done < <(configured_dirs)
+}
+
+write_config() {
+  local temp_file
+
+  mkdir -p "$OMARCHY_CONFIG_HOME" || return 1
+  temp_file=$(mktemp "$CONFIG_FILE.XXXXXX") || return 1
+  cat >"$temp_file" || {
+    rm -f "$temp_file"
+    return 1
+  }
+  mv -f "$temp_file" "$CONFIG_FILE"
+}
+
+add_dir() {
+  local path="$1"
+  local dir existing
+
+  dir=$(realpath -- "$path" 2>/dev/null)
+
+  if [[ -z $dir || ! -d $dir ]]; then
+    echo "Not a directory: $path" >&2
+    return 1
+  fi
+
+  while IFS= read -r existing; do
+    if [[ $existing == "$dir" ]]; then
+      echo "Already a background folder: $dir" >&2
+      return 1
+    fi
+  done < <(configured_dirs)
+
+  mkdir -p "$OMARCHY_CONFIG_HOME" || return 1
+
+  # An entry appended to a file whose last line was never terminated would glue
+  # itself onto that line.
+  if [[ -s $CONFIG_FILE && -n $(tail -c 1 "$CONFIG_FILE") ]]; then
+    printf '\n' >>"$CONFIG_FILE" || return 1
+  fi
+
+  printf '%s\n' "$dir" >>"$CONFIG_FILE"
+}
+
+remove_dir() {
+  local path="$1"
+  local resolved line entry removed=false
+  local kept=()
+
+  resolved=$(realpath -m -- "$path" 2>/dev/null)
+
+  # Rewrites the file line by line rather than from the parsed entries, so a
+  # comment or a blank line the user put there survives a removal.
+  while IFS= read -r line || [[ -n $line ]]; do
+    entry=${line#"${line%%[![:space:]]*}"}
+    entry=${entry%"${entry##*[![:space:]]}"}
+
+    if [[ -n $entry && $entry != "#"* ]] &&
+      [[ $entry == "$path" || ( -n $resolved && $entry == "$resolved" ) ]]; then
+      removed=true
+      continue
+    fi
+
+    kept+=("$line")
+  done < <([[ -r $CONFIG_FILE ]] && cat "$CONFIG_FILE")
+
+  if [[ $removed != true ]]; then
+    echo "Not a background folder: $path" >&2
+    return 1
+  fi
+
+  # Removing the last folder leaves an empty file, not a blank line: the menu
+  # guard that hides Remove Folder asks whether this file has anything in it.
+  if (( ${#kept[@]} > 0 )); then
+    printf '%s\n' "${kept[@]}" | write_config
+  else
+    : | write_config
+  fi
+}
+
+case "${1:-list}" in
+  list)
+    list_dirs
+    ;;
+  add)
+    if (( $# < 2 )); then
+      usage >&2
+      exit 1
+    fi
+    add_dir "$2"
+    ;;
+  remove)
+    if (( $# < 2 )); then
+      usage >&2
+      exit 1
+    fi
+    remove_dir "$2"
+    ;;
+  --help | -h)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

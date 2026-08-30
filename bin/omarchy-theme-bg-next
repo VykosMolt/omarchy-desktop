@@ -4,14 +4,15 @@
 # omarchy:examples=omarchy theme bg next
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-backgrounds.sh"
 
-THEME_NAME=$(cat "$OMARCHY_STATE_HOME/current/theme.name" 2>/dev/null)
-THEME_BACKGROUNDS_PATH="$OMARCHY_STATE_HOME/current/theme/backgrounds/"
-USER_BACKGROUNDS_PATH="$OMARCHY_CONFIG_HOME/backgrounds/$THEME_NAME/"
 CURRENT_BACKGROUND_LINK="$OMARCHY_STATE_HOME/current/background"
 
+# Cycle through exactly what the picker shows, so a folder the user registered
+# is in the rotation rather than only in the grid.
+mapfile -t BACKGROUND_DIRS < <(omarchy_background_dirs)
 mapfile -d '' -t BACKGROUNDS < <(
-  find -L "$USER_BACKGROUNDS_PATH" "$THEME_BACKGROUNDS_PATH" -maxdepth 1 -type f \
+  find -L "${BACKGROUND_DIRS[@]}" -maxdepth 1 -type f \
     \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) \
     -print0 2>/dev/null | sort -z
 )

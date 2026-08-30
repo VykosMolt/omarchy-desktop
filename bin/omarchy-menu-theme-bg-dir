@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# omarchy:summary=Add or remove a folder the background picker scans
+# omarchy:args=<add|remove>
+
+set -e
+
+case "${1:-}" in
+  add)
+    folder=$(omarchy-file-select --title "Add wallpaper folder" --directory | head -n 1) || exit 1
+    [[ -n $folder ]] || exit 1
+
+    if message=$(omarchy-theme-bg-dir add "$folder" 2>&1); then
+      omarchy-notification-send "Wallpaper folder added" "$folder"
+    else
+      omarchy-notification-send "Wallpaper folder not added" "$message"
+      exit 1
+    fi
+    ;;
+  remove)
+    mapfile -t folders < <(omarchy-theme-bg-dir list)
+
+    if (( ${#folders[@]} == 0 )); then
+      omarchy-notification-send "No wallpaper folders are configured" -t 2000
+      exit 1
+    fi
+
+    folder=$(omarchy-menu-select "Remove wallpaper folder" "${folders[@]}" -- --width 700 --maxheight 520) || exit 1
+    [[ -n $folder ]] || exit 1
+
+    if message=$(omarchy-theme-bg-dir remove "$folder" 2>&1); then
+      omarchy-notification-send "Wallpaper folder removed" "$folder"
+    else
+      omarchy-notification-send "Wallpaper folder not removed" "$message"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "Usage: omarchy-menu-theme-bg-dir <add|remove>" >&2
+    exit 1
+    ;;
+esac

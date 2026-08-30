@@ -35,6 +35,10 @@
   // Style
   "style.theme": {"icon":"󰸌","label":"Theme","aliases":["theme","themes"],"action":"theme=$(omarchy-theme-switcher); [[ -n $theme ]] && omarchy-theme-set \"$theme\""},
   "style.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""},
+  "style.wallpapers": {"icon":"","label":"Wallpaper Folders"},
+  "style.wallpapers.add": {"icon":"","label":"Add Folder","action":"omarchy-menu-theme-bg-dir add"},
+  "style.wallpapers.remove": {"icon":"","label":"Remove Folder","when":"[[ -s \"$OMARCHY_CONFIG_HOME/backgrounds.conf\" ]]","action":"omarchy-menu-theme-bg-dir remove"},
+  "style.icons": {"icon":"","label":"Icons","action":"omarchy-menu-icon-theme"},
   "style.font": {"icon":"","label":"Font","provider":"fonts"},
   "style.bar": {"icon":"󰍜","label":"Menu Bar"},
   "style.bar.position": {"icon":"","label":"Position"},
