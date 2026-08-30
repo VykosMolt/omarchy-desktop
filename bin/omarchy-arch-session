@@ -20,7 +20,7 @@ SESSION_ENV_FILE="$SESSION_RUNTIME/omarchy-arch-session.env"
 SESSION_LOCK_FILE="$SESSION_RUNTIME/omarchy-arch-session.lock"
 
 HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
-HYPRLAND_BIN=/usr/bin/Hyprland
+START_HYPRLAND_BIN=/usr/bin/start-hyprland
 
 write_systemd_env() {
     local name value
@@ -53,8 +53,8 @@ if [[ ! -f $HYPR_CONFIG ]]; then
     exit 1
 fi
 
-if [[ ! -x $HYPRLAND_BIN ]]; then
-    echo "Hyprland not found at $HYPRLAND_BIN" >&2
+if [[ ! -x $START_HYPRLAND_BIN ]]; then
+    echo "start-hyprland not found at $START_HYPRLAND_BIN" >&2
     exit 1
 fi
 
@@ -128,15 +128,17 @@ WM_EOF
     systemctl --user daemon-reload
 fi
 
-# Launch the compositor binary directly rather than through hyprland.desktop.
-# That entry runs /usr/bin/start-hyprland, which execs `Hyprland --watchdog-fd N`
-# and forwards nothing else, so --config was silently dropped and Hyprland fell
-# back to ~/.config/hypr/hyprland.lua -- the normal session's config, not this
-# one. Giving uwsm a path also puts it in hardcode mode, so the generated unit
-# carries this exact command line.
+# start-hyprland runs the compositor under its watchdog, and everything after
+# `--` is handed to Hyprland. Launching hyprland.desktop loses --config, because
+# that entry passes no arguments, and Hyprland then falls back to
+# ~/.config/hypr/hyprland.lua -- the normal session's config, not this one. Going
+# straight to the Hyprland binary keeps the config but skips the watchdog, and
+# Hyprland says so on screen at every login. Naming start-hyprland and passing
+# the config after `--` is what does both. Giving uwsm a path also puts it in
+# hardcode mode, so the generated unit carries this exact command line.
 if (( dry_run )); then
     exec uwsm "${uwsm_args[@]}" -- \
-        "$HYPRLAND_BIN" \
+        "$START_HYPRLAND_BIN" -- \
         --config "$HYPR_CONFIG" \
         "$@"
 fi
@@ -145,6 +147,6 @@ fi
 # A stale lock file is harmless: flock state disappears when this process dies.
 exec /usr/bin/flock -n "$SESSION_LOCK_FILE" \
     uwsm "${uwsm_args[@]}" -- \
-        "$HYPRLAND_BIN" \
+        "$START_HYPRLAND_BIN" -- \
         --config "$HYPR_CONFIG" \
         "$@"
