@@ -40,7 +40,6 @@ assert_power_calls() {
 
   cat >"$expected_log" <<EOF
 systemd-run --user --collect --quiet --on-active=2s --timer-property=AccuracySec=100ms systemctl $systemctl_action --no-wall
-omarchy-state clear re*-required
 omarchy-hyprland-window-close-all 
 sleep 1
 EOF

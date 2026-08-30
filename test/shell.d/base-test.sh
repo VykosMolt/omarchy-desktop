@@ -10,6 +10,27 @@ SHELL_TEST_DIR="$ROOT/test/shell.d"
 
 export ROOT
 
+# Tests redirect a command's state by handing it a throwaway HOME. That only
+# works while nothing above HOME is already pointing somewhere real: the roots
+# in lib/omarchy-paths.sh are derived from OMARCHY_*_HOME first and XDG_*_HOME
+# second, and a test run from inside a live session inherits both. Left set,
+# they send a test's writes into the session's own config and state -- which is
+# how a fixture plugin and a fixture theme once landed in a real one. Drop them
+# here so every suite starts from HOME and nothing it runs can escape the
+# directory it was given.
+# Every OMARCHY_* variable goes, not a fixed list: a session exports the unit
+# names and OMARCHY_PATH too, and a test that forgets to set one should fail
+# loudly rather than quietly pick up the live session's.
+mapfile -t __inherited < <(compgen -e | grep '^OMARCHY_' || true)
+(( ${#__inherited[@]} == 0 )) || unset "${__inherited[@]}"
+unset __inherited
+unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
+
+# The session also puts this checkout's bin/ on PATH. Tests that want it say so;
+# leaving it here lets a test that means to hide a command still find it.
+PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$ROOT/bin" | paste -sd:)
+export PATH
+
 pass() {
   printf 'ok - %s\n' "$1"
 }

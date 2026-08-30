@@ -36,7 +36,6 @@ ShellRoot {
   readonly property var builtinShellConfig: ({
     version: 1,
     idle: {
-      screensaver: 150,
       lock: 300
     },
     bar: {
@@ -148,9 +147,6 @@ ShellRoot {
     pluginRegistry.firstPartyDir = shell.firstPartyPluginsDir
     pluginRegistry.shellConfigProvider = function() { return shell.shellConfig }
     pluginRegistry.shellConfigMutator = function(mutate) { shell.mutateShellConfig(mutate) }
-    // PluginRegistry.ensureUserDir() runs in its own Component.onCompleted and
-    // chains rescan() once the directory exists. We also kick a scan here in
-    // case the user dir already existed at startup.
     pluginRegistry.rescan()
     shell._syncServices()
   }

@@ -1,7 +1,6 @@
 {
   "version": 1,
   "idle": {
-    "screensaver": 150,
     "lock": 300
   },
   "bar": {
@@ -39,9 +38,6 @@
           "id": "omarchy.tray"
         },
         {
-          "id": "omarchy.agents"
-        },
-        {
           "id": "omarchy.bluetooth"
         },
         {
@@ -58,6 +54,5 @@
         }
       ]
     }
-  },
-  "plugins": []
+  }
 }

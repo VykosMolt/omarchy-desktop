@@ -112,8 +112,8 @@ quoted argument (`"$file"`) stays one argument even with spaces. On the shell
 side they are run through `Util.execArgv`, which invokes `bash -lc 'exec "$@"'`
 with the arguments as **positional parameters** — never interpolated into the
 script text. bash expands `"$@"` without re-tokenizing or re-evaluating it, so a
-value carrying data an attacker controls — a downloaded video's title, a
-received filename, a crashed process's name — is only ever a single argument and
+value carrying data an attacker controls — a downloaded video's title or a
+received filename — is only ever a single argument and
 can never be reparsed as a command. The login shell keeps the PATH and session
 environment that GUI click targets (the screenshot editor, mpv, xdg-open) expect.
 
@@ -167,12 +167,6 @@ Everything goes through the same sender contract, so the pieces are small:
 
 - **Low battery** — `omarchy-battery-low` sends a critical toast and runs the
   `battery-low` hook.
-- **Crash capture** — `omarchy-crash-watch` follows the systemd-coredump
-  journal stream and announces each crashed program (deduped per minute) as a
-  critical toast whose click runs `omarchy-agent-crash` (via `--exec`, so a
-  hostile process name stays a discrete argument). It waits for the
-  server first: a shell crash takes the notification server down with it, and
-  that crash is the one most worth reporting.
 
 ## Reminders
 

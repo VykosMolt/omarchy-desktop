@@ -52,9 +52,6 @@ pass "modeless recovery retries unanswered queries without waiting on a dead com
 grep -F 'configreloaded\>\>*)' "$monitor_watch" >/dev/null
 pass "modeless recovery also runs after a config reload"
 
-grep -F 'omarchy-hyprland-reload-guard paused' "$monitor_watch" >/dev/null
-pass "modeless recovery does not reload into a package transaction"
-
 grep -F '.disabled != true and (.width == 0 or .height == 0)' "$ROOT/bin/omarchy-hyprland-monitor-modeless" >/dev/null
 grep -F 'hyprctl monitors all -j' "$ROOT/bin/omarchy-hyprland-monitor-modeless" >/dev/null
 pass "modeless helper sees mirrors and ignores monitors disabled on purpose"

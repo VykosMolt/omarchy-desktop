@@ -8,7 +8,6 @@ QtObject {
   id: registry
 
   property string home: Quickshell.env("HOME")
-  property string pluginsDir: Paths.omarchyConfig + "/plugins"
 
   // Set by shell.qml at startup so we can also scan bundled first-party plugins.
   property string firstPartyDir: ""
@@ -29,7 +28,6 @@ QtObject {
   signal pluginsChanged()
   signal scanFinished()
   signal pluginLoadFailed(string id, string error)
-  signal localPluginChanged(string id)
 
   // ---------------------------------------------------------------- helpers
 
@@ -551,7 +549,6 @@ QtObject {
   function parseScanOutput(text) {
     var lines = String(text || "").split("\n")
     var firstParty = {}
-    var thirdParty = {}
     var currentSource = null
     var currentKind = null
     var currentJson = []
@@ -564,10 +561,7 @@ QtObject {
         manifest.__sourceDir = currentSource
         manifest.__isFirstParty = (currentKind === "firstparty")
         var validated = validateManifest(manifest, currentSource + "/manifest.json")
-        if (validated) {
-          if (currentKind === "firstparty") firstParty[validated.id] = validated
-          else thirdParty[validated.id] = validated
-        }
+        if (validated) firstParty[validated.id] = validated
       } catch (e) {
         console.warn("PluginRegistry: bad manifest at " + currentSource + ": " + e)
       }
@@ -594,21 +588,7 @@ QtObject {
     }
     flush()
 
-    var merged = {}
-    for (var fk in firstParty) merged[fk] = firstParty[fk]
-    // Third-party plugins never shadow first-party ids. The whole
-    // `omarchy.*` namespace is reserved for built-ins, including bar widgets
-    // registered outside the manifest-based plugin registry.
-    for (var tk in thirdParty) {
-      if (firstParty[tk] || String(tk).indexOf("omarchy.") === 0) {
-        console.warn("PluginRegistry: plugin " + tk
-          + " rejected: id is reserved for first-party Omarchy plugins")
-        continue
-      }
-      merged[tk] = thirdParty[tk]
-    }
-
-    installedPlugins = merged
+    installedPlugins = firstParty
     registryRevision++
     scanning = false
     pluginsChanged()
@@ -626,91 +606,25 @@ QtObject {
     }
   }
 
-  property Process initProcess: Process {
-    onExited: {
-      localPluginWatcher.running = true
-      registry.rescan()
-    }
-  }
-
-  property Process localPluginWatcher: Process {
-    command: [
-      "inotifywait",
-      "-m",
-      "-r",
-      "-q",
-      "-e",
-      "close_write,create,delete,move",
-      "--format",
-      "%w%f",
-      registry.pluginsDir
-    ]
-    stdout: SplitParser {
-      onRead: function(path) {
-        var pluginId = registry.localPluginIdForPath(path)
-        if (pluginId) registry.localPluginChanged(pluginId)
-      }
-    }
-    onExited: localPluginWatcherRestart.restart()
-  }
-
-  property Timer localPluginWatcherRestart: Timer {
-    interval: 1000
-    onTriggered: localPluginWatcher.running = true
-  }
-
   function rescan() {
     if (scanning) return
     scanning = true
-    // $0 = first-party dir, $1 = third-party dir. Some bash versions need the explicit -- separator.
-    // First-party plugins may be grouped one level deeper, e.g. panels/audio
-    // or services/battery.
-    // First-party bar widgets can also carry sibling manifests such as
-    // widgets/Clock.manifest.json so multiple widgets can live in one source
-    // directory without wrapper folders.
-    // Third-party plugins stay at the top level of ~/.config/omarchy/plugins.
+    // $0 = plugin dir. Some bash versions need the explicit -- separator.
+    // Plugins may be grouped one level deeper, e.g. panels/audio or
+    // services/battery, and a bar widget can carry sibling manifests such as
+    // widgets/Clock.manifest.json so several widgets live in one directory.
     var script = ""
-      + "emit_manifest() { local kind=\"$1\"; local manifest=\"$2\"; local sub; "
+      + "emit_manifest() { local manifest=\"$1\"; local sub; "
       + "  if [[ ${manifest##*/} == \"manifest.json\" ]]; then sub=\"${manifest%/manifest.json}\"; else sub=\"$(dirname -- \"$manifest\")\"; fi; "
-      + "  printf '===%s::%s===\\n' \"$kind\" \"$sub\"; "
+      + "  printf '===firstparty::%s===\\n' \"$sub\"; "
       + "  cat \"$manifest\"; "
       + "  printf '\\n=== EOM ===\\n'; "
       + "}; "
-      + "scan_firstparty() { local dir=\"$1\"; "
-      + "  [[ -d \"$dir\" ]] || return 0; "
-      + "  while IFS= read -r manifest; do emit_manifest firstparty \"$manifest\"; done < <(find \"$dir\" -mindepth 2 -maxdepth 3 -type f \\( -name manifest.json -o -name '*.manifest.json' \\) | sort); "
-      + "}; "
-      + "scan_thirdparty() { local dir=\"$1\"; "
-      + "  [[ -d \"$dir\" ]] || return 0; "
-      + "  for sub in \"$dir\"/*/; do "
-      + "    [[ -f \"$sub/manifest.json\" ]] || continue; "
-      + "    emit_manifest thirdparty \"$sub/manifest.json\"; "
-      + "  done; "
-      + "}; "
-      + "scan_firstparty \"$0\"; "
-      + "scan_thirdparty \"$1\""
-    scanProcess.command = ["bash", "-c", script, registry.firstPartyDir, registry.pluginsDir]
+      + "[[ -d \"$0\" ]] || exit 0; "
+      + "while IFS= read -r manifest; do emit_manifest \"$manifest\"; done "
+      + "  < <(find \"$0\" -mindepth 2 -maxdepth 3 -type f \\( -name manifest.json -o -name '*.manifest.json' \\) | sort)"
+    scanProcess.command = ["bash", "-c", script, registry.firstPartyDir]
     scanProcess.running = true
   }
 
-  function ensureUserDir() {
-    initProcess.command = ["bash", "-c", "mkdir -p \"$0\"", registry.pluginsDir]
-    initProcess.running = true
-  }
-
-  function localPluginIdForPath(filePath) {
-    var base = pluginsDir.replace(/\/$/, "") + "/"
-    var path = String(filePath || "").trim()
-    if (path.indexOf(base) !== 0) return ""
-
-    var relative = path.slice(base.length)
-    // Hidden entries are not plugins: clone staging dirs, remove backups.
-    if (relative.indexOf(".") === 0) return ""
-    if (relative.indexOf("/.git/") !== -1 || relative.endsWith("/.git")) return ""
-
-    var slash = relative.indexOf("/")
-    return slash === -1 ? relative : relative.slice(0, slash)
-  }
-
-  Component.onCompleted: ensureUserDir()
 }

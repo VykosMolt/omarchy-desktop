@@ -4,14 +4,25 @@ local require_optional = require("default.hypr.require_optional")
 -- GUM environment variables for styling purposes.
 require_optional.module("omarchy.current.theme.gum_env")
 
--- Cursor size.
-hl.env("XCURSOR_SIZE", "24")
-hl.env("HYPRCURSOR_SIZE", "24")
+-- Cursor size, unless the session already set one. The host's cursor size is
+-- the user's choice and lives in gtk settings.ini and the environment; a
+-- desktop that overwrote it would resize their pointer for picking it.
+local function env_default(name, value)
+  local current = os.getenv(name)
+  if current == nil or current == "" then
+    hl.env(name, value)
+  end
+end
+
+env_default("XCURSOR_SIZE", "24")
+env_default("HYPRCURSOR_SIZE", "24")
 
 -- Force all apps to use Wayland.
 hl.env("GDK_BACKEND", "wayland,x11,*")
 hl.env("QT_QPA_PLATFORM", "wayland;xcb")
-hl.env("QT_QPA_PLATFORMTHEME", "gtk3")
+-- QT_QPA_PLATFORMTHEME is deliberately not set. It decides which style and
+-- icon theme every Qt app in the session uses, and that is configured on the
+-- host (qt6ct, kdeglobals); forcing gtk3 here would override it.
 hl.env("MOZ_ENABLE_WAYLAND", "1")
 hl.env("ELECTRON_OZONE_PLATFORM_HINT", "wayland")
 hl.env("OZONE_PLATFORM", "wayland")

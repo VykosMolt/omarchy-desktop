@@ -20,7 +20,7 @@ SESSION_ENV_FILE="$SESSION_RUNTIME/omarchy-arch-session.env"
 SESSION_LOCK_FILE="$SESSION_RUNTIME/omarchy-arch-session.lock"
 
 HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
-HYPRLAND_BIN=$(command -v Hyprland || echo /usr/bin/Hyprland)
+HYPRLAND_BIN=/usr/bin/Hyprland
 
 write_systemd_env() {
     local name value
@@ -53,6 +53,11 @@ if [[ ! -f $HYPR_CONFIG ]]; then
     exit 1
 fi
 
+if [[ ! -x $HYPRLAND_BIN ]]; then
+    echo "Hyprland not found at $HYPRLAND_BIN" >&2
+    exit 1
+fi
+
 uwsm_args=(
     start
     -g -1
@@ -78,7 +83,6 @@ if (( ! dry_run )); then
         omarchy-arch-session.target
         omarchy-arch-shell.service
         omarchy-arch-sleep-lock.service
-        omarchy-arch-crash-watch.service
         omarchy-arch-fcitx5.service
         omarchy-arch-bt-agent.service
         omarchy-arch-monitor-watch.service

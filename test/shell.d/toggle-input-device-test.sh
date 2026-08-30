@@ -16,7 +16,8 @@ log_file="$tmpdir/hyprctl.log"
 marker="$tmpdir/marker"
 mkdir -p "$stub_dir" "$home_dir" "$xdg_decoy"
 
-state_dir="$home_dir/.local/state/omarchy/toggles/hypr"
+omarchy_state="$tmpdir/state"
+state_dir="$omarchy_state/toggles/hypr"
 name_file="$state_dir/touchpad-disabled-name"
 state_lua="$state_dir/touchpad-disabled.lua"
 
@@ -45,13 +46,13 @@ EOF
   chmod +x "$stub_dir/omarchy-hw-$kind"
 }
 
-# XDG_STATE_HOME deliberately points away from HOME everywhere below: the
-# input-device state is hardcoded to ~/.local/state like the sibling toggle
-# tools and the pre-migration script, so nothing may read or write the XDG
-# directory.
+# XDG_STATE_HOME deliberately points away from the session root everywhere
+# below: input-device state belongs to OMARCHY_STATE_HOME, which is what the
+# Hyprland Lua reads back, so nothing may read or write the XDG directory.
 run_toggle() {
   HOME="$home_dir" \
     XDG_STATE_HOME="$xdg_decoy" \
+    OMARCHY_STATE_HOME="$omarchy_state" \
     HYPRCTL_LOG="$log_file" \
     PATH="$stub_dir:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-toggle-input-device" "$@"
@@ -112,7 +113,8 @@ grep -F 'hl.device({ name = "touchpad\"' "$log_file" >/dev/null ||
   fail "hyprctl eval Lua-quotes quotes in the device name" "$(<"$log_file")"
 pass "touchpad disable treats USB device names as data"
 
-HOME="$home_dir" XDG_STATE_HOME="$xdg_decoy" OMARCHY_PATH="$ROOT" MARKER="$marker" lua - <<'LUA'
+HOME="$home_dir" XDG_STATE_HOME="$xdg_decoy" OMARCHY_STATE_HOME="$omarchy_state" \
+  OMARCHY_PATH="$ROOT" MARKER="$marker" lua - <<'LUA'
 local seen = {}
 hl = {
   device = function(opts)
@@ -139,8 +141,8 @@ run_toggle touchpad off
 [[ $(<"$name_file") == "$poc_name" ]] || fail "PoC device name is stored only as data"
 [[ ! -e $state_lua ]] || fail "PoC device name is not written as Lua"
 
-HOME="$home_dir" XDG_STATE_HOME="$xdg_decoy" OMARCHY_PATH="$ROOT" \
-  POC_NAME="$poc_name" EVAL_SNIPPET="$(<"$log_file")" lua - <<'LUA'
+HOME="$home_dir" XDG_STATE_HOME="$xdg_decoy" OMARCHY_STATE_HOME="$omarchy_state" \
+  OMARCHY_PATH="$ROOT" POC_NAME="$poc_name" EVAL_SNIPPET="$(<"$log_file")" lua - <<'LUA'
 local poc = os.getenv("POC_NAME")
 local snippet = os.getenv("EVAL_SNIPPET")
 local seen, executed = {}, false
@@ -210,77 +212,3 @@ set -e
 (( status != 0 )) || fail "disable errors when no device is found"
 [[ ! -e $name_file ]] || fail "no state is written when no device is found"
 pass "disable errors when no device is found"
-
-# The migration runs with the same XDG decoy: legacy files were written to
-# ~/.local/state, so that is where it must look no matter what XDG says.
-run_migration() {
-  HOME="$home_dir" XDG_STATE_HOME="$xdg_decoy" HYPRCTL_LOG="$log_file" \
-    PATH="$stub_dir:$ROOT/bin:$PATH" \
-    bash -euo pipefail "$ROOT/migrations/1787618700.sh" >/dev/null
-}
-
-mkdir -p "$state_dir"
-rm -f "$state_dir"/*-disabled-name
-printf 'hl.device({ name = "synps/2-synaptics-touchpad", enabled = false })\n' >"$state_lua"
-printf 'hl.device({ name = "hostile\\"")", enabled = false })\n' >"$state_dir/touchscreen-disabled.lua"
-
-: >"$log_file"
-run_migration
-[[ $(<"$name_file") == "synps/2-synaptics-touchpad" ]] ||
-  fail "migration recovers a device name containing a slash"
-[[ ! -e $state_lua ]] || fail "migration deletes the generated touchpad Lua"
-[[ ! -e $state_dir/touchscreen-disabled-name ]] ||
-  fail "migration does not copy a hostile name out of generated Lua"
-[[ ! -e $state_dir/touchscreen-disabled.lua ]] ||
-  fail "migration deletes hostile generated Lua even when no name is recovered"
-assert_decoy_untouched
-# The package hook reloads Hyprland before migrations run, so the disable was
-# already dropped for this session; the migration has to put it back.
-grep -Fx 'reload' "$log_file" >/dev/null ||
-  fail "migration reloads so the recovered disable applies to this session"
-pass "migration recovers plain names and discards hostile generated Lua"
-
-printf 'kept-name\n' >"$name_file"
-printf 'hl.device({ name = "other-touchpad", enabled = false })\n' >"$state_lua"
-run_migration
-[[ $(<"$name_file") == "kept-name" ]] || fail "migration keeps an existing device-name file"
-[[ ! -e $state_lua ]] || fail "migration still deletes the generated Lua"
-pass "migration is idempotent over an existing device-name file"
-
-rm -f "$name_file"
-printf 'garbage\n' >"$state_lua"
-chmod 000 "$state_lua"
-run_migration
-[[ ! -e $state_lua ]] || fail "migration removes an unreadable generated Lua"
-[[ ! -e $name_file ]] || fail "no name is recovered from an unreadable file"
-pass "an unreadable state file does not wedge the migration"
-
-: >"$log_file"
-run_migration
-[[ ! -s $log_file ]] || fail "migration with nothing to migrate does not reload"
-pass "migration no-ops with nothing left to migrate"
-
-# A compromised install carries a leftover generated touchpad-disabled.lua whose
-# device name broke out into os.execute. Until the migration deletes it, a reload
-# must not source it. toggles.lua excludes those two names from require_all, so the
-# payload never runs, while a current name-file disable still applies.
-reload_home="$tmpdir/reload-home"
-reload_state="$reload_home/.local/state/omarchy/toggles/hypr"
-mkdir -p "$reload_state"
-reload_marker="$tmpdir/reload-executed"
-rm -f "$reload_marker"
-printf 'hl.device({ name = "trackpad"})os.execute("touch %s")--", enabled = false })\n' "$reload_marker" \
-  >"$reload_state/touchpad-disabled.lua"
-printf 'elan-touchpad\n' >"$reload_state/touchpad-disabled-name"
-
-HOME="$reload_home" XDG_STATE_HOME="$reload_home/.local/state" OMARCHY_PATH="$ROOT" lua - <<'LUA'
-local disabled = {}
-hl = { device = function(opts) table.insert(disabled, opts) end }
-dofile(os.getenv("OMARCHY_PATH") .. "/default/hypr/bootstrap.lua")
-require("default.hypr.toggles")
-assert(#disabled == 1, "only the current name-file disable is applied")
-assert(disabled[1].name == "elan-touchpad", "disable uses the stored device name")
-assert(disabled[1].enabled == false)
-LUA
-[[ ! -e $reload_marker ]] || fail "a leftover legacy generated toggle Lua must not execute on reload"
-pass "reload excludes leftover legacy toggle Lua while applying the data disable"

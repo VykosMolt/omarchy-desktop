@@ -231,7 +231,6 @@ becomes the authoritative file — we do **not** deep-merge defaults back in.
 {
   "version": 1,
   "idle": {
-    "screensaver": 150,
     "lock": 300
   },
   "bar": {
@@ -274,9 +273,8 @@ becomes the authoritative file — we do **not** deep-merge defaults back in.
    `allowMultiple: true`. Each instance is independent — e.g. two clock
    widgets in different timezones are just two `{"id":"omarchy.clock", "timezone": ...}`
    entries with their own values.
-7. **Idle timings are top-level.** `idle.screensaver` and `idle.lock`
-   are seconds since user idle began, so the default lock fires at 300s
-   even if the 150s screensaver starts first.
+7. **Idle timing is top-level.** `idle.lock` is seconds since user idle
+   began, so the default lock fires at 300s.
 8. **`version: 1` is required** at the top level. The shell will fall back
    to defaults rather than load an unknown version.
 

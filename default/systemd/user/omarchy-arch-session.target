@@ -5,7 +5,6 @@ After=wayland-session-waitenv.service
 
 Wants=omarchy-arch-shell.service
 Wants=omarchy-arch-sleep-lock.service
-Wants=omarchy-arch-crash-watch.service
 Wants=omarchy-arch-fcitx5.service
 Wants=omarchy-arch-bt-agent.service
 Wants=omarchy-arch-monitor-watch.service

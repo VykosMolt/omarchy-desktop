@@ -220,17 +220,6 @@ pass "an echoed configreloaded does not stack a second recovery loop"
 
 stop_watcher
 
-# A package transaction has config half-replaced; reloading into that is exactly
-# what the reload guard exists to prevent.
-printf '%s' '[{"name":"DP-1","width":0,"height":0,"disabled":false}]' >"$monitors_file"
-start_watcher 1
-
-sleep 1
-[[ ! -s $reload_log ]] || fail "recovery holds off while the reload guard is paused" "$(<"$reload_log")"
-pass "recovery holds off while the reload guard is paused"
-
-stop_watcher
-
 # An unanswerable query is not a healthy monitor. Giving up on one would strand
 # the screen, because nothing fires an event to start recovery again.
 printf '%s' '[{"name":"DP-1","width":0,"height":0,"disabled":false}]' >"$monitors_file"

@@ -5,36 +5,19 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 timezone_menu="$ROOT/bin/omarchy-menu-timezone"
-sudoers_file="$ROOT/etc/sudoers.d/omarchy-tzupdate"
 
-grep -F '%wheel ALL=(root) NOPASSWD: /usr/bin/timedatectl ^set-timezone [A-Za-z0-9_+][A-Za-z0-9_+.-]*(/[A-Za-z0-9_+][A-Za-z0-9_+.-]*)*$' "$sudoers_file" >/dev/null ||
-  fail "timezone sudoers rule allows passwordless timedatectl timezone changes"
+# systemd-timedated carries its own polkit policy, so a bare timedatectl call
+# prompts on its own. Reaching for sudo instead would need a passwordless
+# sudoers rule, and this port installs nothing into /etc.
+grep -Fx 'timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
+  fail "timezone menu calls timedatectl directly and lets polkit prompt"
 
-! grep -F 'set-timezone *' "$sudoers_file" >/dev/null ||
-  fail "timezone sudoers rule uses a bare wildcard that admits extra arguments like -H and -M"
+! grep -vE '^[[:space:]]*#' "$timezone_menu" | grep -E '\b(sudo|pkexec)\b' >/dev/null ||
+  fail "timezone menu escalates by hand instead of leaving it to timedated's polkit policy"
 
-! grep -F 'tzupdate' "$sudoers_file" >/dev/null ||
-  fail "timezone sudoers rule does not grant passwordless tzupdate"
-
-grep -F 'sudo timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
-  fail "timezone menu uses the passwordless sudoers timedatectl rule"
-
-! grep -F 'pkexec timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
-  fail "timezone menu does not wrap timedatectl in pkexec"
-
-! grep -F 'pkexec /usr/bin/timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
-  fail "timezone menu does not wrap timedatectl in pkexec"
-
-! grep -F 'sudo /usr/bin/timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
-  fail "timezone menu lets sudo resolve timedatectl from its secure path"
-
-! grep -Fx 'timedatectl set-timezone "$timezone"' "$timezone_menu" >/dev/null ||
-  fail "timezone menu does not use bare timedatectl, which triggers polkit"
+pass "timezone menu changes the timezone through timedated's own authorization"
 
 grep -F 'omarchy-shell -q omarchy.clock refresh' "$timezone_menu" >/dev/null ||
   fail "timezone menu refreshes the namespaced clock IPC target"
-
-! grep -F 'omarchy-shell -q Clock refresh' "$timezone_menu" >/dev/null ||
-  fail "timezone menu no longer refreshes the retired Clock IPC target"
 
 pass "timezone menu refreshes clock after timezone changes"

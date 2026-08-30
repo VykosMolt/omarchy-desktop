@@ -94,37 +94,13 @@ prelude() {
 stub_dir=$(mktemp -d)
 trap 'rm -rf "$stub_dir"' EXIT
 
-# `pacman -Q` resolves a name through what installed packages provide, so gvim
-# answers for vim and bash answers for sh. A set built from `pacman -Qq` alone
-# would miss both and offer to install what is already there.
-#
-# `-Qi` wraps a long list onto indented continuation lines whenever COLUMNS is
-# set, so gvim's provides arrive the way a wrapped terminal would emit them.
+# Nothing may ask what is installed: this desktop does not manage packages, and
+# a prelude that shelled out to pacman would put a package-database query on the
+# path of every menu open. A pacman that fails loudly proves the batch is clean.
 cat >"$stub_dir/pacman" <<'STUB'
 #!/bin/bash
-case "$1" in
--Qq)
-  printf '%s\n' bash gvim
-  ;;
--Qi)
-  cat <<'INFO'
-Name            : bash
-Provides        : sh
-Version         : 5.3.0-1
-Name            : gvim
-Provides        : vim=9.2.0849-1
-                  xxd
-Version         : 9.2-1
-INFO
-  ;;
--Q)
-  shift
-  for want in "$@"; do
-    case "${want%%[<>=]*}" in bash | gvim | sh | vim | xxd) ;; *) exit 1 ;; esac
-  done
-  ;;
-esac
-exit 0
+echo "pacman must never run inside a menu guard batch" >&2
+exit 97
 STUB
 chmod +x "$stub_dir/pacman"
 printf '#!/bin/bash\nexit 0\n' >"$stub_dir/gvim"
@@ -145,16 +121,13 @@ assert_helper_agrees() {
   ((real == shadowed)) || fail "$description" "$helper $*: real=$real shadowed=$shadowed"
 }
 
-# vim, sh and xxd are provided rather than installed, and xxd only appears on a
-# wrapped continuation line; bash>=1 is a version constraint no set can answer.
-pkg_cases=("bash" "vim" "sh" "xxd" "absent" "bash vim" "bash absent" "bash>=1" "vim>=1" "")
-for helper in omarchy-pkg-present omarchy-pkg-missing; do
-  for case in "${pkg_cases[@]}"; do
-    read -r -a argv <<<"$case"
-    assert_helper_agrees "guard prelude resolves packages as pacman does" "$helper" "${argv[@]}"
-  done
-done
-pass "guard prelude resolves packages through provides, wrapping, and constraints as pacman does"
+[[ $guard_prelude != *pacman* ]] ||
+  fail "guard prelude never queries the package database" "$guard_prelude"
+pass "guard prelude never queries the package database"
+
+! grep -E '"(when|checked|disabled)":"[^"]*omarchy-pkg-' "$ROOT/default/omarchy/omarchy-menu.jsonc" >/dev/null ||
+  fail "no menu guard asks whether a package is installed"
+pass "no menu guard asks whether a package is installed"
 
 # cd is a shell builtin `command -v` finds and a PATH search does not.
 cmd_cases=("gvim" "cd" "absent" "gvim absent" "gvim cd" "")
@@ -201,13 +174,9 @@ pass "guard batch survives a reader that exits nonzero under errexit"
 # `.git` file opens a terminal that prints nothing and closes. Both sides ask
 # omarchy-theme-extras today; the shapes below are what would tell us if one
 # of them stopped.
-themes_guard=$(node -e '
-  const fs = require("fs")
-  const path = require("path")
-  const menu = require(path.join(process.env.ROOT, "shell/plugins/menu/MenuModel.js"))
-  const items = menu.parseMenuJsonc(fs.readFileSync(path.join(process.env.ROOT, "default/omarchy/omarchy-menu.jsonc"), "utf8"))
-  process.stdout.write(items.find(item => item.id === "update.themes").when)
-')
+# The Update menu family is gone, so the guard is the command itself: whatever
+# omarchy-theme-extras answers is what omarchy-theme-update will act on.
+themes_guard='omarchy-theme-extras'
 
 cat >"$stub_dir/git" <<'STUB'
 #!/bin/bash
@@ -247,10 +216,10 @@ printf 'gitdir: /elsewhere\n' >"$themes_home/worktree/.config/omarchy/themes/bra
 
 for shape in missing:1 empty:1 copied:1 cloned:0 linked:1 worktree:1; do
   assert_themes_guard_agrees \
-    "Extra Themes shows exactly when omarchy-theme-update has something to pull" \
+    "omarchy-theme-extras answers exactly when omarchy-theme-update has something to pull" \
     "$themes_home/${shape%:*}" "${shape#*:}"
 done
-pass "Extra Themes shows exactly when omarchy-theme-update has something to pull"
+pass "omarchy-theme-extras answers exactly when omarchy-theme-update has something to pull"
 
 # Which themes get pulled, not just that something did: a name with a space in
 # it is the one that goes missing the moment a path is split rather than passed
