@@ -24,9 +24,9 @@ export \
   OMARCHY_DATA_HOME
 
 # One rule for an argument that becomes a single component of one of those
-# roots. omarchy-toggle, omarchy-hyprland-toggle, omarchy-state, omarchy-hook
-# and omarchy-done each join a caller-supplied name into a path they then write,
-# delete or execute, and four of them did it unchecked: `omarchy-hook
+# roots. omarchy-toggle, omarchy-hyprland-toggle, omarchy-state and omarchy-hook
+# each join a caller-supplied name into a path they then write, delete or
+# execute, and each did it unchecked: `omarchy-hook
 # ../../../../pwned` ran a script four directories above the hooks directory,
 # `omarchy-hyprland-toggle ../../../../../victim off` deleted a .lua file five
 # above the toggles one, and `omarchy-toggle`/`omarchy-state` created files

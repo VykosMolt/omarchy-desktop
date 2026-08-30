@@ -18,12 +18,11 @@ the end and exits non-zero.
   the metadata lint — every `omarchy-*` executable under `bin/` is checked for a
   `# omarchy:summary=` header and against removed or redundant fields — plus
   the theme pipeline: template rendering (`omarchy-theme-set-templates`,
-  `omarchy-theme-color`, `omarchy-theme-osc`), the theme sync commands
-  (tmux, GNOME, VS Code, Pi, Claude) run against stub binaries and a fake
-  `$HOME`, and the theme-state migrations.
+  `omarchy-theme-color`, `omarchy-theme-osc`), and the GNOME theme sync command
+  run against stub binaries and a fake `$HOME`.
 - **`./test/shell`** — runs every `test/shell.d/*-test.sh` (except
   `base-test.sh` itself). Each file is an independent suite covering one area:
-  a shell plugin, a `bin/` command, a config invariant, a migration. This is
+  a shell plugin, a `bin/` command, a config invariant. This is
   where new tests go.
 - **Acceptance** — everything that needs a real desktop doing real things.
   Deliberately excluded from `./test/all`; it runs in a VM, not the
@@ -163,11 +162,6 @@ only a live session can prove.
   with `HOME` pointed at a `mktemp -d` directory (cleaned up via
   `trap ... EXIT`) and `OMARCHY_PATH="$ROOT"`, so tests exercise the checkout
   without touching the developer's machine.
-- **Migrations run directly.** A migration test builds the legacy state in a
-  fake `$HOME`, runs `bash -euo pipefail "$ROOT/migrations/<ts>.sh"`, and
-  asserts the resulting state — including running it twice to prove
-  idempotence, and once against non-legacy state to prove it leaves user
-  customization alone.
 - **Assert the invariant, not the snapshot.** Config tests pin the property a
   test is named for (this widget stays adjacent to that one) rather than whole
   structures, so unrelated churn does not fail them.

@@ -80,19 +80,3 @@ run omarchy-hook example passed || fail "omarchy-hook still runs a plain hook na
 
 pass "a hook name cannot run a script outside the hooks directory"
 
-# omarchy-done already refused a climbing name; it now shares the rule, so the
-# names it always accepted have to keep working.
-if run omarchy-done mark "../pwned-done"; then
-  fail "omarchy-done refuses a climbing marker name" "$(cat "$test_tmp/out")"
-fi
-[[ ! -e $test_home/.local/state/omarchy/pwned-done ]] || fail "omarchy-done writes nothing outside its done directory"
-
-run omarchy-done mark example || fail "omarchy-done still marks a plain name" "$(cat "$test_tmp/out")"
-run omarchy-done check example || fail "omarchy-done still checks a plain name" "$(cat "$test_tmp/out")"
-
-# A name that merely starts with dots is an ordinary filename, not a climb, and
-# the rule is written to leave it alone.
-run omarchy-done mark "..leading" || fail "omarchy-done accepts a name that only starts with dots" "$(cat "$test_tmp/out")"
-[[ -f $test_home/.local/state/omarchy/done/..leading ]] || fail "omarchy-done marks a name that only starts with dots"
-
-pass "a done marker name is held to the same rule and ordinary names still pass"

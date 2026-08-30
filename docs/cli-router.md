@@ -65,9 +65,9 @@ longest-prefix rule.
 
 Both paths intercept `--help`/`-h` *anywhere* in the leftover arguments, not
 just the first one. Resolution can succeed with unresolved words still ahead of
-the flag — `omarchy update aur --help` resolves `update` with leftovers `aur
---help` — and checking only the first leftover once let that invocation start a
-real update. A `--` ends the scan: everything after it belongs to the command,
+the flag — `omarchy bar put --help` resolves `bar` with leftovers `put
+--help` — and checking only the first leftover once let such an invocation run
+for real instead of printing help. A `--` ends the scan: everything after it belongs to the command,
 so `omarchy foo run -- --help` forwards the flag. `--json` alongside `--help`
 switches the help output to the command's JSON record; `--json` alone is just
 an argument for the command.
