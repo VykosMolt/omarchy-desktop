@@ -263,7 +263,7 @@ selected-border = "accent"
 selected-border-width = "1 1 1 4"
 ```
 
-For state-specific surfaces such as lock and polkit, the token name prefixes
+For state-specific surfaces such as the lock screen, the token name prefixes
 the width key:
 
 ```toml
@@ -312,7 +312,6 @@ Common shell sections include:
 - `[notifications]`
 - `[launcher]`
 - `[menu]`
-- `[polkit]`
 - `[lock]`
 - `[image-picker]`
 - `[spacing]`

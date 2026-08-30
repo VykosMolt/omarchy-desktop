@@ -38,7 +38,6 @@ shell/
       battery/
       idle/
     osd/
-    polkit/
 ```
 
 The plugin discovery path is documented in [plugins/README.md](plugins/README.md).

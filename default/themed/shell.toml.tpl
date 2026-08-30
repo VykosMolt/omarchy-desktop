@@ -186,24 +186,6 @@ selected-text             = "{{ accent }}"
 selected-border           = "hyprland.active-border-foreground"
 selected-border-alpha     = 0.25
 
-[polkit]
-# Polkit authentication prompt (sudo/password dialogs). scrim is the
-# darkening layer behind the card; background is the card itself.
-# text-error tints the lock icon, password text, and placeholder when
-# authentication fails. border-alpha applies to both border and
-# border-error (the two states are mutually exclusive in time).
-background       = "{{ background }}"
-background-alpha = 1.0
-text             = "{{ foreground }}"
-text-error       = "{{ red }}"
-border           = "hyprland.active-border"
-border-error     = "{{ red }}"
-border-alpha     = 1.0
-scrim            = "{{ background }}"
-scrim-alpha      = 0.5
-# accent is the lock-icon glyph color + text-selection tint.
-accent           = "{{ accent }}"
-
 [lock]
 # Lock screen password input. background/background-alpha control the
 # centered input field card; border/border-active/border-error cycle

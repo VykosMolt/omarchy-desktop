@@ -207,7 +207,7 @@ The shell exposes these tokens to QML via three singletons in
 - `Color` — palette (`foreground`, `background`, `accent`, `urgent`)
   and per-surface roles (`Color.bar.*`, `Color.popups.*`,
   `Color.tooltip.*`, `Color.notifications.*`, `Color.menu.*`,
-  `Color.polkit.*`, `Color.lock.*`, `Color.imagePicker.*`). Clipboard
+  `Color.lock.*`, `Color.imagePicker.*`). Clipboard
   and emojis share `Color.menu.*`; the `[launcher]` section is consumed
   by the launcher outside shell QML.
 - `Style` — structural tokens (`cornerRadius`), shared interactive
