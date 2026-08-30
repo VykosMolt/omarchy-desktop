@@ -9,8 +9,8 @@ top-right corner. The pure decision logic lives in `NotificationLogic.js`,
 which is also loadable from Node so `test/shell.d/` can exercise it without
 a compositor.
 
-The end-user view (hotkey notices for time, battery, weather) is in
-`manual/10-notices.md`; this document is the system shape behind it.
+The end-user view is the hotkey notices for time, battery and weather; this
+document is the system shape behind them.
 
 ## Toast lifecycle
 

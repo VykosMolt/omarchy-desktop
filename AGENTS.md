@@ -92,7 +92,7 @@ sudoers rule, and never grant a group (such as `docker`) that is root-equivalent
 
 # Config Structure
 
-- `config/` - the port's own shipped defaults (`hypr/`, `omarchy/shell.json`, `tmux/`)
+- `config/` - the port's own shipped defaults (`hypr/`, `omarchy/shell.json`)
 - `default/hypr/` - Hyprland defaults loaded at config-parse time
 - `default/themed/*.tpl` - templates with `{{ variable }}` placeholders for theme colors
 - `themes/*/colors.toml` - theme color definitions

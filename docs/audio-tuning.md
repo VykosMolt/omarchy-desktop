@@ -22,12 +22,12 @@ drops every PulseAudio client's connection, and applications that do not reconne
 a start/stop of one small process, and contains failure: a malformed tuning breaks
 only that service instead of stopping PipeWire from starting at all.
 
-Tunings apply automatically: `install/hardware/speaker-tuning.sh` installs the
-LV2 dependency and `install/user/first-run/audio-tuning.sh` applies the tuning,
-both gated on the match. Machines without a matching tuning are untouched.
+Nothing applies a tuning on its own. The installer that did this at first boot
+went with the distro layer, so `omarchy audio tuning on` is how a tuning is
+switched on, and a machine is untouched until someone runs it.
 
-Switching it on happens at first-run, not at finalize-user time, because finalize-user
-also runs in the ISO chroot where there is no audio server: the sink a tuning has
+The rest of this section describes why it is a separate PipeWire client rather
+than something loaded into the daemon: the sink a tuning has
 to target does not exist there, so nothing could be written — and nothing would
 retry, since the finalizer marks all shipped migrations complete on a fresh
 install. Matching itself deliberately does not consult the audio graph, so the

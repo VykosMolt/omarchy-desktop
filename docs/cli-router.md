@@ -4,10 +4,9 @@
 `omarchy theme set foo` becomes `exec bin/omarchy-theme-set foo`. There is no
 registry to maintain — every executable `bin/omarchy-*` file is a command, and
 its filename is its default route. Metadata comments in the file header refine
-how it presents and routes; the keys are documented in
-[`agents/skills/command-metadata.md`](../agents/skills/command-metadata.md).
-This document covers what that guide does not: how resolution and dispatch
-actually work.
+how it presents and routes. `test/cli` is the reference for which keys are
+accepted, since it validates every one of them against every command. This
+document covers how resolution and dispatch actually work.
 
 ## How a binary becomes routes
 
