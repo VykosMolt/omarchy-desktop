@@ -8,8 +8,9 @@
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 if [[ -z $1 ]]; then
-  echo -e "\e[32mSee https://omarchy.org/themes/\n\e[0m"
-  REPO_URL=$(gum input --placeholder="Git repo URL (https or git@host:org/repo.git)" --header="")
+  # Read it here rather than through gum, which is not a dependency this
+  # desktop has, and without pointing at the distro's theme storefront.
+  read -r -p "Git repo URL (https or git@host:org/repo.git): " REPO_URL
 else
   REPO_URL="$1"
 fi

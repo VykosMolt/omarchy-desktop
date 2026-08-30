@@ -1,8 +1,6 @@
 local paths = require("default.hypr.paths")
 local require_optional = require("default.hypr.require_optional")
 
--- GUM environment variables for styling purposes.
-require_optional.module("omarchy.current.theme.gum_env")
 
 -- Cursor size, unless the session already set one. The host's cursor size is
 -- the user's choice and lives in gtk settings.ini and the environment; a

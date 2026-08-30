@@ -13,7 +13,7 @@ actually work.
 
 The stem after `omarchy-` splits at the first hyphen: `omarchy-theme-set` gets
 group `theme` and name `set`, with remaining hyphens becoming spaces
-(`omarchy-hw-asus-rog` → group `hw`, name `asus rog`). A single-segment stem
+(`omarchy-hw-laptop-closed` → group `hw`, name `laptop closed`). A single-segment stem
 (`omarchy-transcode`) is the root command of its own group, with an empty name.
 
 Every command registers two routes: the canonical route `omarchy <group>
