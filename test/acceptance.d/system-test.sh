@@ -153,7 +153,6 @@ verify_runtime_tools() {
   pass "Fastfetch can read system information"
 
   git --version >/dev/null || fail "Git is installed and runnable"
-  tmux -V >/dev/null || fail "Tmux is installed and runnable"
   mise --version >/dev/null || fail "Mise is installed and runnable"
   pass "core terminal tools are runnable"
 }

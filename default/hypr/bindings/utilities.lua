@@ -5,7 +5,6 @@ o.bind("SUPER + SHIFT + code:201", "Omarchy menu", "omarchy-menu toggle root")
 o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
 o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
-o.bind("SUPER + ALT + K", "Tmux keybindings", "omarchy-menu-tmux-keybindings")
 o.bind("SUPER + CTRL + Q", "Calculator", "omacalc")
 o.bind("XF86Calculator", "Calculator", "omacalc")
 
@@ -97,7 +96,6 @@ o.bind("SUPER + CTRL + D", "Display", "omarchy-shell shell toggle omarchy.monito
 o.bind("SUPER + CTRL + ALT + D", "Calendar", "omarchy-shell shell toggle omarchy.clock")
 o.bind("SUPER + CTRL + W", "Network", "omarchy-shell shell toggle omarchy.network")
 o.bind("SUPER + CTRL + P", "Power", "omarchy-shell shell toggle omarchy.power")
-o.bind("SUPER + CTRL + T", "Activity", { tui = "btop" })
 
 -- The letters above name a panel; the numbers count them. 1 is the leftmost
 -- panel in the bar's right section, and a widget with no panel of its own (the

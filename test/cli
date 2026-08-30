@@ -150,7 +150,7 @@ assert_output_contains "bare root command with children renders help" "$output" 
 assert_output_contains "bare toggle help includes child route" "$output" "omarchy toggle nightlight"
 
 output=$("$CLI" restart --help)
-assert_output_contains "restart group includes inferred commands" "$output" "omarchy restart btop"
+assert_output_contains "restart group includes inferred commands" "$output" "omarchy restart audio"
 assert_output_contains "restart group includes all restart commands" "$output" "omarchy restart shell"
 
 output=$("$CLI" hw --help)
@@ -487,30 +487,6 @@ cp "$NEXT_THEME/colors.toml" "$CURRENT_THEME/colors.toml"
 FAKE_BIN="$PI_TMPDIR/fake-bin"
 mkdir -p "$FAKE_BIN"
 
-cat >"$FAKE_BIN/tmux" <<'EOF'
-#!/bin/bash
-case "$1" in
-  list-sessions)
-    [[ $2 == "-F" ]] && echo "session-1"
-    exit 0
-    ;;
-  set-environment|set-option|refresh-client)
-    echo "$*" >>"${TMUX_LOG:-/dev/null}"
-    exit 0
-    ;;
-  list-panes|list-clients)
-    exit 0
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-EOF
-chmod +x "$FAKE_BIN/tmux"
-
-TMUX_LOG="$PI_TMPDIR/tmux.log" PATH="$FAKE_BIN:$ROOT/bin:$PATH" HOME="$PI_TMPDIR" "$ROOT/bin/omarchy-theme-set-tmux"
-grep -q 'set-environment -g COLORFGBG 0;15' "$PI_TMPDIR/tmux.log" || fail "tmux sync reads mode from colors.toml"
-pass "tmux sync reads mode from colors.toml"
 
 cat >"$FAKE_BIN/gsettings" <<'EOF'
 #!/bin/bash

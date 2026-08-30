@@ -144,7 +144,7 @@ Item {
 
   MouseArea {
     anchors.fill: parent
-    onClicked: if (bar) bar.run("omarchy-launch-or-focus-tui btop")
+    onClicked: if (bar) bar.run("omarchy-launch-or-focus-tui lazygit")
   }
 }
 ```

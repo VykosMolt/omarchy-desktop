@@ -6,7 +6,7 @@
 
 # Shared colors.toml parser/resolver. The alias/fallback cascade mirrors what
 # omarchy-theme-set-templates bakes into the generated configs at theme-set
-# time, so every consumer (templates, OSC sequences, tmux, GNOME, previews)
+# time, so every consumer (templates, OSC sequences, GNOME, previews)
 # resolves the exact same palette.
 #
 #   --all            print every resolved key<TAB>value pair (sorted by key)

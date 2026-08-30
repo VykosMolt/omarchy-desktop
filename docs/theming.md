@@ -38,7 +38,7 @@ built-in template, the built-in output is skipped.
 
 After activation, `omarchy-theme-set` fires the `theme-set` hook
 (`$OMARCHY_CONFIG_HOME/hooks/theme-set*`, theme name in `$1`) and dispatches a
-parallel retint of running apps — terminals, Hyprland, btop, helix, tmux, GNOME
+parallel retint of running apps — the terminal, Hyprland, GNOME
 colour mode and supported keyboards, the `post_theme_commands` list in
 `bin/omarchy-theme-set`. That list is deliberately limited to this desktop and
 to programs that reload a colour scheme they already have: an integration that
