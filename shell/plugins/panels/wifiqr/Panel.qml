@@ -4,7 +4,6 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
-import qs.Ui
 import "Model.js" as Model
 
 // Centered Wi-Fi share overlay: no card, just the QR code floating on a

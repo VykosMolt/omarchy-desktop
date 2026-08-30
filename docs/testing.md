@@ -90,29 +90,40 @@ Gate only what needs gating — put `require_compositor` in files whose runtime
 half needs a live session, and keep static analysis of the same area in code
 that runs unconditionally before or beside it.
 
-## What qmllint can and cannot read
+## Linting QML: use the Qt6 qmllint, not the one on PATH
 
-`qmllint -I shell <file>` is the static check for QML, and it is worth knowing
-where it goes blind. On a file it cannot parse it exits **255 and prints
-nothing at all** -- not a warning, not an error, no output on either stream. A
-loop that only counts non-zero exits reads that as "this file has problems",
-when what it means is "this file was never checked".
+`/usr/bin/qmllint` is **Qt5's**, from qt5-declarative. This shell is Qt6 and
+Quickshell, so that binary cannot parse it: it fails on typed function
+declarations (`function open(): void`), on optional chaining (`?.`), and on
+`transient` as an identifier, all of which are ordinary Qt6 QML. Worse, it
+reports nothing when it does. It exits 255 with both streams empty, because Qt
+routes its diagnostics through the logging category, which lands in the journal
+rather than on stderr. A loop that counts non-zero exits reads that as "this
+file has warnings" when it means "this file was never parsed".
 
-Two constructs do it, on qmllint 1.0:
+The right invocation:
 
-- **`IpcHandler`.** Eight files declare one, which is not optional -- it is how
-  the shell exposes IPC. Those files get no static checking and there is nothing
-  to do about it here.
-- **Optional chaining (`?.`).** This one is ours. Six files used it, got no
-  checking because of it, and now use the ternary the rest of the shell already
-  used on the next line. If you reach for `?.` in QML, you are turning the
-  linter off for that file.
+```bash
+QT_FORCE_STDERR_LOGGING=1 /usr/lib/qt6/bin/qmllint \
+  -I <dir containing a qs -> shell symlink> -I /usr/lib/qt6/qml <file>
+```
 
-So a clean run is `qmllint` passing on every file that is not one of the eight,
-and the eight are listed by grepping for `IpcHandler` rather than by memory.
-Read the exit code directly; piping into `head` reports the pipe's status, not
-qmllint's, which is how these were mistaken for a stable baseline of failures
-for several commits.
+Two things that invocation needs. `QT_FORCE_STDERR_LOGGING=1` puts the
+diagnostics where they can be read. And the shell imports itself as `qs.Commons`,
+`qs.Ui` and so on, so qmllint needs an import root in which the shell directory
+is named `qs`; a symlink in a scratch directory is enough. Without it every file
+reports a failed `qs.*` import and a cascade of missing members behind it.
+
+What it finds, tree-wide, is dominated by `[unqualified]` and
+`[missing-property]`. Most of both come from `property QtObject bar` -- widgets
+take the bar as an untyped object on purpose, so qmllint cannot know its members.
+Those are not defects and chasing them would mean typing an interface that is
+deliberately loose. The categories worth reading are `[unused-imports]`,
+`[property-override]`, `[unresolved-type]` and `[syntax]`.
+
+One known false positive: `id:` inside an `anchor { }` block reads as
+`[syntax] id declarations are only allowed in objects`. Qt accepts it, the ids
+resolve at runtime, and Bar.qml and PopupCard.qml both depend on them.
 
 ## Unit-testing shell JavaScript from bash
 
