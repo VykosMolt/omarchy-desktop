@@ -5,7 +5,30 @@
 # omarchy:examples=omarchy default browser firefox | omarchy default browser brave
 
 if (($# == 0)); then
-  case "$(env -u BROWSER xdg-settings get default-web-browser)" in
+  # Read the answer where xdg-settings writes it before paying for
+  # xdg-settings. That is a shell script that probes several desktops and
+  # validates what it finds, and it costs 27ms -- the single most expensive
+  # thing in the menu's guard batch, which runs on every menu open. The value
+  # it reports for a browser set through it is the http scheme handler in
+  # mimeapps.list, which is a two-line read.
+  #
+  # xdg-settings stays as the fallback: it knows about GNOME and KDE's own
+  # settings stores, which a bare mimeapps.list read does not.
+  #
+  # It also used to be called twice, because the unmatched arm below ran it
+  # again -- and the unmatched arm is the common one, since a browser that
+  # registers itself gets a generated id rather than its packaged one.
+  current=""
+  for _mimeapps in "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeapps.list"; do
+    [[ -r $_mimeapps ]] || continue
+    current=$(awk -F= '/^x-scheme-handler\/https?=/ { sub(/;.*/, "", $2); print $2; exit }' "$_mimeapps")
+    [[ -n $current ]] && break
+  done
+
+  [[ -n $current ]] || current=$(env -u BROWSER xdg-settings get default-web-browser)
+
+  case "$current" in
   chromium.desktop) echo "chromium" ;;
   google-chrome.desktop) echo "chrome" ;;
   brave-browser.desktop) echo "brave" ;;
@@ -13,7 +36,15 @@ if (($# == 0)); then
   microsoft-edge.desktop) echo "edge" ;;
   firefox.desktop) echo "firefox" ;;
   zen.desktop) echo "zen" ;;
-  *) env -u BROWSER xdg-settings get default-web-browser ;;
+  # Zen installs itself as userapp-Zen-<id>.desktop, and any browser set through
+  # xdg-settings rather than by its package can look like that. Match the family
+  # from the generated name so the Defaults menu can show which one is current;
+  # without this the row for a browser installed that way is never checked.
+  userapp-Zen-*.desktop | userapp-zen-*.desktop) echo "zen" ;;
+  userapp-*firefox*.desktop | userapp-*Firefox*.desktop) echo "firefox" ;;
+  userapp-*hrom*.desktop) echo "chromium" ;;
+  userapp-*rave*.desktop) echo "brave" ;;
+  *) printf '%s\n' "$current" ;;
   esac
   exit 0
 fi

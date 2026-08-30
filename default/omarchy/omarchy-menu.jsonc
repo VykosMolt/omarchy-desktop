@@ -55,7 +55,7 @@
   "setup.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f \"$OMARCHY_SESSION_CONFIG_HOME/hypr/bindings.lua\" ]]","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/bindings.lua\""},
   "setup.input": {"icon":"","label":"Input","when":"[[ -f \"$OMARCHY_SESSION_CONFIG_HOME/hypr/input.lua\" ]]","action":"omarchy-launch-config-editor \"$OMARCHY_SESSION_CONFIG_HOME/hypr/input.lua\""},
   "setup.network": {"icon":"󰛳","label":"Network","aliases":["network"]},
-  "setup.network.qr": {"icon":"󰐲","label":"QR Code","aliases":["wifi-qr"],"when":"[[ $(omarchy-network-status) == wifi* ]]","action":"omarchy-shell shell summon omarchy.wifiqr"},
+  "setup.network.qr": {"icon":"󰐲","label":"QR Code","aliases":["wifi-qr"],"when":"[[ $(omarchy-network-status --type) == wifi ]]","action":"omarchy-shell shell summon omarchy.wifiqr"},
   "setup.default": {"icon":"","label":"Defaults","aliases":["default","defaults"]},
   "setup.default.browser": {"icon":"","label":"Browser","when":"omarchy-cmd-present chromium || omarchy-cmd-present google-chrome-stable || omarchy-cmd-present brave || omarchy-cmd-present brave-origin || omarchy-cmd-present microsoft-edge-stable || omarchy-cmd-present firefox || omarchy-cmd-present zen-browser","title":"Default Browser"},
   "setup.default.browser.chromium": {"icon":"","label":"Chromium","when":"omarchy-cmd-present chromium","checked":"[[ \"$(omarchy-default-browser)\" == \"chromium\" ]]","action":"omarchy-default-browser chromium"},

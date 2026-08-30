@@ -2,9 +2,10 @@
 
 # omarchy:summary=Print active network status for the shell
 # omarchy:group=network
-# omarchy:args=[--verbose]
+# omarchy:args=[--verbose|--type]
 
 verbose=false
+type_only=false
 internet_probe=1.1.1.1
 
 case "${1:-}" in
@@ -13,11 +14,32 @@ case "${1:-}" in
   --verbose)
     verbose=true
     ;;
+  --type)
+    type_only=true
+    ;;
   *)
-    echo "Usage: omarchy-network-status [--verbose]" >&2
+    echo "Usage: omarchy-network-status [--verbose|--type]" >&2
     exit 2
     ;;
 esac
+
+# Just the first field, for callers that only want to know whether this is wifi.
+# The full line costs two nmcli calls and an iw call to fill in SSID, signal and
+# frequency -- 34ms, and the menu's guard batch was paying all of it to read a
+# prefix. The route lookup and a sysfs directory answer that in about nothing.
+if [[ $type_only == true ]]; then
+  device=$(ip route get "$internet_probe" 2>/dev/null |
+    awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+
+  if [[ -z $device ]]; then
+    echo disconnected
+  elif [[ -d /sys/class/net/$device/wireless ]]; then
+    echo wifi
+  else
+    echo ethernet
+  fi
+  exit 0
+fi
 
 print_status() {
   local device nm state ssid signal freq
