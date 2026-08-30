@@ -82,23 +82,46 @@ sample() {
 # every figure wrong by however long the scan took. EPOCHREALTIME renders with
 # the locale's decimal separator, so strip everything that is not a digit and
 # work in microseconds.
-started=${EPOCHREALTIME//[!0-9]/}
+first_started=${EPOCHREALTIME//[!0-9]/}
 first=$(sample)
+first_finished=${EPOCHREALTIME//[!0-9]/}
 sleep "$interval"
+second_started=${EPOCHREALTIME//[!0-9]/}
 second=$(sample)
-finished=${EPOCHREALTIME//[!0-9]/}
+second_finished=${EPOCHREALTIME//[!0-9]/}
 
-elapsed=$(awk -v a="$started" -v b="$finished" 'BEGIN { printf "%.6f", (b - a) / 1000000 }')
+# A sample is not an instant: each scan takes time, and a given process is read
+# somewhere inside it. Timing from the start of the first scan to the end of the
+# second counts both scans as elapsed while the tick delta spans only the middle
+# of one to the middle of the other, so every reading came out low by about one
+# scan. Use the midpoints.
+elapsed=$(LC_ALL=C awk -v a="$first_started" -v b="$first_finished" \
+  -v c="$second_started" -v d="$second_finished" \
+  'BEGIN { printf "%.6f", (((c + d) / 2) - ((a + b) / 2)) / 1000000 }')
 
 # A clock that went backwards, or a sample pair with no time between them, has
 # nothing to divide by.
-awk -v e="$elapsed" 'BEGIN { exit (e > 0) ? 0 : 1 }' || {
+# e is compared as a string unless it is forced to a number, so "0,5" from a
+# comma-decimal locale passed this guard and then divided by zero further down.
+# LC_ALL=C on every awk keeps the separator a period in the first place.
+LC_ALL=C awk -v e="$elapsed" 'BEGIN { exit (e + 0 > 0) ? 0 : 1 }' || {
   echo "[]"
   exit 0
 }
 
+# One vanished process is expected and tolerated by sample(). A first sample
+# that produced nothing at all is not: every process would then be seeded from
+# the second sample and reported at exactly 0%, which is a plausible-looking
+# table of lies rather than a visible failure.
+if [[ -z $first ]]; then
+  echo "omarchy-system-processes: could not read any process" >&2
+  exit 1
+fi
+
 ticks_per_second=$(getconf CLK_TCK)
-cpu_count=$(nproc)
+# --all, because plain nproc reports this process's CPU affinity: under a
+# taskset or a cpuset the clamp below would cut real readings down to it.
+cpu_count=$(nproc --all)
 page_kb=$(( $(getconf PAGESIZE) / 1024 ))
 mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
 
@@ -106,7 +129,7 @@ mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
   printf '%s\n' "$first"
   printf -- '--\n'
   printf '%s\n' "$second"
-} | awk -v ticks="$ticks_per_second" -v elapsed="$elapsed" -v cpus="$cpu_count" \
+} | LC_ALL=C awk -v ticks="$ticks_per_second" -v elapsed="$elapsed" -v cpus="$cpu_count" \
         -v page_kb="$page_kb" -v mem_total="$mem_total_kb" -v limit="$limit" '
   BEGIN { phase = 0 }
   /^--$/ { phase = 1; next }
@@ -136,6 +159,12 @@ mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
       open_paren = index(line, "(")
       close_paren = match(line, /\)[^)]*$/)
       comm = substr(line, open_paren + 1, close_paren - open_paren - 1)
+      # The kernel does not escape control characters in /proc/<pid>/stat, and
+      # a command line is whatever argv held. A tab shifts every field of the
+      # row below, and a newline splits it in two, so jq reads a name where a
+      # number should be and the whole command dies -- which any unprivileged
+      # process could cause just by having a tab in its arguments.
+      gsub(/[\t\n\r]/, " ", comm)
       rest = substr(line, close_paren + 1)
       split(rest, f, " ")
       rss_kb = f[22] * page_kb
@@ -145,6 +174,7 @@ mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
     cmd_path = "/proc/" pid "/cmdline"
     if ((getline raw < cmd_path) > 0) {
       gsub(/\0/, " ", raw)
+      gsub(/[\t\n\r]/, " ", raw)
       sub(/[[:space:]]+$/, "", raw)
       cmdline = raw
     }

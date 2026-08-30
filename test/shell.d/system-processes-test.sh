@@ -60,11 +60,40 @@ jq -e 'all(.[]; .memory >= 0 and .memory <= 100)' <<<"$output" >/dev/null ||
   fail "memory is a percentage" "$(jq -c '[.[].memory]' <<<"$output")"
 pass "memory is a percentage of total RAM"
 
-# A process whose name or arguments contain a quote, a tab or a backslash must
-# not be able to break the JSON the shell parses.
-jq -e 'all(.[]; (.name | type) == "string" and (.command | type) == "string")' <<<"$output" >/dev/null ||
-  fail "names and command lines survive as strings" "$output"
-pass "names and command lines survive as strings"
+# A process whose name or arguments contain a quote, a tab, a newline or a
+# backslash must not be able to break the JSON the shell parses. This has to
+# create such a process rather than hope one is running: the rows are
+# tab-separated before jq sees them, so a tab in argv used to shift every field
+# and kill the whole command, and an assertion over whatever happened to be
+# running could not see it. It also has to sample deep enough to reach the row
+# -- the failure only fires if the process is inside --limit -- and it has to
+# check the command survived at all, because the failure mode is an empty
+# result and `all` over an empty array is vacuously true.
+hostile_arg=$(printf 'tabby\targ "quoted" back\\slash $dollar')
+perl -e 'my $end = time + 20; while (time < $end) {}' "$hostile_arg" &
+hostile_pid=$!
+# shellcheck disable=SC2064
+trap "kill $hostile_pid 2>/dev/null || true" EXIT
+
+hostile_output=$(run --limit 60) ||
+  fail "a process with a tab in its arguments takes the whole command down"
+
+jq -e 'type == "array" and length > 0' <<<"$hostile_output" >/dev/null ||
+  fail "a process with a tab in its arguments empties the result" "$hostile_output"
+
+jq -e 'all(.[]; (.name | type) == "string" and (.command | type) == "string")' <<<"$hostile_output" >/dev/null ||
+  fail "names and command lines survive as strings" "$hostile_output"
+
+jq -e --argjson pid "$hostile_pid" 'any(.[]; .pid == $pid)' <<<"$hostile_output" >/dev/null ||
+  fail "the process with a tab in its arguments is missing from the table"
+
+jq -e --argjson pid "$hostile_pid" 'any(.[]; .pid == $pid and (.command | test("tabby") and test("quoted") and test("dollar")))' <<<"$hostile_output" >/dev/null ||
+  fail "a hostile command line is mangled rather than carried through" \
+    "$(jq -c --argjson pid "$hostile_pid" '.[] | select(.pid == $pid)' <<<"$hostile_output")"
+
+kill "$hostile_pid" 2>/dev/null || true
+trap - EXIT
+pass "a tab, a quote, a backslash or a dollar in argv cannot break the table"
 
 # ------------------------------------------------------------------ timing
 

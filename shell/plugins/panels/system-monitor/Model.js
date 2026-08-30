@@ -7,6 +7,10 @@ var CPU_ICON = "󰻠"
 var MEMORY_ICON = "󰍛"
 
 function toNumber(value, fallback) {
+  // Number(null) is 0 and Number("") is 0, so a setting left null or blank in
+  // shell.json would read as a real zero and clamp to a minimum rather than
+  // falling back to the default it was left out to get.
+  if (value === null || value === undefined || value === "") return fallback
   var n = Number(value)
   return isFinite(n) ? n : fallback
 }
@@ -104,10 +108,14 @@ function parseMeminfo(raw) {
   var total = toNumber(fields.MemTotal, 0)
   if (total <= 0) return {}
 
-  var reported = fields.MemAvailable === undefined
-    ? toNumber(fields.MemFree, 0)
-    : toNumber(fields.MemAvailable, 0)
-  var available = Math.max(0, Math.min(total, reported))
+  // Neither key present means "unknown", and unknown is not zero: reporting 0
+  // available paints the maximum-alarm reading, 100% used, which is the one
+  // answer worse than saying nothing. Drop the whole reading instead.
+  var reported = fields.MemAvailable !== undefined
+    ? fields.MemAvailable
+    : fields.MemFree
+  if (reported === undefined) return {}
+  var available = Math.max(0, Math.min(total, toNumber(reported, 0)))
   var swapTotal = Math.max(0, toNumber(fields.SwapTotal, 0))
   var swapFree = Math.max(0, Math.min(swapTotal, toNumber(fields.SwapFree, 0)))
 
@@ -193,11 +201,22 @@ function barTooltip(cpu, memory, load) {
 // value stays on the row as data.
 function sanitizeText(value, max) {
   var s = String(value === undefined || value === null ? "" : value)
-  s = s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").replace(/^ +| +$/g, "")
+  // C0 and DEL, and the bidi overrides with them: a process gets to choose its
+  // own name, and the one dialog that renders it is the confirmation asking
+  // whether to end it. U+202E would let a process reverse that sentence.
+  s = s.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, " ")
+    .replace(/\s+/g, " ").replace(/^ +| +$/g, "")
 
   var limit = Math.round(Number(max))
   if (!isFinite(limit) || limit <= 0 || s.length <= limit) return s
-  return s.slice(0, Math.max(1, limit - 1)) + "…"
+
+  // slice() counts UTF-16 code units, so cutting mid-pair leaves a lone
+  // surrogate that renders as a replacement character. An emoji anywhere near
+  // the cut is enough, and browser and Electron command lines carry them.
+  var cut = Math.max(1, limit - 1)
+  var code = s.charCodeAt(cut - 1)
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1
+  return s.slice(0, Math.max(1, cut)) + "…"
 }
 
 function parseProcesses(raw) {
@@ -352,6 +371,18 @@ function terminateMessage(row) {
 // A failure has to be shown rather than swallowed: a process owned by another
 // user is exactly the case this panel cannot do anything about, and silence
 // would read as success.
+// A sampler that exits non-zero has to say so: the panel would otherwise keep
+// repainting the last good table, which looks identical to a machine that has
+// stopped changing.
+function processFailure(exitCode, stderr) {
+  var code = Math.round(toNumber(exitCode, -1))
+  if (code === 0) return ""
+
+  var detail = sanitizeText(stderr, 140)
+  if (!detail) detail = "sampler exited " + code
+  return "Could not read processes: " + detail
+}
+
 function terminateFailure(exitCode, stderr, row) {
   var code = Math.round(toNumber(exitCode, -1))
   if (code === 0) return ""
@@ -394,6 +425,7 @@ if (typeof module !== "undefined") {
     meminfoCommand: meminfoCommand,
     terminateCommand: terminateCommand,
     terminateMessage: terminateMessage,
-    terminateFailure: terminateFailure
+    terminateFailure: terminateFailure,
+    processFailure: processFailure
   }
 }

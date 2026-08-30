@@ -6,6 +6,13 @@
 
 set -e
 
+# This is a requires-sudo command, and under sudo PATH is the secure_path, which
+# knows nothing about where this checkout lives. Without this the sibling
+# helpers below resolve to nothing: the fingerprint branch then silently never
+# fires, so a machine with a reader gets password auth only and no warning. Put
+# the directory this script sits in on PATH so the helpers are found.
+PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd):$PATH"
+
 target_user=${OMARCHY_INSTALL_USER:-${SUDO_USER:-}}
 if [[ -z $target_user && -n ${PKEXEC_UID:-} ]]; then
   target_user=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)

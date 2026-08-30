@@ -40,6 +40,8 @@ Panel {
   // so until there is a previous one there is nothing honest to print: -1 is
   // the "not known yet" sentinel every formatter renders as an em dash.
   property var previousCpuSample: null
+  property string processError: ""
+  property int emptyProcessReads: 0
   property real cpuPercent: -1
   property real memoryPercent: -1
   property real loadAverage: -1
@@ -118,8 +120,21 @@ Panel {
   function applyProcesses(raw) {
     var rows = Model.parseProcesses(raw)
     // An empty answer is what a sampling race in the command looks like; the
-    // machine always has processes, so keep the list that is on screen.
-    if (rows.length === 0) return
+    // machine always has processes, so keep the list that is on screen. Two
+    // in a row is not a race any more, and silently repainting a stale table
+    // forever is worse than admitting the reading failed -- which is exactly
+    // what happened when one process with a tab in its arguments made every
+    // sample fail.
+    if (rows.length === 0) {
+      root.emptyProcessReads += 1
+      if (root.emptyProcessReads >= 2 && root.processError === "") {
+        root.processError = "Process list is not updating"
+      }
+      return
+    }
+
+    root.emptyProcessReads = 0
+    root.processError = ""
     root.processes = rows
     root.selectedIndex = root.selectedIndex < 0
       ? -1
@@ -305,6 +320,17 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyProcesses(text)
+    }
+    stderr: StdioCollector {
+      id: processesStderr
+      waitForEnd: true
+    }
+    // Without this a failing sampler was invisible: the collector handed over
+    // an empty string, applyProcesses read that as a race, and the panel kept
+    // painting the last good table with nothing to say a reading had failed.
+    onExited: function(exitCode) {
+      if (exitCode === 0) return
+      root.processError = Model.processFailure(exitCode, processesStderr.text)
     }
   }
 
@@ -546,9 +572,9 @@ Panel {
 
         Text {
           textFormat: Text.PlainText
-          visible: root.terminateError !== ""
+          visible: root.terminateError !== "" || root.processError !== ""
           width: parent.width
-          text: root.terminateError
+          text: root.terminateError !== "" ? root.terminateError : root.processError
           color: root.urgent
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
