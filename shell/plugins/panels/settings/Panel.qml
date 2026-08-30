@@ -127,8 +127,6 @@ Item {
   property bool textSizeLoaded: false
   property string monitorScale: ""
   property bool monitorScaleLoaded: false
-  property bool nightlight: false
-  property bool nightlightLoaded: false
 
   // ---- failures -----------------------------------------------------------
   // rowId -> message. A row shows whatever its read, its option list, or its
@@ -216,7 +214,6 @@ Item {
         return
       case "bar.transparent": root.setBarTransparent(!root.barTransparentValue); return
       case "display.scale": monitorScaleDropdown.toggle(); return
-      case "display.nightlight": root.toggleNightlight(); return
     }
   }
 
@@ -243,7 +240,6 @@ Item {
       case "appearance.font": return fontReader
       case "appearance.textSize": return textSizeReader
       case "display.scale": return monitorScaleReader
-      case "display.nightlight": return nightlightReader
     }
     return null
   }
@@ -303,12 +299,6 @@ Item {
 
   function setStayAwake(value) {
     root.runWrite("idle.stayAwake", value === true)
-  }
-
-  // The only command there is flips the temperature, so ask for a flip and let
-  // the re-read say what happened.
-  function toggleNightlight() {
-    root.runWrite("display.nightlight", true)
   }
 
   // One command at a time, in the order the user asked for them. Several of
@@ -495,21 +485,6 @@ Item {
       }
       root.monitorScale = scale.scale
       root.monitorScaleLoaded = true
-    }
-  }
-
-  Reader {
-    id: nightlightReader
-    rowId: "display.nightlight"
-    command: Model.readCommand("display.nightlight")
-    apply: function(text) {
-      var status = Model.parseNightlightStatus(text)
-      if (!status.ok) {
-        root.setError("display.nightlight", "could not read the night light state")
-        return
-      }
-      root.nightlight = status.enabled
-      root.nightlightLoaded = true
     }
   }
 
@@ -915,23 +890,6 @@ Item {
               }
             }
 
-            SettingRow {
-              rowId: "display.nightlight"
-              loaded: root.nightlightLoaded
-
-              ToggleSwitch {
-                checked: root.nightlight
-                busy: root.busyFor("display.nightlight")
-                foreground: root.foreground
-                accent: root.accent
-                hasCursor: root.cursorActive && root.selectedRow === "display.nightlight"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("display.nightlight") }
-                onToggled: {
-                  root.focusRow("display.nightlight")
-                  root.toggleNightlight()
-                }
-              }
-            }
           }
         }
       }

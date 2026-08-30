@@ -33,7 +33,6 @@ User-installed plugins live alongside these conceptually but on disk under
 | Media         | `omarchy.media`           | `service`, `bar-widget` | `services/media/Service.qml`, `services/media/BarWidget.qml` |
 | Battery       | `omarchy.battery`         | `service`               | `services/battery/Service.qml`        |
 | Idle          | `omarchy.idle`            | `service`               | `services/idle/Service.qml`           |
-| Night light   | `omarchy.nightlight`      | `service`               | `services/nightlight/Service.qml`     |
 | Lock screen   | `omarchy.lock`            | `service`               | `lock/Service.qml`                    |
 | OSD           | `omarchy.osd`             | `panel`                 | `osd/Osd.qml`                         |
 
@@ -120,7 +119,7 @@ Every setting it exposes is backed by one of two mechanisms and no third one:
   patches itself live).
 - **system-owned** — the value lives outside the shell and is read and written
   by running one of the port's commands: the theme, icon theme, monospace font,
-  text size, the focused monitor's scale, night light, and Stay Awake.
+  text size, the focused monitor's scale, and Stay Awake.
 
 Every system-owned read is a `Process`, so the panel paints immediately and
 each row fills in when its command answers. Every write is followed by a

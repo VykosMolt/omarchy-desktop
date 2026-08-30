@@ -46,8 +46,14 @@ export OMARCHY_NO_UI=1
 omarchy_test_is_omarchy_bin() {
   local dir=$1 entry found=1
 
+  # Judge the directory by its executables only. Anything else that lands in
+  # bin/ -- a __pycache__ from running python on a command, a README, an editor
+  # swapfile -- used to disqualify the whole directory, which left the real
+  # commands on PATH for every test meant to hide one. That failure is silent:
+  # the suite still passes, it just stops testing what it says it tests. A
+  # stray file should not be able to switch off the isolation.
   for entry in "$dir"/*; do
-    [[ -e $entry ]] || return 1
+    [[ -f $entry && -x $entry ]] || continue
     [[ ${entry##*/} == omarchy* ]] || return 1
     found=0
   done

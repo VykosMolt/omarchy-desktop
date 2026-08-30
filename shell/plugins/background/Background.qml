@@ -10,9 +10,11 @@ import qs.Ui
 Item {
   id: root
 
-  readonly property string home: Quickshell.env("HOME")
-  readonly property string stateHome: home + "/.local/state"
-  readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
+  // Paths.omarchyState honours OMARCHY_STATE_HOME, which the isolated session
+  // sets. Building this from $HOME/.local/state hardcoded the stock Omarchy
+  // location, so in this session it pointed at a directory that does not
+  // exist and the lookup silently produced nothing.
+  readonly property string currentBackgroundLink: Paths.omarchyState + "/current/background"
 
   property string currentBackground: ""
   property string displayedBackground: ""

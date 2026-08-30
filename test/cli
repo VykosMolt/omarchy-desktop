@@ -147,7 +147,7 @@ assert_output_contains "bare group includes a child route" "$output" "omarchy de
 
 output=$("$CLI" toggle)
 assert_output_contains "bare root command with children renders help" "$output" "Toggle commands"
-assert_output_contains "bare toggle help includes child route" "$output" "omarchy toggle nightlight"
+assert_output_contains "bare toggle help includes child route" "$output" "omarchy toggle idle"
 
 output=$("$CLI" restart --help)
 assert_output_contains "restart group includes inferred commands" "$output" "omarchy restart audio"

@@ -34,19 +34,10 @@ ShellRoot {
   }
 
   QtObject {
-    id: nightlightService
-    property bool enabled: false
-    function setNightlight(value) {
-      enabled = !!value
-    }
-  }
-
-  QtObject {
     id: mockShell
     function firstPartyServiceFor(id) {
       if (id === "omarchy.notifications") return notificationService
       if (id === "omarchy.idle") return idleService
-      if (id === "omarchy.nightlight") return nightlightService
       return null
     }
   }
@@ -177,14 +168,6 @@ ShellRoot {
         notificationService.doNotDisturb = false
         dnd.triggerPress(Qt.LeftButton)
         root.assertTrue(notificationService.doNotDisturb === true, "DND left click toggles notification service")
-      }
-
-      var nightLight = root.createIndicator("NightLight")
-      if (nightLight) {
-        nightLight.moduleName = "NightLight"
-        root.injectBar(nightLight)
-        nightLight.triggerPress(Qt.LeftButton)
-        root.assertTrue(nightlightService.enabled === true, "Night Light left click toggles the nightlight service")
       }
 
       var screenRecording = root.createIndicator("ScreenRecording")

@@ -142,14 +142,6 @@ var ROWS = [
     hint: "Hyprland only accepts scales that divide the mode into whole pixels, so the value can settle above the one you pick.",
     owner: "system",
     writeVia: "command"
-  },
-  {
-    id: "display.nightlight",
-    section: "display",
-    kind: "switch",
-    label: "Night light",
-    owner: "system",
-    writeVia: "command"
   }
 ]
 
@@ -463,17 +455,6 @@ function parseIdleStatus(raw) {
   }
 }
 
-// `omarchy-toggle-nightlight --status` answers {"enabled":bool,"temperature":n}.
-function parseNightlightStatus(raw) {
-  try {
-    var parsed = JSON.parse(String(raw || ""))
-    if (!isPlainObject(parsed)) return { ok: false, enabled: false }
-    return { ok: true, enabled: parsed.enabled === true }
-  } catch (e) {
-    return { ok: false, enabled: false }
-  }
-}
-
 // `omarchy-display-text-size` with no arguments prints three lines; the first
 // carries the shell base size, and reads "12 (default)" when nothing is pinned.
 function parseTextSize(raw) {
@@ -504,7 +485,6 @@ function readCommand(rowId) {
     case "appearance.font": return ["omarchy-font-current"]
     case "appearance.textSize": return ["omarchy-display-text-size"]
     case "display.scale": return ["omarchy-hyprland-monitor-scaling"]
-    case "display.nightlight": return ["omarchy-toggle-nightlight", "--status"]
   }
   return []
 }
@@ -535,7 +515,6 @@ function writeCommand(rowId, value) {
     case "display.scale": return ["omarchy-hyprland-monitor-scaling", String(value)]
     // The only command there is: it flips the temperature, so the panel asks
     // for a flip and then re-reads what actually happened.
-    case "display.nightlight": return ["omarchy-toggle-nightlight"]
   }
   return []
 }
@@ -602,7 +581,6 @@ if (typeof module !== "undefined") {
     parseLines: parseLines,
     parseFirstLine: parseFirstLine,
     parseIdleStatus: parseIdleStatus,
-    parseNightlightStatus: parseNightlightStatus,
     parseTextSize: parseTextSize,
     parseMonitorScale: parseMonitorScale,
     readCommand: readCommand,

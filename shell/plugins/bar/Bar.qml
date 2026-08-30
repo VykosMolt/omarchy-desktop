@@ -870,7 +870,7 @@ Item {
   }
 
   FileView {
-    path: root.stateHome + "/omarchy/current"
+    path: Paths.omarchyState + "/current"
     watchChanges: true
     printErrors: false
     onFileChanged: root.scheduleTransparentForegroundRefresh()

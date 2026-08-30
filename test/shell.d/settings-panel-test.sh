@@ -47,7 +47,6 @@ assertDeepEqual(
     'appearance.font',
     'appearance.textSize',
     'display.scale',
-    'display.nightlight'
   ],
   'the system-owned settings are the ones a command reads and writes'
 )
@@ -241,9 +240,6 @@ assertEqual(settings.parseIdleStatus('{"stayAwake":true,"enabled":false}').stayA
 assertEqual(settings.parseIdleStatus('{"stayAwake":false}').stayAwake, false, 'the idle service reports Stay Awake off')
 assertEqual(settings.parseIdleStatus('omarchy-shell is not running').ok, false, 'an unparseable idle status is a failed read, not a false')
 
-assertEqual(settings.parseNightlightStatus('{"enabled":true,"temperature":4000}').enabled, true, 'night light reads its state from the status JSON')
-assertEqual(settings.parseNightlightStatus('{"enabled":false,"temperature":6500}').enabled, false, 'daylight reads as night light off')
-assertEqual(settings.parseNightlightStatus('').ok, false, 'no night light status is a failed read')
 
 const pinnedSize = settings.parseTextSize('text size: 16 px\ngtk text-scaling-factor: 1.3636\nterminal font: 12 pt\n')
 assertEqual(pinnedSize.px, 16, 'a pinned text size is read from the first line')
@@ -288,8 +284,6 @@ assertDeepEqual(settings.readCommand('appearance.textSize'), ['omarchy-display-t
 assertDeepEqual(settings.writeCommand('appearance.textSize', 16), ['omarchy-display-text-size', '16'], 'the text size is written with omarchy-display-text-size')
 assertDeepEqual(settings.readCommand('display.scale'), ['omarchy-hyprland-monitor-scaling'], 'the monitor scale is read with the scaling command')
 assertDeepEqual(settings.writeCommand('display.scale', '1.6'), ['omarchy-hyprland-monitor-scaling', '1.6'], 'the monitor scale is written with the scaling command')
-assertDeepEqual(settings.readCommand('display.nightlight'), ['omarchy-toggle-nightlight', '--status'], 'night light state is read from the toggle command')
-assertDeepEqual(settings.writeCommand('display.nightlight', true), ['omarchy-toggle-nightlight'], 'night light is changed by the toggle command')
 assertDeepEqual(settings.writeCommand('bar.position', 'left'), ['omarchy-bar', 'position', 'left'], 'the bar position goes through omarchy-bar')
 assertDeepEqual(settings.writeCommand('bar.transparent', true), ['omarchy-bar', 'transparent', 'true'], 'bar transparency goes through omarchy-bar')
 assertDeepEqual(settings.writeCommand('bar.transparent', false), ['omarchy-bar', 'transparent', 'false'], 'bar transparency can be turned off through omarchy-bar')
