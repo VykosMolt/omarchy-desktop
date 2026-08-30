@@ -225,6 +225,21 @@ Item {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: true
+        // Decode to something the screen can show, not the file's native size.
+        // A wallpaper is uncompressed once decoded: 3-sunset-lake.webp is 356KB
+        // of WebP and 7680x3215, which is 94MB of RGBA, on a display that can
+        // show 2560x1600 -- 16MB. Three Image elements with no sourceSize, two
+        // of them building mipmaps on top, was most of this process's several
+        // hundred MB of graphics buffers.
+        //
+        // The box is 1.6x the surface rather than exactly it: with both
+        // dimensions set Qt fits the image inside, preserving aspect, so a box
+        // the size of the screen would decode a 2.39:1 wallpaper too short to
+        // crop-fill and PreserveAspectCrop would scale it back up. 1.6x covers
+        // every aspect up to 1.6 times the screen's, which is wider than any
+        // wallpaper here.
+        sourceSize.width: Math.ceil(parent.width * (parent.screen ? parent.screen.devicePixelRatio : 1) * 1.6)
+        sourceSize.height: Math.ceil(parent.height * (parent.screen ? parent.screen.devicePixelRatio : 1) * 1.6)
         onStatusChanged: {
           if (status === Image.Ready && root.finishingTransition) {
             root.incomingBackground = ""
@@ -241,6 +256,8 @@ Item {
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
         cache: false
+        sourceSize.width: base.sourceSize.width
+        sourceSize.height: base.sourceSize.height
         smooth: true
         mipmap: true
         visible: root.oldBackground !== "" && root.revealProgress < 1
@@ -267,6 +284,8 @@ Item {
           fillMode: Image.PreserveAspectCrop
           asynchronous: true
           cache: false
+          sourceSize.width: base.sourceSize.width
+          sourceSize.height: base.sourceSize.height
           smooth: true
           mipmap: true
           onStatusChanged: panel.maybeStartReveal()
