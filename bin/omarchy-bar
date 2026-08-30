@@ -32,11 +32,9 @@ Placement:
   --from-section <section>             Source section
   --from-index <n>                     Source index
 
-Enable and disable widgets with 'omarchy plugin enable' and
-'omarchy plugin disable'.
+'put' adds a widget to the bar and 'remove' takes it off again.
 
-'put' places a widget the way 'plugin enable' does, but leaves one that is
-already on the bar where it is, and falls back to the widget's usual spot when
+'put' leaves a widget that is already on the bar where it is, and falls back to the widget's usual spot when
 --before / --after names a widget the bar does not carry.
 
 Examples:
@@ -146,7 +144,7 @@ cmd_use() {
   if [[ $plugin == "default" || $plugin == "built-in" ]]; then
     plugin="omarchy.bar"
   fi
-  bar_option_exists "$plugin" || fail "$plugin is not a known bar option; run 'omarchy plugin list'"
+  bar_option_exists "$plugin" || fail "$plugin is not a known bar option; run 'omarchy bar list'"
 
   if [[ $plugin == "omarchy.bar" ]]; then
     commit "$NORMALIZE | del(.bar.id)"
@@ -285,11 +283,50 @@ cmd_put() {
     ask_to_put "$id" "$(placement_json)" || return 0
   fi
 
-  [[ $PUT_RESULT != "unknown" ]] || fail "$id is not a known widget; run 'omarchy plugin list'"
+  [[ $PUT_RESULT != "unknown" ]] || fail "$id is not a known widget; run 'omarchy bar list'"
   [[ $PUT_RESULT == "ok" ]] || fail "$PUT_RESULT"
   # Says nothing about whether it had to be placed: a widget already on the bar
   # is left where it is, and both outcomes are the same answer to the caller.
   echo "$id is on the bar"
+}
+
+cmd_list() {
+  (( $# == 0 )) || fail "list takes no arguments"
+
+  # Every widget that can go on the bar, and whether it is on it right now, so
+  # the ids named by put, move, remove and set can be discovered without
+  # reading a manifest by hand.
+  local catalog layout
+  catalog=$(omarchy-plugin-catalog 2>/dev/null) || fail "could not read the plugin catalog"
+  layout=$(omarchy-shell shell listShellConfig 2>/dev/null) || layout=""
+
+  jq -r --argjson layout "${layout:-null}" '
+    def placed($id):
+      ($layout.bar.layout // {})
+      | [.left // [], .center // [], .right // []]
+      | flatten
+      | map(if type == "object" then .id else . end)
+      | index($id) != null;
+    [.[] | select(.barWidget != null or .barWidgetPath != null)]
+    | sort_by(.id)[]
+    | "  \(if placed(.id) then "*" else " " end) \(.id)\t\(.name // "")"
+  ' <<<"$catalog"
+  echo
+  echo "  * is on the bar now. Add with 'omarchy bar put <id>', remove with 'omarchy bar remove <id>'."
+}
+
+cmd_remove() {
+  local id="${1:-}"
+  [[ -n $id ]] || fail "remove requires a widget id"
+  (( $# == 1 )) || fail "remove takes only a widget id"
+
+  local result
+  result=$(omarchy-shell shell setPluginEnabled "$id" false 2>&1) ||
+    fail "could not reach the shell: $result"
+
+  [[ $result != "unknown" ]] || fail "$id is not a known widget; run 'omarchy bar list'"
+  [[ $result == "ok" ]] || fail "$result"
+  echo "$id is off the bar"
 }
 
 cmd_move() {
@@ -374,6 +411,12 @@ case "$command" in
     ;;
   transparent)
     cmd_transparent "$@"
+    ;;
+  list)
+    cmd_list "$@"
+    ;;
+  remove)
+    cmd_remove "$@"
     ;;
   put)
     cmd_put "$@"

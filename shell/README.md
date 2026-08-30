@@ -91,79 +91,29 @@ services are loaded at startup.
 
 The full schema lives in `services/PluginRegistry.qml`.
 
-## Installing a third-party plugin
+## Adding a plugin
 
-A plugin is a **git repo** with a `manifest.json` at its root. Adding one
-clones it straight into `~/.config/omarchy/plugins/<id>/` (named by the
-manifest id); updating is a fast-forward pull of that checkout.
+There is no third-party plugin installer. The commands that cloned a plugin from
+a git repository -- `omarchy plugin add`, `update`, `remove`, `enable` -- were
+part of the distro layer and are gone; the plugins this shell loads are the ones
+in `shell/plugins/`.
 
-```bash
-omarchy plugin add https://github.com/acme/omarchy-weather.git
-omarchy plugin update acme.weather       # fetches, shows a diff, fast-forwards
-omarchy plugin update                    # updates every git-managed plugin
-omarchy plugin remove acme.weather
-```
+To add one by hand:
 
-> ⚠️ **Plugins run as unsandboxed code inside `omarchy-shell`.** Adding warns
-> you before cloning, plugins land disabled so you can review the code before
-> enabling, and updates show a diff of the changes before touching anything.
-> Only add repos whose code you are willing to run.
-
-Each command is **interactive** when run bare in a terminal (gum pickers,
-confirmation, a diff to review) and fully **non-interactive** when given
-arguments. Pass `--yes` to skip every prompt — this is the path for scripts and
-AI agents:
-
-```bash
-omarchy plugin add https://github.com/acme/omarchy-weather.git --enable --yes
-omarchy plugin update --yes
-```
-
-The installer never runs plugin code, install hooks, or sudo — it only clones
-files, validates the manifest, and toggles enabled state over shell IPC. Since
-an installed plugin is a plain git checkout, anything beyond add/update
-(pinning a ref, switching branches) is ordinary git in the plugin directory.
-
-### Installing by hand
-
-You can still drop a plugin in without git:
-
-1. Put it in `~/.config/omarchy/plugins/<plugin-id>/` with a `manifest.json`
-   plus the QML referenced from its `entryPoints`.
+1. Put it in `$OMARCHY_CONFIG_HOME/plugins/<plugin-id>/` with a `manifest.json`
+   plus the QML its `entryPoints` name.
 2. `omarchy-shell shell rescanPlugins`.
-3. `omarchy plugin enable <id>`. Bar widgets start in
-   `barWidget.defaultSection`, or in the center when it is omitted, and can be
-   moved with `omarchy bar move`; a full bar replaces the one in use.
+3. `omarchy bar put <id>` to place a bar widget. It lands in
+   `barWidget.defaultSection`, or the center when that is omitted, and
+   `--section`, `--before` and `--after` say where instead.
 
-The lower-level IPC equivalents remain available via `omarchy-shell shell rescanPlugins`,
-`omarchy-shell shell enablePlugin <id> '{}'`, and `omarchy-shell shell listPlugins`.
-The `omarchy plugin` commands wrap those calls. `omarchy bar move` and
-`omarchy bar set` edit the persisted widget layout in `shell.json`.
+Plugin QML runs unsandboxed inside `omarchy-shell`, with whatever access the
+shell has. Read it before you load it.
 
-To hack on a built-in plugin safely, clone it into user config instead of
-editing the built-in source. The complete plugin directory is copied, including
-every declared kind and local dependency. A built-in id such as
-`omarchy.clock` becomes `<username>.clock` (e.g. `dhh.clock`), with `My Clock`
-as its display name. The username prefix keeps shared clones from colliding
-with each other or with other plugin authors.
-
-```bash
-omarchy plugin clone omarchy.clock
-```
-
-Cloning switches from the built-in to the new personal plugin, preserving an
-existing bar widget's position and settings. Setup > Plugins > Clone provides
-the interactive picker, then opens the new `<username>.*` directory in `$EDITOR`.
-Existing shortcuts and shell IPC calls made to the built-in id are routed to
-the enabled clone, so cloning does not require changing its callers. Removing
-an active clone switches back to its built-in source.
-Saving a file anywhere under `~/.config/omarchy/plugins/` reloads plugin code
-automatically; `omarchy-shell shell rescanPlugins` remains available to force a reload.
-
-First-party plugins under `shell/plugins/` are discovered the same way and load
-by default. Disabling a non-widget records it in `disabledPlugins[]`; disabling
-a widget removes it from the bar layout while leaving its component available
-to add again. A full bar has no off state and is replaced by enabling another.
+`omarchy bar list` shows every widget the shell knows about and marks the ones
+on the bar. `omarchy bar remove <id>` takes one off, `omarchy bar move` and
+`omarchy bar set` edit placement and per-widget options. All of them go through
+the IPC below and persist to `shell.json`.
 
 ## IPC contract
 

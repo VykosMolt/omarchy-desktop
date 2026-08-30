@@ -55,9 +55,10 @@ clones it straight into `~/.config/omarchy/plugins/<id>/`; updating is a
 fast-forward pull:
 
 ```bash
-omarchy plugin add https://github.com/acme/omarchy-weather.git
-omarchy plugin update                # fetches, shows a diff, fast-forwards
-omarchy plugin remove acme.weather
+# There is no plugin installer. Place a plugin by hand under
+# $OMARCHY_CONFIG_HOME/plugins/<id>/ and rescan:
+omarchy-shell shell rescanPlugins
+omarchy bar put <id>
 ```
 
 **Setup › Plugins** offers Enable, Disable, Add, Clone, and Remove. Enable and
@@ -83,14 +84,14 @@ widgets that omit it default to `center`.
 
 Plugins run as **unsandboxed code** inside `omarchy-shell`. Adding warns you
 before cloning, plugins land disabled so you can review the code before
-`omarchy plugin enable`, and updates show a diff before touching anything.
+`omarchy bar put`.
 Commands confirm in a terminal even when given arguments; without one they
 refuse rather than guess. Add `--yes` to skip every prompt (the path for
 scripts and agents).
 
 You can still install by hand: drop a plugin into
 `~/.config/omarchy/plugins/<id>/`, run `omarchy-shell shell rescanPlugins`, then
-`omarchy plugin enable <id>`. A bar widget starts in its declared default
+`omarchy bar put <id>`. A bar widget starts in its declared default
 section; enabling a full bar replaces the one in use. `omarchy bar` drives the
 bar from the CLI — `use | reset | defaults | position | transparent | put |
 move | set`, with placement flags such as `--section` and `--index`.
