@@ -72,8 +72,9 @@ BarWidget {
   // layout leaves the button reading as the furthest along, and the label
   // follows the button.
   function cycleLayout() {
-    if (!root.keyboardName || !root.bar) return
-    root.bar.run("hyprctl switchxkblayout " + Util.shellQuote(root.keyboardName) + " next")
+    if (!root.keyboardName) return
+    // hyprctl needs nothing from a login shell, and this used to pay for one.
+    Util.execProgram(["hyprctl", "switchxkblayout", root.keyboardName, "next"])
     refreshTimer.restart()
   }
 

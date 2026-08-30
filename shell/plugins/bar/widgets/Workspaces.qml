@@ -30,9 +30,20 @@ BarWidget {
     return ids
   }
 
+  // Straight down the socket this widget already holds open for
+  // Hyprland.workspaces. It used to go out through bar.run, which is
+  // `bash -lc` -- a login shell, sourcing /etc/profile, fifteen
+  // /etc/profile.d scripts and the user's .bashrc, then exec'ing hyprctl to
+  // open a second socket -- 128ms per click against 5.8ms for the same
+  // command without the login shell, and effectively nothing for this. That
+  // is why SUPER+N felt instant and clicking the bar did not: the keybind is
+  // compiled into Hyprland once at config load and dispatched in-process,
+  // while the click rebuilt the same expression as a string every time.
+  //
+  // The expression is the one tiling.lua binds, deliberately, so the bar and
+  // the keyboard cannot drift apart.
   function focusWorkspace(id) {
-    if (!root.bar) return
-    root.bar.run("hyprctl dispatch " + Util.shellQuote("hl.dsp.focus({ workspace = \"" + id + "\" })"))
+    Hyprland.dispatch("hl.dsp.focus({ workspace = \"" + id + "\" })")
   }
 
   readonly property real trailingGap: root.vertical ? 0 : Style.spaceReal(1.5)
