@@ -19,6 +19,20 @@ unset __inherited
 unset XDG_CONFIG_HOME XDG_STATE_HOME XDG_CACHE_HOME XDG_DATA_HOME
 export OMARCHY_PATH="$ROOT"
 
+# Unsetting the roots is not enough on its own, and this suite never got the
+# second half of the fix the shell suite did. With them gone the roots are
+# derived from HOME, so an invocation that forgets to hand a command a throwaway
+# HOME falls back to the real one: a run of this file resolves
+# OMARCHY_STATE_HOME to ~/.local/state/omarchy and OMARCHY_CACHE_HOME to
+# ~/.cache/omarchy on the developer's own account, and both directories exist on
+# this machine with nothing but suite debris in them. Give HOME a scratch
+# directory so the fallback for anything an invocation forgets is a sandbox
+# rather than the user's home; the roots stay derived, so an invocation that
+# sets its own HOME still gets roots under it.
+CLI_TEST_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-cli-test.XXXXXX")
+export HOME="$CLI_TEST_SANDBOX/home"
+mkdir -p "$HOME"
+
 # Assigns a fresh temporary directory to the named variable and registers it for
 # removal on exit, so every scratch directory this suite makes is cleaned up.
 make_tmpdir() {
@@ -58,9 +72,19 @@ cleanup() {
     [[ -d $dir ]] && rm -rf "$dir"
   done
 
+  [[ -n ${CLI_TEST_SANDBOX:-} && -d $CLI_TEST_SANDBOX ]] && rm -rf "$CLI_TEST_SANDBOX"
+
   return 0
 }
 trap cleanup EXIT
+
+# The sandbox is what stops an invocation that forgets to hand a command its own
+# HOME from writing into the developer's account, so ask the path contract where
+# such a command would write rather than trusting the setup above.
+forgotten_home_state=$(bash -c 'source "$OMARCHY_PATH/lib/omarchy-paths.sh"; printf %s "$OMARCHY_STATE_HOME"')
+[[ $forgotten_home_state == "$CLI_TEST_SANDBOX"/* ]] ||
+  fail "a command run without its own HOME resolves its state root into the sandbox: $forgotten_home_state"
+pass "a command run without its own HOME resolves its state root into the sandbox"
 
 output=$("$CLI" --help)
 assert_output_contains "main help renders" "$output" "Omarchy command center"
