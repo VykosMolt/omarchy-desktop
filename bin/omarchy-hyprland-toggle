@@ -16,6 +16,9 @@ fi
 
 FLAG_NAME="$1"
 ACTION="${2:-toggle}"
+
+omarchy_require_flat_name "$FLAG_NAME" "flag name" || exit 1
+
 FLAG_FILE="$OMARCHY_STATE_HOME/toggles/hypr/$FLAG_NAME.lua"
 FLAG_SOURCE="$OMARCHY_PATH/default/hypr/toggles/$FLAG_NAME.lua"
 

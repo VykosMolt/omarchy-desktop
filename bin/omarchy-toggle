@@ -12,6 +12,9 @@ fi
 
 FLAG_NAME="$1"
 ACTION="${2:-toggle}"
+
+omarchy_require_flat_name "$FLAG_NAME" "toggle name" || exit 1
+
 FLAG="$OMARCHY_STATE_HOME/toggles/$FLAG_NAME"
 
 enable() {

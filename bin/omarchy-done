@@ -18,10 +18,7 @@ name=$2
 done_dir="$OMARCHY_STATE_HOME/done"
 marker="$done_dir/$name"
 
-if [[ $name == */* || $name == "." || $name == ".." ]]; then
-  echo "Invalid done marker name: $name" >&2
-  exit 1
-fi
+omarchy_require_flat_name "$name" "done marker name" || exit 1
 
 case "$action" in
   check)

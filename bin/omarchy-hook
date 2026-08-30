@@ -12,6 +12,8 @@ if (( $# < 1 )); then
   exit 1
 fi
 
+omarchy_require_flat_name "$1" "hook name" || exit 1
+
 HOOK=$1
 HOOK_PATH="$OMARCHY_CONFIG_HOME/hooks/$1"
 HOOK_DIR="$HOOK_PATH.d"
