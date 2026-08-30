@@ -127,9 +127,8 @@ should read from darkest to lightest; light themes should read from lightest to
 darkest. Terminal and editor cursors use `bright_foreground`; there is no
 separate cursor palette key. `selection` is the text-selection background stop
 in that ramp; Omarchy derives `selection_background = selection` and
-`selection_foreground = bright_foreground`. Use
-`omarchy dev theme-preview [theme]` to inspect that ramp, including
-`dark_background`, `darker_background`, and a selected-text sample.
+`selection_foreground = bright_foreground`. The ramp also carries
+`dark_background` and `darker_background`.
 
 ## Template placeholders
 

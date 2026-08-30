@@ -161,15 +161,14 @@ output=$("$CLI" hw external)
 assert_output_contains "partial hardware prefix renders matching commands" "$output" "hw external commands"
 assert_output_contains "partial hardware prefix includes nested match" "$output" "omarchy hw external monitors"
 
-output=$("$CLI" menu --help)
-assert_output_contains "menu group includes share fallback route" "$output" "omarchy menu share"
+output=$("$CLI" system --help)
+assert_output_contains "group lists a command under its filename route" "$output" "omarchy system logout"
 
-output=$("$CLI" share)
-assert_output_contains "bare required-arg alias renders CLI help" "$output" "Usage:"
-assert_output_contains "bare share help uses canonical route" "$output" "omarchy share <clipboard|file|folder> [path...]"
+output=$("$CLI" logout --help)
+assert_output_contains "alias route resolves to the same command" "$output" "omarchy-system-logout"
 
-output=$("$CLI" menu share)
-assert_output_contains "bare required-arg filename route renders CLI help" "$output" "omarchy share <clipboard|file|folder> [path...]"
+output=$("$CLI" system logout --help)
+assert_output_contains "filename route resolves to the same command" "$output" "omarchy-system-logout"
 
 CLI="$CLI" python3 <<'PY'
 import json

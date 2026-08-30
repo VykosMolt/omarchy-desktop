@@ -22,9 +22,10 @@ turned to spaces. When metadata moves nothing, they are the same route. When it
 does, both keep working — `# omarchy:name=output volume` on
 `omarchy-audio-output-volume` keeps the canonical route `omarchy audio output
 volume` while the filename route still resolves. An explicitly *empty* `#
-omarchy:name=` makes a command the root of its group: `omarchy-menu-share` sets
-`group=share` and an empty name, so its canonical route is `omarchy share`
-while `omarchy menu share` remains as the filename route. Alias routes register
+omarchy:name=` makes a command the root of its group, as `omarchy-transcode`
+does with `group=transcode`: the command answers to the group name alone rather
+than to a name under it. Where such a command's group differs from its filename
+prefix, the two routes diverge and both keep resolving. Alias routes register
 the same way but are flagged, so listings show them as aliases rather than
 commands.
 
@@ -54,12 +55,12 @@ executable file: `omarchy theme set foo` probes `omarchy-theme-set-foo`, then
 `omarchy-theme-set`, which exists — resolved without reading a single metadata
 header. This exists because plain dispatch is the hot path: parsing the
 headers of several hundred binaries on every invocation is measurable
-latency (`omarchy dev benchmark cli` tracks it), and a filename probe is a few
+latency, and a filename probe is a few
 stat calls. Metadata loads lazily, only for the resolved command when help is
 needed.
 
-When no filename matches — metadata-moved routes like `omarchy share`, and
-aliases like `omarchy screenshot` — the router falls back to loading all
+When no filename matches — a metadata-moved route, or an alias like
+`omarchy screenshot` — the router falls back to loading all
 metadata and resolving against the registered route table, with the same
 longest-prefix rule.
 
@@ -91,9 +92,8 @@ word) and a pointer to `omarchy commands --all`.
 
 Group help is synthesized from metadata, not written anywhere. A command
 belongs to a group when either its metadata group or its filename group
-matches, listed under the route that fits the group being viewed: `omarchy
-menu --help` shows `omarchy-menu-share` as `omarchy menu share`, while its
-canonical `omarchy share` stands alone. On the fast path, group help loads
+matches, listed under the route that fits the group being viewed. Where a
+command's metadata group and filename group differ, it appears under each. On the fast path, group help loads
 only that group's filename-prefixed binaries rather than everything.
 
 The top-level `omarchy` listing is driven entirely by the hand-curated

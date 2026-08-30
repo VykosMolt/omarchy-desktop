@@ -5,7 +5,6 @@ import QtQuick.Effects
 import Quickshell.Services.SystemTray
 import qs.Commons
 import qs.Ui
-import "TrayModel.js" as TrayModel
 
 BarWidget {
   id: root
@@ -159,17 +158,12 @@ BarWidget {
     return "drawer"
   }
 
-  function ownedByOmarchy(item) {
-    return TrayModel.ownedByOmarchy(item)
-  }
-
   function bucket(category) {
     var values = SystemTray.items.values
     var result = []
     for (var i = 0; i < values.length; i++) {
       var item = values[i]
       if (item.status === Status.Passive) continue
-      if (ownedByOmarchy(item)) continue
       if (category === "all") {
         result.push(item)
         continue
