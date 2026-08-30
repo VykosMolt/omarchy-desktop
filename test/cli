@@ -539,8 +539,25 @@ while IFS= read -r binary_path; do
   ! grep -q '^# omarchy:args=$' <<<"$header" || fail "metadata does not include empty args: $binary_path"
   ! grep -Eq '^# omarchy:(legacy|usage|visibility|mutates|interactive)=' <<<"$header" || fail "metadata avoids removed fields: $binary_path"
   ! grep -Eq '^# omarchy:requires-sudo=false$' <<<"$header" || fail "metadata omits false booleans: $binary_path"
+
+  # requires-sudo is the only metadata a reader can check against the code, and
+  # it had drifted: omarchy-brightness-display-apple ran `sudo asdcontrol`,
+  # omarchy-restart-audio ran `sudo usbreset` and omarchy-launch-docker-tui
+  # execs `pkexec lazydocker`, none of them declared. The declaration is what
+  # tells a caller a password prompt is coming, so a command that escalates
+  # without one is a lie in the direction that surprises the user. Comment lines
+  # are stripped first, because two commands explain in prose why they do not
+  # escalate.
+  if grep -v '^[[:space:]]*#' "$binary_path" | grep -qE '(^|[^[:alnum:]_.-])(sudo|pkexec)[[:space:]]'; then
+    grep -q '^# omarchy:requires-sudo=true$' <<<"$header" ||
+      fail "a command that runs sudo or pkexec declares requires-sudo: $binary_path"
+  else
+    ! grep -q '^# omarchy:requires-sudo=true$' <<<"$header" ||
+      fail "a command declaring requires-sudo actually escalates: $binary_path"
+  fi
 done < <(find "$ROOT/bin" -maxdepth 1 -type f -executable -name 'omarchy-*' | sort)
 pass "all executable bins have slim self-documenting metadata"
+pass "requires-sudo matches whether the command escalates"
 
 make_tmpdir TMPDIR
 ln -s "$CLI" "$TMPDIR/omarchy"

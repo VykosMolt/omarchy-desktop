@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Open the Docker TUI (lazydocker) with access to the Docker daemon
+# omarchy:requires-sudo=true
 # omarchy:hidden=true
 
 # lazydocker needs the Docker socket. Docker group membership is

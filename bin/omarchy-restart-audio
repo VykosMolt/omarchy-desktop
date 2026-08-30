@@ -2,6 +2,7 @@
 
 # omarchy:summary=Restart audio services and recover stuck USB audio devices.
 # omarchy:examples=omarchy restart audio | omarchy-restart-audio
+# omarchy:requires-sudo=true
 
 services=(wireplumber.service pipewire.service pipewire-pulse.service)
 

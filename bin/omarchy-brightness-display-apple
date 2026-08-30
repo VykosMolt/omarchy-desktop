@@ -3,6 +3,7 @@
 # omarchy:summary=Show or adjust Apple Studio Display and Apple XDR Display brightness using asdcontrol.
 # omarchy:args=[--no-osd] [+N%|N%-|N%]
 # omarchy:examples=omarchy brightness display apple | omarchy brightness display apple +5% | omarchy brightness display apple --no-osd 50%
+# omarchy:requires-sudo=true
 
 # Only cache under the user-private runtime dir. With no XDG_RUNTIME_DIR we skip
 # caching (detect every run) rather than fall back to a predictable, world-writable
