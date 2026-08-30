@@ -218,9 +218,19 @@ assert(
   Object.entries(expectedDefaults).every(([type, labels]) => {
     const entries = defaultItems.filter(item => item.parent === `setup.default.${type}`)
     return entries.map(item => item.label).join('\0') === labels.join('\0')
-      && entries.every(item => !item.when)
   }),
-  'menu always exposes every supported browser and editor under Defaults'
+  'menu ships a row for every supported browser and editor'
+)
+// Every one of them is offered only when the program it selects is installed.
+// Listing seven editors on a machine with one is an offer the desktop cannot
+// honour: picking it sets a default that resolves to nothing.
+assert(
+  Object.entries(expectedDefaults).every(([type]) =>
+    defaultItems
+      .filter(item => item.parent === `setup.default.${type}`)
+      .every(item => typeof item.when === 'string' && item.when.startsWith('omarchy-cmd-present '))
+  ),
+  'every Defaults row is guarded on the program being installed'
 )
 assert(
   !defaultItems.some(item => item.id.startsWith('setup.default.terminal')),
