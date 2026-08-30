@@ -83,31 +83,31 @@ ShellRoot {
     scan += block("firstparty", "/first/bar", manifest("omarchy.bar", ["bar"], { bar: "Bar.qml" }))
     scan += block("firstparty", "/first/panels/grouped", manifest("omarchy.grouped-panel", ["panel"], { panel: "Panel.qml" }))
     scan += block("firstparty", "/first/hybrid", manifest("omarchy.hybrid", ["menu", "bar-widget"], { menu: "Menu.qml", barWidget: "Widget.qml" }))
-    scan += block("firstparty", "/third/panel", manifest("third.panel", ["panel"], { panel: "Panel.qml" }))
-    scan += block("firstparty", "/third/widget", manifest("third.widget", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "left" }))
-    scan += block("firstparty", "/third/center-widget", manifest("third.center-widget", ["bar-widget"], { barWidget: "Widget.qml" }))
-    scan += block("firstparty", "/third/right-widget", manifest("third.right-widget", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "right" }))
+    scan += block("thirdparty", "/third/panel", manifest("third.panel", ["panel"], { panel: "Panel.qml" }))
+    scan += block("thirdparty", "/third/widget", manifest("third.widget", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "left" }))
+    scan += block("thirdparty", "/third/center-widget", manifest("third.center-widget", ["bar-widget"], { barWidget: "Widget.qml" }))
+    scan += block("thirdparty", "/third/right-widget", manifest("third.right-widget", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "right" }))
     var localWidget = manifest("local.first-widget", ["bar-widget"], { barWidget: "Widget.qml" })
     localWidget.omarchy = { clonedFrom: "omarchy.first-widget" }
-    scan += block("firstparty", "/third/local-widget", localWidget)
+    scan += block("thirdparty", "/third/local-widget", localWidget)
     var localWeather = manifest("local.weather", ["bar-widget"], { barWidget: "Widget.qml" })
     localWeather.omarchy = { clonedFrom: "omarchy.weather" }
-    scan += block("firstparty", "/third/local-weather", localWeather)
+    scan += block("thirdparty", "/third/local-weather", localWeather)
     var localHybrid = manifest("local.hybrid", ["menu", "bar-widget"], { menu: "Menu.qml", barWidget: "Widget.qml" })
     localHybrid.omarchy = { clonedFrom: "omarchy.hybrid" }
-    scan += block("firstparty", "/third/local-hybrid", localHybrid)
+    scan += block("thirdparty", "/third/local-hybrid", localHybrid)
     var localPanel = manifest("local.grouped-panel", ["panel"], { panel: "Panel.qml" })
     localPanel.omarchy = { clonedFrom: "omarchy.grouped-panel" }
-    scan += block("firstparty", "/third/local-panel", localPanel)
+    scan += block("thirdparty", "/third/local-panel", localPanel)
     var localBar = manifest("local.bar", ["bar"], { bar: "Bar.qml" })
     localBar.omarchy = { clonedFrom: "omarchy.bar" }
-    scan += block("firstparty", "/third/local-bar", localBar)
-    scan += block("firstparty", "/third/bar", manifest("third.bar", ["bar"], { bar: "Bar.qml" }))
-        scan += block("firstparty", "/third/unsafe", manifest("third.unsafe", ["panel"], { panel: "../Panel.qml" }))
-    scan += block("firstparty", "/third/missing", { schemaVersion: 1, id: "third.missing", name: "missing", version: "1.0.0", kinds: ["panel"] })
-    scan += block("firstparty", "/third/bad-section", manifest("third.bad-section", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "bottom" }))
-    scan += block("firstparty", "/third/schema", { schemaVersion: 2, id: "third.schema", name: "schema", version: "1.0.0", kinds: ["panel"], entryPoints: { panel: "Panel.qml" } })
-    scan += block("firstparty", "/third/bad-json", "{")
+    scan += block("thirdparty", "/third/local-bar", localBar)
+    scan += block("thirdparty", "/third/bar", manifest("third.bar", ["bar"], { bar: "Bar.qml" }))
+        scan += block("thirdparty", "/third/unsafe", manifest("third.unsafe", ["panel"], { panel: "../Panel.qml" }))
+    scan += block("thirdparty", "/third/missing", { schemaVersion: 1, id: "third.missing", name: "missing", version: "1.0.0", kinds: ["panel"] })
+    scan += block("thirdparty", "/third/bad-section", manifest("third.bad-section", ["bar-widget"], { barWidget: "Widget.qml" }, { defaultSection: "bottom" }))
+    scan += block("thirdparty", "/third/schema", { schemaVersion: 2, id: "third.schema", name: "schema", version: "1.0.0", kinds: ["panel"], entryPoints: { panel: "Panel.qml" } })
+    scan += block("thirdparty", "/third/bad-json", "{")
 
     registry.parseScanOutput(scan)
 
@@ -170,7 +170,7 @@ ShellRoot {
         layout: {
           left: [{ id: "omarchy.workspaces" }, { id: "omarchy.menu" }],
           center: [{ id: "omarchy.weather" }, { id: "omarchy.clock" }],
-          right: [{ id: "omarchy.tray" }]
+          right: [{ id: "omarchy.sensors" }]
         }
       },
       plugins: []
@@ -190,7 +190,7 @@ ShellRoot {
     registry.setEnabled("third.right-widget", true)
     root.assertDeepEqual(
       root.config.bar.layout.right,
-      [{ id: "omarchy.tray" }, { id: "third.right-widget" }],
+      [{ id: "omarchy.sensors" }, { id: "third.right-widget" }],
       "right widgets use the right anchor"
     )
 
@@ -432,12 +432,6 @@ ShellRoot {
     root.assertTrue(root.config.disabledPlugins === undefined, "disabling a multi-kind widget records nothing else")
     root.assertTrue(registry.isEnabled("omarchy.hybrid"), "a multi-kind built-in remains loadable without its widget")
 
-    var cloneBase = registry.pluginsDir + "/dhh.clock"
-    root.assertEqual(registry.localPluginIdForPath(cloneBase + "/BarWidget.qml"), "dhh.clock", "personal clone changes are watched")
-    root.assertEqual(registry.localPluginIdForPath(registry.pluginsDir + "/acme.clock/BarWidget.qml"), "acme.clock", "installed plugin changes are watched")
-    root.assertEqual(registry.localPluginIdForPath(cloneBase + "/.git/index"), "", "plugin git metadata is ignored")
-    root.assertEqual(registry.localPluginIdForPath(registry.pluginsDir + "/.clone.abc123/manifest.json"), "", "hidden staging and backup dirs are ignored")
-
     root.assertTrue(changeCount > 0, "registry emits change notifications")
     writeResult()
   }
@@ -445,7 +439,6 @@ ShellRoot {
   PluginRegistry {
     id: registry
     firstPartyDir: ""
-    pluginsDir: Quickshell.env("HOME") + "/.config/omarchy/plugins"
     shellConfigProvider: function() { return root.config }
     shellConfigMutator: function(mutator) {
       var next = JSON.parse(JSON.stringify(root.config || {}))

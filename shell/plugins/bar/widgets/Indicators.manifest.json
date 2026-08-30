@@ -27,11 +27,6 @@
         "emptyText": "No indicators",
         "options": [
           {
-            "value": "Dictation",
-            "label": "Dictation",
-            "description": "Voice typing status"
-          },
-          {
             "value": "ScreenRecording",
             "label": "Screen recording",
             "description": "GPU screen recorder status"

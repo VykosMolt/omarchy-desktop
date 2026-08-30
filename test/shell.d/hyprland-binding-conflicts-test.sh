@@ -135,21 +135,17 @@ is_allowed_duplicate() {
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-# A stub Voxtype adds its conditional bindings, so the check covers the largest
-# set a user can get. There are no preinstalled app bindings to add any more.
+# Nothing adds conditional bindings any more, so the default set is the largest
+# set a user can get.
 home="$tmpdir/home"
-stub_bin="$tmpdir/bin"
-mkdir -p "$home" "$stub_bin"
-touch "$stub_bin/voxtype"
-chmod +x "$stub_bin/voxtype"
+mkdir -p "$home"
 
-bindings=$(PATH="$stub_bin:$PATH" list_bindings "$home")
+bindings=$(list_bindings "$home")
 [[ -n $bindings ]] || fail "default bindings load for the conflict check"
 
 grep -Fq $'SUPER + RETURN\tTerminal' <<<"$bindings" || fail "conflict check sees the essential bindings"
 grep -Fq $'SUPER + SHIFT + S\tScreenshot' <<<"$bindings" ||
   fail "conflict check sees the utility bindings"
-grep -Fq $'F9\tStart dictation (push-to-talk)' <<<"$bindings" || fail "conflict check sees the Voxtype bindings"
 pass "conflict check covers the full default binding set"
 
 duplicates=$(duplicate_signatures <<<"$bindings")
@@ -168,23 +164,27 @@ for allowed in "${allowed_duplicates[@]}"; do
 done
 pass "allowed duplicate chords are still stacked on purpose"
 
-# The press and release halves of a push-to-talk key are separate binds, not a
-# collision.
-(( $(grep -c $'^F9\t' <<<"$bindings") == 1 )) ||
-  fail "press and release bindings on one key do not read as a conflict"
-(( $(grep -c $'^F9 (release)\t' <<<"$bindings") == 1 )) ||
-  fail "release bindings keep their own signature"
+# The press and release halves of one key are separate binds, not a collision.
+# No default binding pairs them any more, so the check supplies its own.
+release_probe=$(list_bindings "$home" \
+  'o.bind("F13", "Probe press", "true") o.bind("F13", "Probe release", "true", { release = true })')
+(( $(grep -c $'^F13\t' <<<"$release_probe") == 1 )) ||
+  fail "press and release bindings on one key do not read as a conflict" "$release_probe"
+(( $(grep -c $'^F13 (release)\t' <<<"$release_probe") == 1 )) ||
+  fail "release bindings keep their own signature" "$release_probe"
+(( $(duplicate_signatures <<<"$release_probe" | grep -cFx "F13") == 0 )) ||
+  fail "a press/release pair is not counted as a duplicate chord" "$release_probe"
 pass "press and release bindings on one key do not read as a conflict"
 
 # Guard the guard: a keysym that lands on an already bound keycode has to be
 # caught, or the check above passes by simply not looking.
-probe=$(PATH="$stub_bin:$PATH" list_bindings "$home" \
+probe=$(list_bindings "$home" \
   'o.bind("SUPER + 1", "Conflict probe", "true")' | duplicate_signatures)
 grep -Fqx "SUPER+1" <<<"$probe" ||
   fail "the conflict check catches a keysym colliding with a bound keycode"
 
 # Modifier order is cosmetic; Hyprland binds the same chord either way.
-probe=$(PATH="$stub_bin:$PATH" list_bindings "$home" \
+probe=$(list_bindings "$home" \
   'o.bind("SUPER + ALT + SHIFT + RIGHT", "Conflict probe", "true")' | duplicate_signatures)
 grep -Fqx "ALT+SHIFT+SUPER+RIGHT" <<<"$probe" ||
   fail "the conflict check ignores modifier order"

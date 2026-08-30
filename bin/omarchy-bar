@@ -164,7 +164,7 @@ cmd_defaults() {
   commit "$NORMALIZE
     | .bar = \$defaults[0].bar
     | def entry_id: if type == \"object\" then (.id // \"\" | tostring) else tostring end;
-      def anchor_for(\$section): { left: \"omarchy.workspaces\", center: \"omarchy.weather\", right: \"omarchy.tray\" }[\$section];
+      def anchor_for(\$section): { left: \"omarchy.workspaces\", center: \"omarchy.weather\", right: \"omarchy.sensors\" }[\$section];
       reduce \$widgets[] as \$widget (.;
         .bar.layout.left = (.bar.layout.left | map(select(entry_id != \$widget.id)))
         | .bar.layout.center = (.bar.layout.center | map(select(entry_id != \$widget.id)))

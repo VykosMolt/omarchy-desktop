@@ -7,7 +7,7 @@
 background       = "{{ background }}"
 background-alpha = 1.0
 text             = "{{ foreground }}"
-# Modules calling attention to themselves (recording, voxtype, alerts, updates)
+# Modules calling attention to themselves (recording, alerts, updates)
 active           = "{{ red }}"
 # Cross-axis size at font base-size 12. size-horizontal is the height of
 # top/bottom bars; size-vertical is the width of left/right bars. With

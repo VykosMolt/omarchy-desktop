@@ -26,17 +26,20 @@ function entryId(entry) {
   return ""
 }
 
-function pinTrayToInner(entries, section) {
-  var trayEntry = null
+// The widget whose drawer slides inward and so needs the section's inner edge.
+var DRAWER_WIDGET_ID = "omarchy.sensors"
+
+function pinDrawerToInner(entries, section) {
+  var drawerEntry = null
   var result = []
   var values = Array.isArray(entries) ? entries : []
   for (var i = 0; i < values.length; i++) {
-    if (entryId(values[i]) === "omarchy.tray") trayEntry = values[i]
+    if (entryId(values[i]) === DRAWER_WIDGET_ID) drawerEntry = values[i]
     else result.push(values[i])
   }
-  if (trayEntry) {
-    if (section === "right") result.unshift(trayEntry)
-    else result.push(trayEntry)
+  if (drawerEntry) {
+    if (section === "right") result.unshift(drawerEntry)
+    else result.push(drawerEntry)
   }
   return result
 }
@@ -217,7 +220,8 @@ if (typeof module !== "undefined") {
     normalizePosition: normalizePosition,
     entrySettings: entrySettings,
     entryId: entryId,
-    pinTrayToInner: pinTrayToInner,
+    pinDrawerToInner: pinDrawerToInner,
+    DRAWER_WIDGET_ID: DRAWER_WIDGET_ID,
     moduleString: moduleString,
     entryIndex: entryIndex,
     entriesBefore: entriesBefore,

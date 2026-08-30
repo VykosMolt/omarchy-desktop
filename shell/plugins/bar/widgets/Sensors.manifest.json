@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "omarchy.sensors",
+  "name": "Hardware sensors",
+  "version": "1.0.0",
+  "author": "omarchy-arch-port",
+  "description": "Discrete GPU state, power profile, CPU temperature and fan speed",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Sensors.qml"
+  },
+  "barWidget": {
+    "displayName": "Hardware sensors",
+    "description": "Discrete GPU state, power profile, CPU temperature and fan speed",
+    "category": "Status",
+    "allowMultiple": false
+  }
+}

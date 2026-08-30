@@ -290,9 +290,9 @@ assertDeepEqual(bar.entrySettings({ id: 'omarchy.clock', format: 'HH:mm' }), { f
 assertEqual(bar.entryId({ id: 'omarchy.clock' }), 'omarchy.clock', 'bar extracts object entry ids')
 assertEqual(bar.entryId('omarchy.clock'), 'omarchy.clock', 'bar extracts string entry ids')
 
-const entries = [{ id: 'a' }, { id: 'omarchy.tray' }, { id: 'b' }]
-assertDeepEqual(bar.pinTrayToInner(entries, 'left').map(bar.entryId), ['a', 'b', 'omarchy.tray'], 'bar pins tray to left inner edge')
-assertDeepEqual(bar.pinTrayToInner(entries, 'right').map(bar.entryId), ['omarchy.tray', 'a', 'b'], 'bar pins tray to right inner edge')
+const entries = [{ id: 'a' }, { id: 'omarchy.sensors' }, { id: 'b' }]
+assertDeepEqual(bar.pinDrawerToInner(entries, 'left').map(bar.entryId), ['a', 'b', 'omarchy.sensors'], 'bar pins the drawer widget to the left inner edge')
+assertDeepEqual(bar.pinDrawerToInner(entries, 'right').map(bar.entryId), ['omarchy.sensors', 'a', 'b'], 'bar pins the drawer widget to the right inner edge')
 
 // A settings-only shell.json write must patch the live bar, not rebuild it:
 // the module Repeaters recreate every widget when their array model changes.
@@ -340,8 +340,8 @@ assert(
 
 assertEqual(bar.moduleString({ id: 'custom', label: 42 }, 'label', 'fallback'), '42', 'bar stringifies module settings')
 assertEqual(bar.entryIndex(entries, 'b'), 2, 'bar finds entry indexes')
-assertDeepEqual(bar.entriesBefore(entries, 'b').map(bar.entryId), ['a', 'omarchy.tray'], 'bar returns entries before target')
-assertDeepEqual(bar.entriesAfter(entries, 'a').map(bar.entryId), ['omarchy.tray', 'b'], 'bar returns entries after target')
+assertDeepEqual(bar.entriesBefore(entries, 'b').map(bar.entryId), ['a', 'omarchy.sensors'], 'bar returns entries before target')
+assertDeepEqual(bar.entriesAfter(entries, 'a').map(bar.entryId), ['omarchy.sensors', 'b'], 'bar returns entries after target')
 
 assertEqual(bar.expandPath('~/module.qml', '/home/dhh'), '/home/dhh/module.qml', 'bar expands tilde paths')
 assertEqual(bar.expandPath('$HOME/module.qml', '/home/dhh'), '/home/dhh/module.qml', 'bar expands HOME paths')

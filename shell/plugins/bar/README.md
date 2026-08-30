@@ -59,7 +59,8 @@ Example `shell.json` (bar subtree only shown):
 | `omarchy.clock` | Date/time label + popup with a month grid, ISO week numbers, and month stepping | left = popup · right = cycle label format · middle = timezone selector |
 | `omarchy.media` | MPRIS now-playing — scrolling track + artist, cover-art popup | left = play/pause · middle = next · scroll = prev/next · right = popup |
 | `omarchy.indicators` | Manual state indicators | left = indicator action |
-| `omarchy.tray` | System tray | hover = reveal drawer · right on chevron = manage |
+| `omarchy.sensors` | Discrete GPU state, power profile, CPU temperature, fan speed | hover = reveal drawer · left on profile = cycle power profile |
+| `omarchy.tray` | System tray — not in the default layout; add it if an app needs a status icon | hover = reveal drawer · right on chevron = manage |
 | `omarchy.weather` | Weather icon + popup with forecast | left = popup · right = full notification |
 | `omarchy.microphone` | Mic icon + scroll volume | left = mute toggle · middle = audio panel · scroll = source volume |
 
@@ -88,7 +89,7 @@ Command module:
   "bar": {
     "layout": {
       "right": [
-        { "id": "omarchy.tray" },
+        { "id": "omarchy.sensors" },
         { "id": "vpn", "type": "command", "exec": "~/.config/omarchy/bar/scripts/vpn-status", "interval": 5, "tooltip": "VPN", "onClick": "nm-connection-editor" },
         { "id": "omarchy.audio" }
       ]

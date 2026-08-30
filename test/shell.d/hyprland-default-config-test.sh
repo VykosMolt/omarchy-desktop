@@ -141,37 +141,6 @@ no_bindings_output=$(run_omarchy_bindings "$no_bindings_home" 'omarchy_default_b
 [[ -z $no_bindings_output ]] || fail "default binding variable disables all Omarchy bindings" "$no_bindings_output"
 pass "default binding variable disables all Omarchy bindings"
 
-voxtype_home="$tmpdir/voxtype-home"
-voxtype_bin="$tmpdir/voxtype-bin"
-mkdir -p "$voxtype_home" "$voxtype_bin"
-touch "$voxtype_bin/voxtype"
-chmod +x "$voxtype_bin/voxtype"
-voxtype_output=$(PATH="$voxtype_bin:$PATH" run_omarchy_bindings "$voxtype_home")
-grep -Fq $'SUPER + CTRL + X	Toggle dictation' <<<"$voxtype_output" ||
-  fail "installed Voxtype enables its toggle binding"
-grep -Fq $'F9	Start dictation (push-to-talk)' <<<"$voxtype_output" ||
-  fail "installed Voxtype enables its push-to-talk binding"
-grep -Fq $'F9	Stop dictation (push-to-talk)' <<<"$voxtype_output" ||
-  fail "installed Voxtype enables its release binding"
-pass "installed Voxtype conditionally enables dictation bindings"
-
-voxtype_without_execute_output=$(PATH="$voxtype_bin:$PATH" run_omarchy_bindings \
-  "$voxtype_home" 'os.execute = function() return nil, "No child processes", 10 end')
-grep -Fq $'SUPER + CTRL + X	Toggle dictation' <<<"$voxtype_without_execute_output" ||
-  fail "Voxtype detection does not require spawning a subprocess"
-pass "installed Voxtype detection works without os.execute"
-
-missing_bin="$tmpdir/missing-bin"
-mkdir -p "$missing_bin"
-ln -s "$(command -v lua)" "$missing_bin/lua"
-ln -s "$(command -v lspci)" "$missing_bin/lspci"
-ln -s "$(command -v sort)" "$missing_bin/sort"
-missing_voxtype_output=$(PATH="$missing_bin" run_omarchy_bindings "$voxtype_home")
-if grep -Fq $'SUPER + CTRL + X	Toggle dictation' <<<"$missing_voxtype_output"; then
-  fail "missing Voxtype skips its bindings"
-fi
-pass "missing Voxtype skips dictation bindings"
-
 # The Grave shortcuts are aliases, so the original SUPER + S pair has to keep
 # working alongside them.
 scratchpad_home="$tmpdir/scratchpad-home"

@@ -175,20 +175,10 @@ ShellRoot {
         screenRecording.moduleName = "ScreenRecording"
         root.injectBar(screenRecording)
         screenRecording.triggerPress(Qt.LeftButton)
-        root.assertTrue(root.commandCount("omarchy-menu toggle trigger.capture.screenrecord") === 1, "Screen Recording left click opens capture menu when idle")
+        root.assertTrue(root.commandCount("omarchy-capture-screenrecording") === 1, "Screen Recording left click starts a recording when idle")
         screenRecording.recording = true
         screenRecording.triggerPress(Qt.LeftButton)
         root.assertTrue(root.commandCount("omarchy-capture-screenrecording --stop-recording") === 1, "Screen Recording left click stops active recording")
-      }
-
-      var dictation = root.createIndicator("Dictation")
-      if (dictation) {
-        dictation.moduleName = "Dictation"
-        root.injectBar(dictation)
-        dictation.triggerPress(Qt.LeftButton)
-        dictation.triggerPress(Qt.RightButton)
-        root.assertTrue(root.commandCount("omarchy-voxtype-config") === 2, "Dictation clicks run config command")
-        root.assertTrue(root.commandCount("omarchy-voxtype-model") === 0, "Dictation clicks do not run model command")
       }
 
       var stayAwake = root.createIndicator("StayAwake")

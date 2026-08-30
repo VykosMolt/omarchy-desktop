@@ -61,7 +61,6 @@ GROUP_DESCRIPTIONS[system]="System status, reboot, shutdown, logout, and lock"
 GROUP_DESCRIPTIONS[theme]="Theme management"
 GROUP_DESCRIPTIONS[toggle]="Toggle Omarchy features"
 GROUP_DESCRIPTIONS[transcode]="Image and video transcoding"
-GROUP_DESCRIPTIONS[voxtype]="Voxtype dictation status"
 GROUP_DESCRIPTIONS[weather]="Weather status"
 GROUP_DESCRIPTIONS[webapp]="Web app protocol handlers"
 

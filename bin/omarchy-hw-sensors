@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# omarchy:summary=Print discrete GPU, power profile, CPU temperature and fan state
+# omarchy:group=hw
+# omarchy:name=sensors
+# omarchy:examples=omarchy hw sensors
+
+# One fork for the whole set, all of it from sysfs. The bar polls this, so it
+# reads files rather than shelling out to sensors(1) or powerprofilesctl, both
+# of which cost more than everything here put together.
+
+set -uo pipefail
+
+emit() { printf '%s\t%s\n' "$1" "$2"; }
+
+# The discrete GPU on a hybrid machine. "active" means something woke it, which
+# on battery is worth knowing: it is the difference between the integrated GPU
+# drawing the desktop and a second card powered up behind it.
+for dev in /sys/bus/pci/devices/*; do
+  [[ -r $dev/class && -r $dev/vendor ]] || continue
+  [[ $(< "$dev/class") == 0x03* ]] || continue
+  [[ $(< "$dev/vendor") == 0x10de || $(< "$dev/vendor") == 0x1002 ]] || continue
+  [[ -r $dev/power/runtime_status ]] || continue
+  emit dgpu "$(< "$dev/power/runtime_status")"
+  break
+done
+
+# Power profile. Read it from power-profiles-daemon when that is what owns the
+# setting, so the name matches what a click can actually set; busctl is a C
+# client and costs ~2ms against powerprofilesctl's ~84ms python start-up. Fall
+# back to the raw platform profile when no daemon is running.
+# An absent busctl or a stopped daemon both leave this empty, which is exactly
+# what the sysfs fallback below is for - no presence check needed.
+profile=$(busctl --no-pager get-property \
+  org.freedesktop.UPower.PowerProfiles \
+  /org/freedesktop/UPower/PowerProfiles \
+  org.freedesktop.UPower.PowerProfiles ActiveProfile 2>/dev/null |
+  sed -n 's/^s "\(.*\)"$/\1/p')
+if [[ -z $profile && -r /sys/firmware/acpi/platform_profile ]]; then
+  profile=$(< /sys/firmware/acpi/platform_profile)
+fi
+[[ -n $profile ]] && emit profile "$profile"
+
+# Package temperature, from whichever hwmon is the CPU.
+for hw in /sys/class/hwmon/hwmon*; do
+  [[ -r $hw/name ]] || continue
+  case "$(< "$hw/name")" in
+    coretemp | k10temp | zenpower)
+      [[ -r $hw/temp1_input ]] && emit cputemp "$(( $(< "$hw/temp1_input") / 1000 ))"
+      break
+      ;;
+  esac
+done
+
+# Fan speed, when the platform exposes one.
+for hw in /sys/class/hwmon/hwmon*; do
+  for fan in "$hw"/fan?_input; do
+    [[ -r $fan ]] || continue
+    rpm=$(< "$fan")
+    (( rpm > 0 )) && { emit fan "$rpm"; break 2; }
+  done
+done
+
+exit 0
