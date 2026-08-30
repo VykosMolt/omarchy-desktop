@@ -17,7 +17,7 @@ BarWidget {
     var list = []
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i]
-      if (node && node.isStream && node.isSink === false && !node.audio?.muted) list.push(node)
+      if (node && node.isStream && node.isSink === false && !(node.audio && node.audio.muted)) list.push(node)
     }
     return list
   }

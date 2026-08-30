@@ -90,6 +90,30 @@ Gate only what needs gating — put `require_compositor` in files whose runtime
 half needs a live session, and keep static analysis of the same area in code
 that runs unconditionally before or beside it.
 
+## What qmllint can and cannot read
+
+`qmllint -I shell <file>` is the static check for QML, and it is worth knowing
+where it goes blind. On a file it cannot parse it exits **255 and prints
+nothing at all** -- not a warning, not an error, no output on either stream. A
+loop that only counts non-zero exits reads that as "this file has problems",
+when what it means is "this file was never checked".
+
+Two constructs do it, on qmllint 1.0:
+
+- **`IpcHandler`.** Eight files declare one, which is not optional -- it is how
+  the shell exposes IPC. Those files get no static checking and there is nothing
+  to do about it here.
+- **Optional chaining (`?.`).** This one is ours. Six files used it, got no
+  checking because of it, and now use the ternary the rest of the shell already
+  used on the next line. If you reach for `?.` in QML, you are turning the
+  linter off for that file.
+
+So a clean run is `qmllint` passing on every file that is not one of the eight,
+and the eight are listed by grepping for `IpcHandler` rather than by memory.
+Read the exit code directly; piping into `head` reports the pipe's status, not
+qmllint's, which is how these were mistaken for a stable baseline of failures
+for several commits.
+
 ## Unit-testing shell JavaScript from bash
 
 The Quickshell plugins keep their logic in plain `.js` modules
