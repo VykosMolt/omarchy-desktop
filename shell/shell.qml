@@ -58,12 +58,6 @@ ShellRoot {
   property bool pluginReloading: false
   property bool pluginReloadPending: false
 
-  Timer {
-    id: localPluginReloadTimer
-    interval: 150
-    onTriggered: shell.reloadPlugins()
-  }
-
   onShellConfigChanged: {
     if (failedBarId !== "") failedBarId = ""
     pluginRegistry.registryRevision++
@@ -758,10 +752,6 @@ ShellRoot {
 
   Connections {
     target: shell.pluginRegistry
-    function onLocalPluginChanged(pluginId) {
-      console.log("Local plugin changed, reloading:", pluginId)
-      localPluginReloadTimer.restart()
-    }
     function onScanFinished() {
       if (shell.pluginReloadPending) {
         shell.pluginReloadPending = false
@@ -955,8 +945,6 @@ ShellRoot {
         var isBarOption = Array.isArray(kinds) && kinds.indexOf("bar") !== -1
         var isBarWidget = Array.isArray(kinds) && kinds.indexOf("bar-widget") !== -1
         var active = isBarOption && shell.isActiveBarOption(id)
-        var metadata = plugins[id].omarchy
-        var clonedFrom = Util.isPlainObject(metadata) ? String(metadata.clonedFrom || "") : ""
         out.push({
           id: id,
           name: plugins[id].name,
@@ -970,9 +958,7 @@ ShellRoot {
           // another, so there is nothing for disable to do to it. Said here so
           // that a caller offering the verbs does not have to read kinds and
           // work it out again.
-          canDisable: !isBarOption,
-          firstParty: !!plugins[id].__isFirstParty,
-          clonedFrom: clonedFrom
+          canDisable: !isBarOption
         })
       }
       // Consumers should not each invent their own presentation order.

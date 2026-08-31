@@ -19,7 +19,7 @@ QtObject {
   property var shellConfigProvider: null
   property var shellConfigMutator: null
 
-  // { pluginId: manifest } — manifests have __sourceDir and __isFirstParty stamped in.
+  // { pluginId: manifest } — manifests have __sourceDir stamped in.
   property var installedPlugins: ({})
   property int registryRevision: 0
   property bool scanning: false
@@ -130,8 +130,7 @@ QtObject {
         if (!selectedBar) selectedBar = "omarchy.bar"
         return selectedBar === key
       }
-      if (isDisabled(config, key)) return false
-      if (manifest.__isFirstParty) return true
+      return !isDisabled(config, key)
     }
     return findEntryLocation(config, key).found
   }
@@ -142,16 +141,7 @@ QtObject {
   }
 
   function resolveEnabledId(id) {
-    var key = Util.canonicalWidgetId(String(id || ""))
-    // Callers keep using the built-in id after cloning; the enabled local
-    // manifest is the implementation that should receive the call.
-    for (var candidate in installedPlugins) {
-      var manifest = installedPlugins[candidate]
-      var metadata = manifest && Util.isPlainObject(manifest.omarchy) ? manifest.omarchy : null
-      if (metadata && String(metadata.clonedFrom || "") === key && isEnabled(candidate))
-        return candidate
-    }
-    return key
+    return Util.canonicalWidgetId(String(id || ""))
   }
 
   // A bar widget is on when it sits in the bar, whoever shipped it. That is a
@@ -191,14 +181,8 @@ QtObject {
     return { found: false }
   }
 
-  // A caller naming a widget that has been cloned means the clone that took
-  // its place, the way resolveEnabledId routes calls to it.
   function findRelativeBarLocation(config, id, section) {
-    var location = findBarLocation(config, id, section)
-    if (location.found) return location
-    if (!Util.isPlainObject(config) || !Util.isPlainObject(config.bar)) return { found: false }
-    var clone = activeCloneFor(config, Util.canonicalWidgetId(String(id)))
-    return clone ? findBarLocation(config, clone, section) : { found: false }
+    return findBarLocation(config, id, section)
   }
 
   function findEntryLocation(config, id) {
@@ -384,66 +368,6 @@ QtObject {
     config.disabledPlugins.push(id)
   }
 
-  function cloneShouldRestoreSource(config, id) {
-    return Array.isArray(config.cloneSourceRestores) && config.cloneSourceRestores.indexOf(id) !== -1
-  }
-
-  function setCloneShouldRestoreSource(config, id, value) {
-    var restores = Array.isArray(config.cloneSourceRestores) ? config.cloneSourceRestores : []
-    restores = restores.filter(function(entry) { return entry !== id })
-    if (value) restores.push(id)
-    if (restores.length) config.cloneSourceRestores = restores
-    else delete config.cloneSourceRestores
-  }
-
-  function activeCloneFor(config, sourceId) {
-    for (var candidate in installedPlugins) {
-      var candidateManifest = installedPlugins[candidate]
-      var candidateMetadata = candidateManifest && Util.isPlainObject(candidateManifest.omarchy)
-        ? candidateManifest.omarchy : null
-      if (!candidateMetadata || String(candidateMetadata.clonedFrom || "") !== sourceId) continue
-      if (Array.isArray(candidateManifest.kinds) && candidateManifest.kinds.indexOf("bar") !== -1) {
-        if (Util.canonicalWidgetId(String(config.bar.id || "")) === candidate) return candidate
-      } else if (findEntryLocation(config, candidate).found) {
-        return candidate
-      }
-    }
-    return ""
-  }
-
-  function restoreCloneSource(config, cloneId, sourceId) {
-    var cloneManifest = installedPlugins[cloneId]
-    var isBarOption = cloneManifest && Array.isArray(cloneManifest.kinds)
-      && cloneManifest.kinds.indexOf("bar") !== -1
-    if (isBarOption) {
-      if (sourceId === "omarchy.bar") delete config.bar.id
-      else config.bar.id = sourceId
-    } else {
-      var cloneLocation = findEntryLocation(config, cloneId)
-      if (cloneLocation.kind === "bar") {
-        var cloneEntry = config.bar.layout[cloneLocation.section][cloneLocation.index]
-        var sections = ["left", "center", "right"]
-        for (var s = 0; s < sections.length; s++) {
-          for (var i = config.bar.layout[sections[s]].length - 1; i >= 0; i--) {
-            if (barEntryId(config.bar.layout[sections[s]][i]) === sourceId)
-              config.bar.layout[sections[s]].splice(i, 1)
-          }
-        }
-        cloneLocation = findBarLocation(config, cloneId, "")
-        if (cloneLocation.found) {
-          var restoredEntry = Util.isPlainObject(cloneEntry) ? Util.cloneJson(cloneEntry) : {}
-          restoredEntry.id = sourceId
-          config.bar.layout[cloneLocation.section][cloneLocation.index] = restoredEntry
-        }
-      } else if (cloneLocation.kind === "plugin") {
-        config.plugins.splice(cloneLocation.index, 1)
-      }
-    }
-
-    if (cloneShouldRestoreSource(config, cloneId)) removeDisabled(config, sourceId)
-    setCloneShouldRestoreSource(config, cloneId, false)
-  }
-
   function setEnabled(id, value, placement) {
     var key = Util.canonicalWidgetId(String(id))
     lastEnableError = ""
@@ -458,10 +382,6 @@ QtObject {
     }
     var isBarOption = manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("bar") !== -1
     var isBarWidget = manifest && Array.isArray(manifest.kinds) && manifest.kinds.indexOf("bar-widget") !== -1
-    var hasNonWidgetKind = manifest && Array.isArray(manifest.kinds)
-      && manifest.kinds.some(function(kind) { return kind !== "bar-widget" })
-    var metadata = manifest && Util.isPlainObject(manifest.omarchy) ? manifest.omarchy : null
-    var clonedFrom = metadata ? Util.canonicalWidgetId(String(metadata.clonedFrom || "")) : ""
     shellConfigMutator(function(config) {
       ensureConfigShape(config)
 
@@ -473,25 +393,15 @@ QtObject {
         }
       }
 
-      if (value && manifest && manifest.__isFirstParty) {
-        var activeClone = activeCloneFor(config, key)
-        if (activeClone) {
-          restoreCloneSource(config, activeClone, key)
-          removeDisabled(config, key)
-        }
-      }
-
       if (isBarOption) {
         if (value) {
           config.bar.id = key
         } else if (Util.canonicalWidgetId(String(config.bar.id || "")) === key) {
-          if (clonedFrom && clonedFrom !== "omarchy.bar") config.bar.id = clonedFrom
-          else delete config.bar.id
+          delete config.bar.id
         }
         return
       }
 
-      var isFirstParty = manifest && manifest.__isFirstParty
       var location = findEntryLocation(config, key)
 
       if (value) {
@@ -499,39 +409,24 @@ QtObject {
         var entry = { id: key }
         var insertedWithPlacement = false
         if (!location.found && isBarWidget) {
-          var sourceLocation = clonedFrom ? findEntryLocation(config, clonedFrom) : { found: false }
-          if (sourceLocation.kind === "bar") {
-            var sourceEntry = config.bar.layout[sourceLocation.section][sourceLocation.index]
-            var replacement = Util.isPlainObject(sourceEntry) ? Util.cloneJson(sourceEntry) : entry
-            replacement.id = key
-            config.bar.layout[sourceLocation.section][sourceLocation.index] = replacement
-          } else {
-            var section = defaultBarWidgetSection(manifest)
-            var target = barTarget(config, placement || {}, section)
-            config.bar.layout[target.section].splice(target.index, 0, entry)
-            insertedWithPlacement = true
-          }
-        } else if (!location.found && !isFirstParty) {
-          config.plugins.push(entry)
+          var section = defaultBarWidgetSection(manifest)
+          var target = barTarget(config, placement || {}, section)
+          config.bar.layout[target.section].splice(target.index, 0, entry)
+          insertedWithPlacement = true
         }
 
         if (isBarWidget && !insertedWithPlacement && placement && Object.keys(placement).length)
           moveBarEntry(config, key, placement)
 
-        if (clonedFrom && hasNonWidgetKind && !isDisabled(config, clonedFrom)) {
-          addDisabled(config, clonedFrom)
-          setCloneShouldRestoreSource(config, key, true)
-        }
         return
       }
 
-      if (clonedFrom) restoreCloneSource(config, key, clonedFrom)
-      else if (location.kind === "bar") config.bar.layout[location.section].splice(location.index, 1)
+      if (location.kind === "bar") config.bar.layout[location.section].splice(location.index, 1)
       else if (location.kind === "plugin") config.plugins.splice(location.index, 1)
 
       // Dropping the layout entry is the whole story for a widget. Anything
       // else built-in loads by default, so switching it off has to be stated.
-      if (isFirstParty && !isBarWidget) addDisabled(config, key)
+      if (!isBarWidget) addDisabled(config, key)
     })
     if (lastEnableError) return false
     registryRevision++
@@ -550,7 +445,6 @@ QtObject {
     var lines = String(text || "").split("\n")
     var firstParty = {}
     var currentSource = null
-    var currentKind = null
     var currentJson = []
 
     function flush() {
@@ -559,24 +453,21 @@ QtObject {
       try {
         var manifest = JSON.parse(raw)
         manifest.__sourceDir = currentSource
-        manifest.__isFirstParty = (currentKind === "firstparty")
         var validated = validateManifest(manifest, currentSource + "/manifest.json")
         if (validated) firstParty[validated.id] = validated
       } catch (e) {
         console.warn("PluginRegistry: bad manifest at " + currentSource + ": " + e)
       }
       currentSource = null
-      currentKind = null
       currentJson = []
     }
 
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i]
-      var startMatch = line.match(/^===([a-z]+)::(.+)===$/)
+      var startMatch = line.match(/^===(?:[a-z]+)::(.+)===$/)
       if (startMatch) {
         flush()
-        currentKind = startMatch[1]
-        currentSource = startMatch[2].replace(/\/$/, "")
+        currentSource = startMatch[1].replace(/\/$/, "")
         currentJson = []
         continue
       }
