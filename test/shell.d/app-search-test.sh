@@ -109,16 +109,33 @@ assert(
   'app library launches by full file name so ids ending in .desktop (org.telegram.desktop) resolve'
 )
 
+// Some desktop entries name a device icon rather than an app one -- Print
+// Settings asks for "printer" -- so the resolver has to search both contexts.
+// The search lives in shell/services/icon-index.sh now, not in a here-string.
+const iconIndexSh = fs.readFileSync(path.join(root, 'shell/services/icon-index.sh'), 'utf8')
 assert(
-  /function iconIndexScanCommand\(\)[\s\S]*-path "\*\/apps\/\*" -o -path "\*\/devices\/\*"/.test(appLibraryQml),
-  'app library fallback icon index includes device icons'
+  /-name apps -o -name devices/.test(iconIndexSh) &&
+    /\$d == \*\/apps \|\| \$d == \*\/devices/.test(iconIndexSh),
+  'icon resolver searches device icons as well as app icons'
+)
+assert(
+  appLibraryQml.includes('shell/services/icon-index.sh'),
+  'app library resolves icons through the icon-index script'
 )
 
+// A login shell sources the user's profile, and tools like mise touch
+// ~/.local/share on activation -- a directory the desktop-entry watcher
+// monitors -- so a scan run in one retriggers the scan that started it. The
+// hidden-entry scan goes through bash -c; the icon resolver is executed
+// directly, so its shebang is what has to stay non-login.
 assert(
   appLibraryQml.includes('command: ["bash", "-c", root.hiddenEntryScanCommand()]') &&
-    appLibraryQml.includes('command: ["bash", "-c", root.iconIndexScanCommand()]') &&
     !appLibraryQml.includes('"-lc"'),
   'app library scans avoid login shells whose profile activation retriggers the desktop-entry watcher'
+)
+assert(
+  iconIndexSh.startsWith('#!/bin/bash\n') && !/#!.*bash\s+-[a-z]*l/.test(iconIndexSh),
+  'the icon resolver runs in a non-login shell'
 )
 
 assert(
