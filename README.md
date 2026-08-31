@@ -1,8 +1,10 @@
-# Omarchy Arch Port
+# omarchy-desktop
 
 The Omarchy Quattro desktop — Hyprland with the Quickshell shell, bar, launcher,
 notifications, lock screen and theming — running as one ordinary session on a
 stock Arch Linux install, alongside whatever else is already there.
+
+Keep the desktop. Delete the distro.
 
 Omarchy's operating-system layer is not part of this port. There is no
 installer, no migrations, no release channels or self-update, no package
