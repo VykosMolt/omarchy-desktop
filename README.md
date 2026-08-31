@@ -50,6 +50,45 @@ Even the sudoers decision I am rudest about below comes with a paragraph of
 honest reasoning attached. The disagreement here is about where a desktop's
 authority ends, not about whether anyone was paying attention.
 
+## What got added
+
+Removing things was most of the work, but not all of it. A few gaps were obvious
+once the distro stopped filling the screen.
+
+**A system monitor.** CPU and memory sit in the bar; clicking opens the detail:
+CPU with its one-minute load, memory used against total with cached and swap
+broken out, and the processes actually responsible, sortable by CPU or by memory
+and terminable from the list. Built the same way the Power widget is, one
+bar-widget plugin whose `Panel.qml` is both the bar item and the popup, so it
+sits beside Audio, Network and Bluetooth rather than off on its own.
+
+**A hardware readout**, which is what replaced the system tray. The tray held
+nm-applet and blueman, both duplicating bar widgets that already existed, plus
+fcitx5 for a single configured input method: 100MB of processes publishing icons
+into a drawer. The drawer stayed, the contents changed. Behind the same chevron
+you now get whether the discrete GPU is awake or asleep, the active power profile
+(click it to cycle), CPU package temperature, and fan speed. One `omarchy-hw-sensors`
+fork covers all four in about 4ms, read from sysfs and from power-profiles-daemon
+over busctl, because `powerprofilesctl` spends 84ms starting Python before it
+answers.
+
+**A Settings panel**, because there was not one. Settings meant hand-editing
+`shell.json`, launcher rows that run a command, and controls buried inside other
+panels. `settingsForm` was declared in two manifests and rendered by nothing at
+all. This is the surface System Settings occupies on other desktops, bound to
+what this stack can actually drive, with its own 415-line test file.
+
+**Wallpaper folders and an icon theme picker.** Register a folder and its images
+join the background picker alongside the current theme's, three levels deep,
+never wandering into hidden trees. The icon picker came with making the
+configured icon theme actually apply, which it previously did not: the launcher
+walked icon roots in filesystem order and showed whichever theme `find` reached
+first.
+
+**The session itself**, which is the part that makes any of the rest possible:
+its own `wayland-sessions` entry, its own systemd user units, and an advisory
+lock so two Hyprland sessions on one account cannot fight over the shell.
+
 ## Who this is for
 
 You already run Arch. You already have a Hyprland config you have opinions about,
@@ -277,6 +316,15 @@ rule, because nothing it contains edits the system.
   configured input method.
 - **`SUPER+T` took 385ms** because it woke the discrete GPU to ask a question it
   could answer from sysfs.
+
+### Building the parts that were missing
+
+Covered above in more detail: the system monitor, the hardware readout that
+replaced the tray, the Settings panel, wallpaper folders, the icon theme picker,
+and the isolated session with its own units and lock. The bar also got `list` and
+`remove` back, which had gone missing behind a dev gallery of 88K of QML
+demonstrating UI components, reachable through an `omarchy dev ui-preview`
+command that does not exist.
 
 ### Fitting the hardware it actually runs on
 
