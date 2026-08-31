@@ -22,6 +22,12 @@ Item {
   // whenever the app list changes, so newly installed apps get their icon live.
   property var iconIndex: ({})
   property var pendingIconIndex: ({})
+  // The names a desktop entry actually asks for. The launcher's app rows are the
+  // only consumer of iconIndex — notifications resolve their own icons — so a
+  // name no entry names is a key that is written once and never read. On this
+  // machine the icon roots hold 19,371 distinct names and the 214 installed
+  // entries between them ask for 154.
+  property var wantedIconNames: ({})
 
   property int launchSerial: 0
   property int launchToplevelCount: 0
@@ -190,6 +196,19 @@ Item {
     ].join(' ')
   }
 
+  function collectWantedIconNames() {
+    var wanted = {}
+    var values = DesktopEntries.applications.values || []
+    for (var i = 0; i < values.length; i++) {
+      var icon = String((values[i] && values[i].icon) || "")
+      // An absolute path or a URL needs no index entry: iconSource returns it
+      // directly without ever consulting one.
+      if (icon.length === 0 || icon.charAt(0) === "/" || icon.indexOf("://") !== -1) continue
+      wanted[icon] = true
+    }
+    return wanted
+  }
+
   function indexIconLine(path) {
     var value = String(path || "").trim()
     if (value.length === 0) return
@@ -197,7 +216,12 @@ Item {
     var file = slash >= 0 ? value.slice(slash + 1) : value
     var dot = file.lastIndexOf(".")
     var name = dot > 0 ? file.slice(0, dot) : file
-    if (name.length > 0 && root.pendingIconIndex[name] === undefined)
+    if (name.length === 0) return
+    // Ordering still decides which path wins for a name; this only decides
+    // which names are worth keeping. A name nothing asks for falls through to
+    // Quickshell.iconPath if it is ever requested after all.
+    if (root.wantedIconNames[name] !== true) return
+    if (root.pendingIconIndex[name] === undefined)
       root.pendingIconIndex[name] = value
   }
 
@@ -257,7 +281,10 @@ Item {
     id: iconIndexScan
     command: ["bash", "-c", root.iconIndexScanCommand()]
     stdout: SplitParser { onRead: function(line) { root.indexIconLine(line) } }
-    onStarted: root.pendingIconIndex = ({})
+    onStarted: {
+      root.pendingIconIndex = ({})
+      root.wantedIconNames = root.collectWantedIconNames()
+    }
     // Swapping the property re-evaluates every iconSource() binding, so
     // newly found icons appear without rebuilding the list.
     onExited: root.iconIndex = root.pendingIconIndex

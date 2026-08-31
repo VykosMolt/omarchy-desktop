@@ -14,8 +14,40 @@
 # A package upgrade rewriting $OMARCHY_PATH/shell would otherwise reload it
 # against a half-written tree, and that failed reload leaves a second engine
 # generation behind that turns the next restart's IPC kill into a crash.
+# glvnd loads every installed EGL vendor to ask which one claims the device, so
+# on a hybrid laptop the bar maps NVIDIA's EGL and GLX stacks -- libEGL_nvidia,
+# libnvidia-eglcore, libnvidia-glcore and friends, about 21MB resident -- before
+# settling on Mesa and rendering on the integrated GPU anyway. The shell has no
+# business on the discrete card, so tell glvnd which vendor to load.
+#
+# Only when there is something for Mesa to drive: on a machine whose only render
+# node is NVIDIA this would leave the shell with no EGL at all. Scoped to the
+# shell, never exported into the session, so an application launched with prime
+# offload still picks its own vendor.
+mesa_render_node_present() {
+  local vendor_file vendor
+
+  for vendor_file in "${OMARCHY_DRM_CLASS_PATH:-/sys/class/drm}"/renderD*/device/vendor; do
+    [[ -r $vendor_file ]] || continue
+    vendor=$(< "$vendor_file")
+    # Intel or AMD.
+    [[ $vendor == 0x8086 || $vendor == 0x1002 ]] && return 0
+  done
+
+  return 1
+}
+
+mesa_egl_vendor="${OMARCHY_MESA_EGL_VENDOR:-/usr/share/glvnd/egl_vendor.d/50_mesa.json}"
+egl_vendor_env=()
+if [[ -r $mesa_egl_vendor ]] && mesa_render_node_present; then
+  egl_vendor_env=(
+    __EGL_VENDOR_LIBRARY_FILENAMES="$mesa_egl_vendor"
+    __GLX_VENDOR_LIBRARY_NAME=mesa
+  )
+fi
+
 run_shell() {
-  QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
+  env "${egl_vendor_env[@]}" QS_DISABLE_FILE_WATCHER=1 QS_NO_RELOAD_POPUP=1 \
     systemd-cat -t omarchy-shell -- quickshell -n -p "$OMARCHY_PATH/shell" &
   shell_pid=$!
 
