@@ -114,6 +114,7 @@ printf '%s\n' "$*" >>"$OMARCHY_TEST_QS_LOG"
 
 case " $* " in
   *' kill -p '*)
+    [[ ${OMARCHY_TEST_QS_KILL_FAILS:-0} == 1 ]] && exit 1
     pid=$(head -n 1 "$OMARCHY_TEST_QS_STATE")
     [[ $pid =~ ^[0-9]+$ ]] || exit 1
     kill "$pid" 2>/dev/null
@@ -213,6 +214,34 @@ grep -F "kill -p $restart_root/shell --any-display" "$restart_log" >/dev/null ||
 grep -F 'hl.dsp.exec_cmd("omarchy-launch-shell")' "$dispatch_log" >/dev/null || fail "restart launches the fresh shell through Hyprland"
 grep -F "ipc -n -p $restart_root/shell call -- shell ping" "$ipc_log" >/dev/null || fail "restart checks readiness in the session checkout"
 pass "restart replaces duplicate shell instances from the session checkout"
+
+# A kill that matches nothing used to fall through to the readiness poll, where
+# the shell it failed to stop answered the ping and the restart reported success
+# having restarted nothing. The caller then believes it is running new code.
+printf '303\n' >"$restart_state"
+: >"$restart_log"
+unstoppable_rc=0
+unstoppable_output=$(
+  PATH="$restart_bin:$PATH" \
+  OMARCHY_PATH="$caller_root" \
+  XDG_RUNTIME_DIR="$runtime_dir" \
+  OMARCHY_TEST_QS_STATE="$restart_state" \
+  OMARCHY_TEST_QS_LOG="$restart_log" \
+  OMARCHY_TEST_QS_ENV_LOG="$restart_env_log" \
+  OMARCHY_TEST_DISPATCH_LOG="$dispatch_log" \
+  OMARCHY_TEST_IPC_LOG="$ipc_log" \
+  OMARCHY_TEST_SESSION_PATH="$restart_root" \
+  OMARCHY_TEST_QS_KILL_FAILS=1 \
+    timeout 5 "$ROOT/bin/omarchy-restart-shell" 2>&1
+) || unstoppable_rc=$?
+
+(( unstoppable_rc != 0 )) ||
+  fail "restart fails when the running shell cannot be stopped" "$unstoppable_output"
+grep -F 'Could not stop the running Omarchy shell' <<<"$unstoppable_output" >/dev/null ||
+  fail "restart says why it did not restart" "$unstoppable_output"
+! grep -q '^-n -p ' "$restart_log" ||
+  fail "restart launches no second shell when the first is still running" "$(<"$restart_log")"
+pass "restart refuses to report success when the running shell cannot be stopped"
 
 : >"$restart_log"
 printf '303\n' >"$restart_state"
