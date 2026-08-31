@@ -32,10 +32,23 @@ Nearly all of it, because the desktop half is good:
 - the theme engine and its templates
 - Hyprland configured in Lua, which is nicer than it sounds
 
-Credit where it is due: `omarchy-theme-set` refuses to stage `*.lua`,
-`kitty.conf` or `vscode.json` out of a cloned theme, because each of those is
-arbitrary code execution wearing a colour palette. That is careful work and it
-is kept verbatim.
+Credit where it is due, and there is real credit to give.
+
+`omarchy-theme-set` refuses to stage `*.lua`, `kitty.conf` or `vscode.json` out
+of a cloned theme, because each of those is arbitrary code execution wearing a
+colour palette — Hyprland `require`s a theme's `hyprland.lua` at login, and
+`kitty.conf` names the program your terminal launches. It filters at staging
+rather than at install, so themes that predate the rule are covered too. That is
+someone thinking properly about a threat model most projects never notice.
+
+`Util.execArgv` passes untrusted values as positional parameters through a
+constant `exec "$@"`, so a filename containing `$(id)` stays a filename. The
+comment explains why. Whoever wrote that has been bitten before and learned the
+right lesson.
+
+Even the sudoers decision I am rudest about below comes with a paragraph of
+honest reasoning attached. The disagreement here is about where a desktop's
+authority ends, not about whether anyone was paying attention.
 
 ## Who this is for
 
@@ -141,15 +154,76 @@ Then the parts that were less obvious:
   docker group. On a machine that chose differently it could only fail. It now
   checks the desktop instead.
 
+### The privilege surface
+
+This is the part that most deserves a long look, because it is the least visible
+and the hardest to reverse once it is on a machine.
+
+Omarchy ships five sudoers drop-ins. Three are narrow and defensible: passwordless
+`timedatectl set-timezone` behind a regex, a browser-policy command behind a
+six-hex-digit pattern, and `omarchy-dns` restricted to three exact invocations.
+Fine. That is how you write a NOPASSWD rule.
+
+The other two are not that.
+
+```
+%wheel ALL=(ALL) NOPASSWD: /usr/bin/asdcontrol
+```
+
+No argument constraint, and `(ALL)` rather than `(root)`. Every member of `wheel`
+may run a USB HID tool as any user on the system, with any arguments, without a
+password, forever — installed for the benefit of people with an Apple Studio
+Display.
+
+```
+Defaults passwd_tries=10
+```
+
+That is not scoped to Omarchy. It raises sudo's password-attempt allowance from
+three to ten for **every sudo invocation on the machine**, permanently, because
+typing your password is annoying. A desktop should not get to make that call.
+
+And then the one that ties it together — opt-in, this one, for people hacking on
+Omarchy itself rather than anyone who merely installed it. `omarchy dev link
+<checkout>` writes `/etc/sudoers.d/omarchy-dev-path`, which prepends that
+checkout's `bin/` to sudo's `secure_path` — so root resolves bare command names
+out of a directory the unprivileged user can write to. The reasoning is in the source and it is honest
+about what it is doing: it wants `sudo omarchy-*` to run the code you are
+editing.
+
+The trouble is that `secure_path` exists precisely to stop root resolving
+commands out of user-controlled directories, and a NOPASSWD rule pointing at
+`/usr/bin/omarchy-dns` does not save you when `omarchy-dns` then calls `tee`,
+`nmcli`, `install` and `rm` by bare name as root. Omarchy knows this — every
+privileged script pins `PATH` by hand when `EUID == 0`, with a comment explaining
+why. That defence works. It is also a thing you have to remember to write, in
+every privileged script, every time, forever, and it is one forgotten line away
+from a local root.
+
+None of this is catastrophic on its own, and none of it is careless in the sense
+of nobody having thought about it. It is what happens when a desktop is also the
+thing that owns the machine: every convenience gets to reach for root, and the
+reaching accumulates.
+
+This port ships no `etc/` directory at all. Nothing it contains needs a sudoers
+rule, because nothing it contains edits the system.
+
 ### Things that were quietly wrong
 
-- **`omarchy-dns` owned `/etc`.** To set a DNS server it wrote a whole new
-  `/etc/systemd/resolved.conf` with no backup, and rewrote `ipv4.dns`/`ipv6.dns`
-  on all fifteen saved NetworkManager profiles. Now: per-connection nmcli on the
-  active connection, authorised by NetworkManager's own polkit action.
+- **`omarchy-dns` owned `/etc`.** To point you at Cloudflare it wrote a whole new
+  `/etc/systemd/resolved.conf` — no backup, no merge, whatever you had in there
+  is gone — and then walked every saved NetworkManager profile rewriting
+  `ipv4.dns` and `ipv6.dns`. All fifteen of mine, including the ones for networks
+  I was not on and had not asked about. NetworkManager has a polkit action for
+  exactly this, scoped to a connection, which the desktop can call as you rather
+  than as root. That is what it does now, and the sudoers rule went with it.
 - **Four commands built a filesystem path out of an argument** without checking
-  it. `omarchy-hook ../../../../pwned` ran a script four directories above the
-  hooks directory. One shared rule now rejects a name that can climb.
+  it, and then wrote to it, deleted it, or executed it. `omarchy-hook
+  ../../../../pwned` ran a script four directories above the hooks directory;
+  `omarchy-hyprland-toggle ../../../../../victim off` deleted a `.lua` file five
+  above the toggles one. One shared rule now rejects any name containing a
+  slash, and `.` and `..` besides — while leaving `...` and `..foo` alone,
+  because those are ordinary filenames and somebody will have one.
 - **Three ways a login came up with nothing** — a blank session, fixed.
 - **A surface that was present, correctly sized, and painting nothing.** The
   wallpaper read its path from the stock state directory, which no longer
@@ -167,17 +241,31 @@ Then the parts that were less obvious:
 - **`omarchy-default-terminal` returned an empty string,** because it asked
   `xdg-terminal-exec --print-id` and swallowed the failure when that turned out
   to be a local shim that only knows how to exec kitty.
-- **One indicator shadowed `QQuickItem.state`**, and a tab character in a command
-  line froze the system monitor.
+- **One indicator shadowed `QQuickItem.state`**, quietly breaking a property Qt
+  itself uses, and a single tab character in a command line froze the system
+  monitor outright.
+- **Code that could not run at all.** The dictation indicator read
+  `omarchy-voxtype-status`, which short-circuits to a static `idle` when voxtype
+  is not installed — so its `active: mode === "recording"` could never be true
+  and the indicator could never appear. Nothing was broken, exactly; it just was
+  not anything.
 
 ### Making it faster
 
 - **The menu's guard batch: 87ms to 14ms.**
-- **Workspace clicks: 128ms to nothing measurable.** Every click went through
-  `bash -lc`, so switching workspace meant sourcing your login profile.
-- **Wallpapers were decoded at eight times the screen's resolution.** A 7680×3215
-  WebP is 94MB of RGBA on a display that can show 16MB of it, and three Image
-  elements were doing it at once, two of them building mipmaps on top.
+- **Every bar action went through a login shell.** `Util.execDetached` ran
+  `bash -lc`, which sources `/etc/profile`, every script in `/etc/profile.d` and
+  your `.bashrc` before the command starts. Measured at **123ms**, paid in full
+  by a workspace click whose entire job was to hand one line to `hyprctl`. That
+  cost is real when you are launching a GUI application, which needs the session
+  environment — so the login shell stayed for that, and a direct-exec path was
+  added for tools that need nothing from your profile.
+- **Wallpapers were decoded at eight times the screen's resolution.** A wallpaper
+  is compressed on disk and uncompressed in memory: `3-sunset-lake.webp` is 356KB
+  of WebP and 7680×3215 pixels, which is **94MB of RGBA** on a display that can
+  show 16MB of it. No `sourceSize` was set, so Qt decoded all of it — across
+  three `Image` elements at once, two of them building mipmaps on top. That was
+  most of several hundred megabytes of graphics buffers, for one photograph.
 - **The icon index catalogued 227,100 files to answer 153 questions.** The icon
   theme spec has each theme list its own directories in `index.theme`, so the
   tree never needed walking: 413ms became 84ms, byte-identical output.
