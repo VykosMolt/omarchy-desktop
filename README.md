@@ -97,7 +97,7 @@ if you hate it you can delete four directories and pretend this never happened.
 
 ## Everything that changed
 
-63 commits on top of upstream. Grouped by the problem each one was solving.
+Grouped by the problem each commit was solving, rather than listed as a log.
 
 ### Making it a guest instead of an owner
 
