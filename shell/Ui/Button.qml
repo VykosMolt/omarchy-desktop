@@ -46,6 +46,13 @@ BorderSurface {
   property real verticalPadding: Style.spacing.controlPaddingY
   property bool leftAlign: false
 
+  // A button given a width narrower than its content would otherwise let the
+  // label run past its own edges, where the neighbour paints over it. Opt in
+  // for buttons that share a fixed-width row, and the label elides instead.
+  // Off by default: a button sized by its content has nothing to elide, and
+  // tying the label to `width` there would loop through implicitWidth.
+  property bool elideLabel: false
+
   leftPadding: horizontalPadding
   rightPadding: horizontalPadding
   topPadding: verticalPadding
@@ -103,6 +110,9 @@ BorderSurface {
     Border.left(_selectedBorderSpec),
     bordered ? Border.left(_normalBorderSpec) : 0)
   readonly property real _reservedContentLeftInset: _reservedBorderLeft + leftPadding
+  readonly property real _labelAvailableWidth: root.width - leftPadding - rightPadding
+    - _reservedBorderLeft - _reservedBorderRight
+    - (iconLabel.visible ? iconLabel.implicitWidth + row.spacing : 0)
   readonly property var _borderSpec: _showFocusRing ? _focusBorderSpec
     : hot                      ? _hoverBorderSpec
     : selected                 ? (Border.controlHasWidth("selected") ? _selectedBorderSpec : (bordered ? _normalBorderSpec : Border.none()))
@@ -159,6 +169,7 @@ BorderSurface {
     spacing: Style.spacing.controlGap
 
     Text {
+      id: iconLabel
       textFormat: Text.PlainText
       visible: root.iconText !== ""
       text: root.iconText
@@ -187,6 +198,8 @@ BorderSurface {
       font.pixelSize: root.fontSize
       font.bold: root.selected
       anchors.verticalCenter: parent.verticalCenter
+      width: root.elideLabel ? Math.max(0, Math.min(implicitWidth, root._labelAvailableWidth)) : implicitWidth
+      elide: root.elideLabel ? Text.ElideRight : Text.ElideNone
     }
   }
 

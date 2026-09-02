@@ -38,6 +38,13 @@ function parseProfiles(raw, previousIndex) {
   }
 }
 
+// The daemon's names are identifiers; on a button they read as words.
+function profileLabel(name) {
+  var words = String(name || "").replace(/[-_]+/g, " ").trim()
+  if (!words) return ""
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 function profileIcon(name) {
   if (name === "power-saver") return "󰌪"
   if (name === "balanced") return "󰊚"
@@ -96,6 +103,7 @@ if (typeof module !== "undefined") {
     selectProfileIndex: selectProfileIndex,
     parseKeyValue: parseKeyValue,
     parseProfiles: parseProfiles,
+    profileLabel: profileLabel,
     profileIcon: profileIcon,
     batteryFraction: batteryFraction,
     chargeThresholdActive: chargeThresholdActive,

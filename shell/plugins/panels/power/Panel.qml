@@ -465,14 +465,18 @@ Panel {
             fontFamily: root.bar.fontFamily
           }
 
-          Row {
+          // Three profiles share one row. A fourth -- a firmware's max-power --
+          // would leave each cell too narrow for its label, so the picker
+          // wraps into two columns, and the labels elide rather than run
+          // under their neighbours should a theme's font still be too wide.
+          Grid {
             id: profileRow
             width: parent.width
-            spacing: Style.space(6)
+            columns: root.profiles.length > 3 ? 2 : Math.max(1, root.profiles.length)
+            columnSpacing: Style.space(6)
+            rowSpacing: Style.space(6)
 
-            readonly property real cellWidth: root.profiles.length > 0
-              ? (width - spacing * (root.profiles.length - 1)) / root.profiles.length
-              : 0
+            readonly property real cellWidth: (width - columnSpacing * (columns - 1)) / columns
 
             Repeater {
               model: root.profiles
@@ -482,7 +486,8 @@ Panel {
                 width: profileRow.cellWidth
                 iconText: root.profileIcon(String(modelData))
                 iconSize: Style.font.title
-                text: String(modelData).charAt(0).toUpperCase() + String(modelData).slice(1)
+                text: Model.profileLabel(String(modelData))
+                elideLabel: true
                 fontSize: Style.font.bodySmall
                 foreground: root.bar.foreground
                 fontFamily: root.bar.fontFamily

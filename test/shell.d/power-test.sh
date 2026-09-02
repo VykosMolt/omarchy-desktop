@@ -21,6 +21,10 @@ assertDeepEqual(
 )
 
 assert(power.profileIcon('performance').length > 0, 'power maps profile icons')
+assertEqual(power.profileLabel('power-saver'), 'Power saver', 'power labels a profile as words')
+assertEqual(power.profileLabel('max-power'), 'Max power', 'power labels a firmware-only profile as words')
+assertEqual(power.profileLabel('balanced'), 'Balanced', 'power capitalises a one-word profile')
+assertEqual(power.profileLabel(''), '', 'power labels nothing as nothing')
 assert(power.profileIcon('max-power') !== power.profileIcon('nope'), 'power gives a firmware-only profile its own icon')
 assertEqual(power.batteryFraction({ isPresent: true, percentage: 1.5 }), 1, 'power clamps battery fraction')
 
