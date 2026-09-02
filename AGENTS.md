@@ -30,10 +30,9 @@ not exist here.
 
 The session holds an advisory flock on `$XDG_RUNTIME_DIR/omarchy-arch-session.lock`
 for its whole lifetime. The `omarchy-arch-*` units in `default/systemd/user/`
-refuse to start unless that lock is held, and a runtime drop-in applies the
-inverse condition to `dms.service`, so the two Hyprland sessions on this account
-never run each other's services. Do not weaken that, and do not enable any of
-those units permanently.
+refuse to start unless that lock is held, so the other Hyprland session on this
+account never runs them. Do not weaken that, and do not enable any of those
+units permanently.
 
 # Style
 

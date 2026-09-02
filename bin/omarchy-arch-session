@@ -36,8 +36,6 @@ write_systemd_env() {
         OMARCHY_STATE_HOME \
         OMARCHY_CACHE_HOME \
         OMARCHY_DATA_HOME \
-        OMARCHY_CRASH_WATCH_UNIT \
-        OMARCHY_FCITX5_UNIT \
         OMARCHY_SLEEP_LOCK_UNIT \
         PATH
     do
@@ -97,16 +95,6 @@ if (( ! dry_run )); then
     # it into the persistent systemd user manager.
     umask 077
     write_systemd_env > "$SESSION_ENV_FILE"
-
-    # DMS is normally enabled for every Hyprland session on this account.
-    # Add a runtime-only guard: DMS may start unless this lock is currently
-    # held by the Omarchy Arch session launcher.
-    dms_dropin="$SESSION_RUNTIME/systemd/user/dms.service.d/20-omarchy-arch-session.conf"
-    mkdir -p "$(dirname "$dms_dropin")"
-    cat > "$dms_dropin" <<'DMS_EOF'
-[Service]
-ExecCondition=/usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true
-DMS_EOF
 
     # Belt and braces for the session's own services. Hyprland starts them from
     # default/hypr/autostart.lua, which means the whole desktop -- bar, menu,
