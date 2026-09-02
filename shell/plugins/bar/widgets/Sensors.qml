@@ -7,6 +7,14 @@ import qs.Ui
 // GPU is awake, which power profile is in force, package temperature and fan
 // speed. Laid out like the tray it replaces - anything worth acting on stays
 // pinned and visible, the rest lives behind a chevron that slides open.
+//
+// The power profile is the one reading here that is also a control: a click
+// on it cycles to the next profile. Temperature and fan speed are symptoms of
+// what the processor is doing, and the system monitor next door is where that
+// gets explained, so a click on the chevron or on either of them opens the
+// same process panel the CPU/memory readout does. The discrete GPU reading
+// is only a reading: nothing on this bar explains a woken GPU, so it answers
+// with its tooltip and nothing else.
 BarWidget {
   id: root
   moduleName: "omarchy.sensors"
@@ -66,7 +74,7 @@ BarWidget {
         // card powering up means something asked for it.
         notable: awake,
         tooltip: awake ? "Discrete GPU awake" : "Discrete GPU " + r.dgpu,
-        command: ""
+        inert: true
       })
     }
 
@@ -90,8 +98,7 @@ BarWidget {
         value: temp + "°",
         pinned: false,
         notable: temp >= root.tempWarning,
-        tooltip: "CPU package " + temp + " °C",
-        command: ""
+        tooltip: "CPU package " + temp + " °C"
       })
     }
 
@@ -102,8 +109,7 @@ BarWidget {
         value: "",
         pinned: false,
         notable: false,
-        tooltip: r.fan + " rpm",
-        command: ""
+        tooltip: r.fan + " rpm"
       })
     }
 
@@ -128,8 +134,20 @@ BarWidget {
     sampleProc.running = true
   }
 
+  function openSystemMonitor() {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.toggle !== "function") return
+    root.bar.shell.toggle("omarchy.system-monitor")
+  }
+
+  // A reading with a command is a control and runs it; an inert one does
+  // nothing; the rest open the panel that explains them.
   function activate(item) {
-    if (!item || !item.command || !root.bar) return
+    if (!item || item.inert === true) return
+    if (!item.command) {
+      openSystemMonitor()
+      return
+    }
+    if (!root.bar) return
     root.bar.run(item.command)
     // Give the daemon a beat to apply it before re-reading.
     settleTimer.restart()
@@ -217,6 +235,9 @@ BarWidget {
           x: horizontalRoot.drawerExtent - horizontalRoot.revealExtent
           text: ""
           tooltipText: "Hardware"
+          onPressed: function(button) {
+            if (button === Qt.LeftButton) root.openSystemMonitor()
+          }
         }
 
         Item {
@@ -285,7 +306,7 @@ BarWidget {
     fontSize: Style.bar.iconFont
     active: item ? item.notable === true : false
     tooltipText: item ? item.tooltip : ""
-    pressable: item ? item.command !== "" : false
+    pressable: item ? item.inert !== true : false
     onPressed: function(button) {
       if (button === Qt.LeftButton) root.activate(sensorItem.item)
     }
