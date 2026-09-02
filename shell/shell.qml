@@ -983,6 +983,11 @@ ShellRoot {
       return JSON.stringify(shell.bar && shell.bar.debugBarGeometry ? shell.bar.debugBarGeometry() : [])
     }
 
+    function debugBarClickTarget(x: string, y: string): string {
+      return JSON.stringify(shell.bar && shell.bar.debugBarClickTarget
+        ? shell.bar.debugBarClickTarget(Number(x), Number(y)) : null)
+    }
+
     function summon(id: string, payloadJson: string): string {
       return shell.summon(id, payloadJson) ? "ok" : "unknown"
     }

@@ -212,6 +212,24 @@ jq -e --argjson expected "$default_ids" --argjson visibleExpected "$visible_defa
 }
 pass "default bar layout renders expected module slots"
 
+# A click inside a slot reaches that slot's own button or nothing at all. The
+# hardware drawer once kept its hidden buttons laid out under the next slots,
+# so a click on the CPU/memory readout cycled the power profile and a click on
+# Bluetooth opened the process list.
+stray=""
+while IFS=$'\t' read -r slot_id cx cy; do
+  hit=$(shell_ipc shell debugBarClickTarget "$cx" "$cy" 2>/dev/null || true)
+  owner=$(jq -r '.target.module // ""' <<<"$hit" 2>/dev/null || true)
+  if [[ -n $owner && $owner != "$slot_id" ]]; then
+    stray+="$slot_id at $cx,$cy reaches $owner"$'\n'
+  fi
+done < <(jq -r '.[] | select(.visible == true) | [.id, (.x + .width / 2 | floor), (.y + .height / 2 | floor)] | @tsv' <<<"$geometry")
+if [[ -n $stray ]]; then
+  printf '%s' "$stray" >&2
+  fail_with_log "a click inside a slot reaches only that slot's own button"
+fi
+pass "a click inside a slot reaches only that slot's own button"
+
 jq -e '
   map(select(.section == "center")) | map(.id) as $center |
   ($center | index("omarchy.weather")) != null and

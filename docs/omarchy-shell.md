@@ -125,6 +125,7 @@ or `omarchy.power`. There is no `bar` target.
 | `listPlugins`                         | JSON of every discovered plugin |
 | `listShellConfig`                     | effective shell.json as JSON    |
 | `debugBarGeometry`                    | bar geometry dump for debugging |
+| `debugBarClickTarget <x> <y>`         | which bar button a click at those bar-window coordinates would reach |
 
 `setPluginEnabled` takes a string; only literal `"true"` enables. Methods
 answer on stdout with exit 0 — `ok` on success, `unknown` or an error

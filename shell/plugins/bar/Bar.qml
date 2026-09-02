@@ -748,6 +748,44 @@ Item {
     return dropBarModule(sourceSlot, targetSlot.region, beforeName)
   }
 
+  // Which button a click at bar-window coordinates would reach, through the
+  // same hit test the slots use. Nothing on a bare machine can fake a click on
+  // a layer-shell surface, so this is how a drawer's hidden buttons are shown
+  // to stay out from under the neighbouring slots.
+  function debugBarClickTarget(x, y) {
+    for (var i = 0; i < moduleSlots.length; i++) {
+      var slot = moduleSlots[i]
+      if (!slot || !slot.activeItem || slot.visible !== true || slot.width <= 0 || slot.height <= 0) continue
+      var origin
+      try {
+        origin = slot.mapToItem(null, 0, 0)
+      } catch (e) {
+        continue
+      }
+      var localX = x - origin.x
+      var localY = y - origin.y
+      if (localX < 0 || localX > slot.width || localY < 0 || localY > slot.height) continue
+
+      var target = moduleClickTargetAt(slot, localX, localY)
+      var owner = null
+      for (var node = target; node; node = node.parent) {
+        if (moduleSlots.indexOf(node) !== -1) {
+          owner = node
+          break
+        }
+      }
+      return {
+        slot: slot.moduleName,
+        target: target ? {
+          module: owner ? owner.moduleName : "",
+          text: String(target.text || ""),
+          tooltip: String(target.tooltipText || "")
+        } : null
+      }
+    }
+    return null
+  }
+
   function moduleTargetClickable(target) {
     return target
       && target.visible !== false
@@ -758,22 +796,50 @@ Item {
       && typeof target.triggerPress === "function"
   }
 
+  function itemDescendsFrom(item, ancestor) {
+    for (var node = item ? item.parent : null; node; node = node.parent) {
+      if (node === ancestor) return true
+    }
+    return false
+  }
+
+  function pointInsideItem(item, point) {
+    return point.x >= 0 && point.x <= item.width && point.y >= 0 && point.y <= item.height
+  }
+
+  // What a widget hides, the bar must not click. A drawer slid shut keeps its
+  // buttons laid out past its clip box, on top of the next few slots, and the
+  // geometry test alone would hand those slots' clicks to the drawer: that is
+  // how a click on the CPU/memory readout once cycled the power profile. So a
+  // target only counts for the slot it lives in, and the point has to fall
+  // inside every clipping ancestor and containment mask on the way up.
+  function moduleClickTargetVisibleAt(slot, target, localX, localY) {
+    for (var node = target.parent; node && node !== slot; node = node.parent) {
+      var hasMask = node.containmentMask && typeof node.containmentMask.contains === "function"
+      if (!node.clip && !hasMask) continue
+      var point = slot.mapToItem(node, localX, localY)
+      if (node.clip && !pointInsideItem(node, point)) return false
+      if (hasMask && !node.containmentMask.contains(Qt.point(point.x, point.y))) return false
+    }
+    return true
+  }
+
   function moduleClickTargetAt(slot, localX, localY) {
     for (var i = clickTargets.length - 1; i >= 0; i--) {
       var target = clickTargets[i]
       if (!moduleTargetClickable(target)) continue
+      if (!itemDescendsFrom(target, slot)) continue
 
       var targetPoint = { x: localX, y: localY }
       try {
         targetPoint = slot.mapToItem(target, localX, localY)
+        if (!pointInsideItem(target, targetPoint)) continue
+        if (!moduleClickTargetVisibleAt(slot, target, localX, localY)) continue
       } catch (e) {
         continue
       }
 
-      if (targetPoint.x >= 0 && targetPoint.x <= target.width &&
-          targetPoint.y >= 0 && targetPoint.y <= target.height) {
-        return target
-      }
+      return target
     }
 
     if (moduleTargetClickable(slot.activeItem)) return slot.activeItem
