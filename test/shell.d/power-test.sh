@@ -21,6 +21,7 @@ assertDeepEqual(
 )
 
 assert(power.profileIcon('performance').length > 0, 'power maps profile icons')
+assert(power.profileIcon('max-power') !== power.profileIcon('nope'), 'power gives a firmware-only profile its own icon')
 assertEqual(power.batteryFraction({ isPresent: true, percentage: 1.5 }), 1, 'power clamps battery fraction')
 
 assert(power.chargeThresholdActive({ isPresent: true, percentage: 0.8, state: states.PendingCharge }, false, states), 'power detects threshold by pending charge state')

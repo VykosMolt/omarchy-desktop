@@ -274,7 +274,9 @@ Item {
       actionFor: function(value) { return "omarchy-font-set " + Util.shellQuote(value) }
     },
     "power-profiles": {
-      script: "current=$(powerprofilesctl get 2>/dev/null); omarchy-powerprofiles-list 2>/dev/null | while read -r p; do [[ -z $p ]] && continue; printf '%s\\t%s\\t%s\\n' \"$p\" \"$p\" \"$current\"; done",
+      // The list's own active mark rather than powerprofilesctl's answer: on a
+      // firmware-only profile the daemon still names the last one it set.
+      script: "list=$(omarchy-powerprofiles-list --active-state 2>/dev/null); current=$(printf '%s\\n' \"$list\" | awk -F'\\t' '$2 == 1 { print $1; exit }'); printf '%s\\n' \"$list\" | awk -F'\\t' -v current=\"$current\" '$1 != \"\" { printf \"%s\\t%s\\t%s\\n\", $1, $1, current }'",
       icon: "\udb81\udc0b",
       actionFor: function(value) { return "omarchy-powerprofiles-set autodetect " + Util.shellQuote(value) }
     }

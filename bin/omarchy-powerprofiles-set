@@ -1,15 +1,17 @@
 #!/bin/bash
 
 # omarchy:summary=Set and remember the power profile for AC or battery use
-# omarchy:args=[autodetect|ac|battery] [power-saver|balanced|performance]
+# omarchy:args=[autodetect|ac|battery] [power-saver|balanced|performance|<firmware profile>]
 
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+omarchy_root="${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
+source "$omarchy_root/lib/omarchy-paths.sh"
+source "$omarchy_root/lib/omarchy-powerprofiles.sh"
 
 action="${1:-autodetect}"
 requested_profile="${2:-}"
 
 usage() {
-  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance]" >&2
+  echo "Usage: omarchy-powerprofiles-set [autodetect|ac|battery] [power-saver|balanced|performance|<firmware profile>]" >&2
   exit 1
 }
 
@@ -57,7 +59,42 @@ if [[ -z ${profile:-} ]] || ! profile_available "$profile"; then
   fi
 fi
 
-powerprofilesctl set "$profile" || exit
+# A profile only the firmware can name -- max-power -- is written to sysfs
+# behind the daemon's back. The daemon keeps the CPU side of performance, its
+# nearest profile, and then ignores the platform value it cannot map. Only an
+# explicit choice may put up a password dialog; a restore that cannot write
+# without one settles for performance.
+apply_firmware_profile() {
+  local target=$1 explicit=$2
+
+  powerprofilesctl set performance || return
+  if (( explicit )); then
+    omarchy-powerprofiles-firmware "$target"
+  elif ! omarchy-powerprofiles-firmware --no-prompt "$target" 2>/dev/null; then
+    echo "Restoring $target needs root; staying on performance until it is chosen again." >&2
+  fi
+}
+
+# Coming back from a firmware-only profile the daemon never noticed, the daemon
+# may believe the target is already active and write nothing. Step through a
+# neighbour first so the transition is real and the firmware follows.
+apply_daemon_profile() {
+  local target=$1 current bounce
+
+  current=$(omarchy_platform_profile_current 2>/dev/null || true)
+  if omarchy_profile_is_firmware_only "$current" && [[ $(powerprofilesctl get 2>/dev/null) == "$target" ]]; then
+    bounce=balanced
+    [[ $target == "balanced" ]] && bounce=performance
+    powerprofilesctl set "$bounce" || return
+  fi
+  powerprofilesctl set "$target"
+}
+
+if omarchy_profile_is_firmware_only "$profile"; then
+  apply_firmware_profile "$profile" "$([[ -n $requested_profile ]] && echo 1 || echo 0)" || exit
+else
+  apply_daemon_profile "$profile" || exit
+fi
 
 if [[ -n $requested_profile ]]; then
   mkdir -p "$state_dir"

@@ -67,7 +67,8 @@ nm-applet and blueman, both duplicating bar widgets that already existed, plus
 fcitx5 for a single configured input method: 100MB of processes publishing icons
 into a drawer. The drawer stayed, the contents changed. Behind the same chevron
 you now get whether the discrete GPU is awake or asleep, the active power profile
-(click it to cycle), CPU package temperature, and fan speed; a click on the
+(click it to cycle, through any profile only the firmware can name, such as a
+Legion's max-power), CPU package temperature, and fan speed; a click on the
 chevron, the temperature or the fan opens the system monitor's process panel. One `omarchy-hw-sensors`
 fork covers all four in about 4ms, read from sysfs and from power-profiles-daemon
 over busctl, because `powerprofilesctl` spends 84ms starting Python before it

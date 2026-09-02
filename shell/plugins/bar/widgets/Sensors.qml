@@ -46,15 +46,24 @@ BarWidget {
   }
 
   function profileGlyph(profile) {
+    if (profile === "max-power") return "󰈸"
     if (profile === "performance") return "󰓅"
     if (profile === "power-saver" || profile === "low-power") return "󰌪"
     return "󰾅"
   }
 
+  // The ladder is whatever omarchy-hw-sensors reports the machine offers: the
+  // daemon's three, then anything only the firmware can name, such as a
+  // Legion's max-power. A reading from before that line existed still cycles
+  // the daemon's three.
+  function profileLadder() {
+    var ladder = String(root.readings.profiles || "").split(" ").filter(function(p) { return p !== "" })
+    return ladder.length > 0 ? ladder : ["power-saver", "balanced", "performance"]
+  }
+
   function nextProfile(profile) {
-    if (profile === "power-saver" || profile === "low-power") return "balanced"
-    if (profile === "balanced") return "performance"
-    return "power-saver"
+    var ladder = profileLadder()
+    return ladder[(ladder.indexOf(profile) + 1) % ladder.length]
   }
 
   // Reading `readings` here is what binds `items` to each new sample.
@@ -86,7 +95,10 @@ BarWidget {
         pinned: false,
         notable: r.profile === "performance",
         tooltip: "Power profile: " + r.profile + "\nClick to switch to " + nextProfile(r.profile),
-        command: "powerprofilesctl set " + nextProfile(r.profile)
+        // Through the port's own setter rather than powerprofilesctl: it is
+        // what knows how to reach a firmware-only profile, and it remembers
+        // the choice for this power source the way the menu does.
+        command: "omarchy-powerprofiles-set autodetect " + nextProfile(r.profile)
       })
     }
 

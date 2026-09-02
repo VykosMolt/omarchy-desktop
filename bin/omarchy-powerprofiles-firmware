@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# omarchy:summary=Write a platform profile only the firmware can name, such as max-power
+# omarchy:args=[--no-prompt] <profile>
+# omarchy:requires-sudo=true
+# omarchy:hidden=true
+
+# power-profiles-daemon owns platform_profile for the three profiles it knows.
+# For the ones it does not -- max-power on a Legion -- this writes the sysfs
+# file itself. The daemon sees the change, cannot name it, and keeps its own
+# state, so it neither reverts it nor reports it; omarchy-hw-sensors reads the
+# firmware first for that reason.
+#
+# The file is root's, so this is the one narrow hardware write that escalates:
+# sudo where there is a terminal to type into, pkexec otherwise, re-executing
+# this checkout's own script. `--no-prompt` is for restores -- a resume, a
+# plug event, a login -- which must never surprise anyone with a password
+# dialog: without a writable file they fail, and the caller falls back to the
+# daemon's best profile. A udev rule that makes the file group-writable removes
+# every prompt; that is the machine owner's call, not this checkout's.
+
+set -uo pipefail
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$script_dir/../lib/omarchy-powerprofiles.sh"
+
+usage() {
+  echo "Usage: omarchy-powerprofiles-firmware [--no-prompt] <profile>" >&2
+  exit 1
+}
+
+no_prompt=0
+if [[ ${1:-} == "--no-prompt" ]]; then
+  no_prompt=1
+  shift
+fi
+
+(( $# == 1 )) || usage
+profile=$1
+[[ -n $profile && $profile != -* ]] || usage
+
+offered=0
+while IFS= read -r choice; do
+  [[ $choice == "$profile" ]] && offered=1
+done < <(omarchy_platform_profile_choices)
+if (( ! offered )); then
+  echo "The firmware does not offer a platform profile named $profile." >&2
+  exit 1
+fi
+
+if [[ -w $OMARCHY_PLATFORM_PROFILE_FILE ]] || (( EUID == 0 )); then
+  if printf '%s\n' "$profile" >"$OMARCHY_PLATFORM_PROFILE_FILE"; then
+    exit 0
+  else
+    echo "Could not write $profile to $OMARCHY_PLATFORM_PROFILE_FILE." >&2
+    exit 1
+  fi
+fi
+
+if (( no_prompt )); then
+  echo "Writing $OMARCHY_PLATFORM_PROFILE_FILE needs root, and --no-prompt forbids asking." >&2
+  exit 1
+fi
+
+if [[ -t 0 ]]; then
+  exec sudo "$script_dir/${0##*/}" "$profile"
+else
+  exec pkexec "$script_dir/${0##*/}" "$profile"
+fi

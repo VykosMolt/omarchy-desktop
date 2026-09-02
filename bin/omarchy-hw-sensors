@@ -11,6 +11,8 @@
 
 set -uo pipefail
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-powerprofiles.sh"
+
 emit() { printf '%s\t%s\n' "$1" "$2"; }
 
 # The discrete GPU on a hybrid machine. "active" means something woke it, which
@@ -25,21 +27,36 @@ for dev in /sys/bus/pci/devices/*; do
   break
 done
 
-# Power profile. Read it from power-profiles-daemon when that is what owns the
-# setting, so the name matches what a click can actually set; busctl is a C
-# client and costs ~2ms against powerprofilesctl's ~84ms python start-up. Fall
-# back to the raw platform profile when no daemon is running.
-# An absent busctl or a stopped daemon both leave this empty, which is exactly
-# what the sysfs fallback below is for - no presence check needed.
-profile=$(busctl --no-pager get-property \
-  org.freedesktop.UPower.PowerProfiles \
-  /org/freedesktop/UPower/PowerProfiles \
-  org.freedesktop.UPower.PowerProfiles ActiveProfile 2>/dev/null |
-  sed -n 's/^s "\(.*\)"$/\1/p')
-if [[ -z $profile && -r /sys/firmware/acpi/platform_profile ]]; then
-  profile=$(< /sys/firmware/acpi/platform_profile)
+# Power profile. The firmware is asked first: when it sits on a profile the
+# daemon cannot name -- max-power -- the daemon still reports whichever of its
+# own it set last, and the bar would show performance while the fans say
+# otherwise. For the daemon's own profiles read the daemon, so the name matches
+# what a click can actually set; busctl is a C client and costs ~2ms against
+# powerprofilesctl's ~84ms python start-up. An absent busctl or a stopped
+# daemon both leave that empty, which is what the raw platform value is for.
+platform_profile=$(omarchy_platform_profile_current 2>/dev/null || true)
+if omarchy_profile_is_firmware_only "$platform_profile"; then
+  profile=$platform_profile
+else
+  profile=$(busctl --no-pager get-property \
+    org.freedesktop.UPower.PowerProfiles \
+    /org/freedesktop/UPower/PowerProfiles \
+    org.freedesktop.UPower.PowerProfiles ActiveProfile 2>/dev/null |
+    sed -n 's/^s "\(.*\)"$/\1/p')
+  [[ -n $profile ]] || profile=$platform_profile
 fi
 [[ -n $profile ]] && emit profile "$profile"
+
+# The ladder a click cycles through: the daemon's profiles in its order, then
+# whatever only the firmware can name.
+ladder=$(busctl --no-pager get-property \
+  org.freedesktop.UPower.PowerProfiles \
+  /org/freedesktop/UPower/PowerProfiles \
+  org.freedesktop.UPower.PowerProfiles Profiles 2>/dev/null |
+  grep -o '"Profile" s "[^"]*"' | sed 's/.*s "//; s/"$//' | tr '\n' ' ')
+ladder+=$(omarchy_firmware_only_profiles 2>/dev/null | tr '\n' ' ')
+ladder=${ladder% }
+[[ -n $ladder ]] && emit profiles "$ladder"
 
 # Package temperature, from whichever hwmon is the CPU.
 for hw in /sys/class/hwmon/hwmon*; do

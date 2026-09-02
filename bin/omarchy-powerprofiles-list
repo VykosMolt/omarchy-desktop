@@ -3,15 +3,37 @@
 # omarchy:summary=Returns a list of all the available power profiles on the system.
 # omarchy:args=[--active-state]
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-powerprofiles.sh"
+
 if [[ ${1:-} != "" && ${1:-} != "--active-state" ]]; then
   echo "Usage: omarchy-powerprofiles-list [--active-state]" >&2
   exit 1
 fi
 
+with_state="${1:+1}"
+
+# When the firmware sits on a profile the daemon cannot name, the daemon still
+# reports whichever of its own it set last. The firmware is the truth then, and
+# the daemon's mark is stale.
+current=$(omarchy_platform_profile_current 2>/dev/null || true)
+firmware_active=0
+omarchy_profile_is_firmware_only "$current" && firmware_active=1
+
 powerprofilesctl list 2>/dev/null |
-  awk -v with_state="${1:+1}" '/^\s*[* ]\s*[a-zA-Z0-9-]+:$/ {
-    active = ($1 == "*") ? 1 : 0
+  awk -v with_state="$with_state" -v firmware_active="$firmware_active" '/^\s*[* ]\s*[a-zA-Z0-9-]+:$/ {
+    active = ($1 == "*" && !firmware_active) ? 1 : 0
     gsub(/^[*[:space:]]+|:$/, "")
     print $0 (with_state ? "\t" active : "")
   }' |
   tac
+
+# Then whatever only the firmware can name, in the firmware's order, so the
+# ladder reads power-saver, balanced, performance, max-power.
+while IFS= read -r profile; do
+  [[ -n $profile ]] || continue
+  if [[ -n $with_state ]]; then
+    printf '%s\t%s\n' "$profile" "$([[ $profile == "$current" ]] && echo 1 || echo 0)"
+  else
+    printf '%s\n' "$profile"
+  fi
+done < <(omarchy_firmware_only_profiles)

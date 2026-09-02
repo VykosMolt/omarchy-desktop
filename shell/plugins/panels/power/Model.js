@@ -42,6 +42,7 @@ function profileIcon(name) {
   if (name === "power-saver") return "󰌪"
   if (name === "balanced") return "󰊚"
   if (name === "performance") return "󰓅"
+  if (name === "max-power") return "󰈸"
   return "󰂄"
 }
 
