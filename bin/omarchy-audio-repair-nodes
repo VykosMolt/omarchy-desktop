@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# omarchy:summary=Restart WirePlumber when it has leaked nodes whose device is gone
+# omarchy:args=[--check]
+# omarchy:group=audio
+# omarchy:examples=omarchy audio repair nodes | omarchy-audio-repair-nodes --check
+
+# Every trip through the login screen makes logind take this user's ACL on
+# /dev/snd away while the greeter owns the seat and hand it back afterwards.
+# WirePlumber's ALSA monitor drops the card object on the way out and makes a
+# new one on the way back, but (0.5.16) leaves the old card's nodes behind, each
+# still naming a device id that no longer exists. Six logins gave this machine
+# six copies of every sink and source. That is not cosmetic: everything that
+# finds a sink by name -- the default-sink metadata, pactl, the shell -- lands on
+# the oldest copy, whose volume is purely software because nothing maps it to
+# the mixer any more. "65%" was -11 dB of software gain on top of a hardware
+# route parked at -27 dB, which is silence.
+#
+# Restarting WirePlumber alone rebuilds every device and node while clients
+# stay connected to PipeWire and are relinked, so a playing stream skips rather
+# than stops. The shell launcher runs this before the shell's first start, so
+# the bar never binds to a leftover.
+
+set -uo pipefail
+
+check_only=0
+if [[ ${1:-} == "--check" ]]; then
+  check_only=1
+elif [[ -n ${1:-} ]]; then
+  echo "Usage: omarchy-audio-repair-nodes [--check]" >&2
+  exit 1
+fi
+
+# No PipeWire, or one that does not answer, is nothing to repair.
+dump=$(timeout 5s pw-dump 2>/dev/null) || exit 0
+[[ -n $dump ]] || exit 0
+
+leaked=$(jq -r '
+  (map(select(.type == "PipeWire:Interface:Device") | .id)) as $devices
+  | map(select(.type == "PipeWire:Interface:Node"))
+  | map(select((.info.props["device.id"] // null) != null))
+  | map(select((.info.props["device.id"] | tonumber) as $device | ($devices | index($device)) == null))
+  | map("\(.id)\t\(.info.props["node.name"] // "")")
+  | .[]
+' <<<"$dump" 2>/dev/null)
+
+if [[ -z $leaked ]]; then
+  (( check_only )) && echo "No leaked audio nodes."
+  exit 0
+fi
+
+count=$(wc -l <<<"$leaked")
+
+if (( check_only )); then
+  echo "$count node(s) point at devices that no longer exist:"
+  printf '%s\n' "$leaked"
+  exit 1
+fi
+
+logger -t omarchy-audio "Restarting WirePlumber: $count node(s) point at devices that no longer exist."
+if timeout 25s systemctl --user restart wireplumber.service; then
+  echo "Restarted WirePlumber to drop $count leaked node(s)."
+else
+  echo "WirePlumber did not restart cleanly; run omarchy-restart-audio." >&2
+  exit 1
+fi

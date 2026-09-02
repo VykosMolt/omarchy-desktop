@@ -92,6 +92,12 @@ stop() {
 }
 trap stop HUP INT TERM
 
+# The shell finds the default sink by name, and after a trip through the
+# login screen WirePlumber can be carrying several nodes by that name, only
+# one of them real. Clear that before the shell binds to the wrong one. Once,
+# not per relaunch: a crash loop is not a login.
+omarchy-audio-repair-nodes >/dev/null 2>&1 || true
+
 attempts=0
 window_started=$SECONDS
 
