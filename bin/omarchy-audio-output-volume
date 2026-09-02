@@ -4,6 +4,8 @@
 # omarchy:args=<raise|lower|mute-toggle|+N|-N>
 # omarchy:examples=omarchy audio output volume raise | omarchy audio output volume lower | omarchy audio output volume mute-toggle | omarchy audio output volume +1
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
 action="${1:-}"
 
 if [[ -z $action ]]; then
@@ -34,6 +36,31 @@ volume_muted() {
   [[ $(pactl get-sink-mute "$sink" 2>/dev/null) == *yes ]]
 }
 
+# Plasma's "Raise maximum volume" lifts every control at once, so the keys
+# share the audio panel's switch rather than stopping at 100% while its slider
+# keeps going. The switch is the panel's `raiseMaximumVolume` entry in
+# shell.json, on unless it has been turned off, exactly as the panel reads it.
+maximum_percent() {
+  local config="$OMARCHY_CONFIG_HOME/shell.json"
+  local raised=""
+
+  if [[ -s $config ]]; then
+    raised=$(jq -r '
+      ([.bar.layout // {} | .[]? | .[]?] + (.plugins // []))
+      | map(select(type == "object" and .id == "omarchy.audio"))
+      | first // {}
+      | .raiseMaximumVolume
+      | if . == null then true else . end
+    ' "$config" 2>/dev/null)
+  fi
+
+  if [[ $raised == "false" ]]; then
+    echo 100
+  else
+    echo 200
+  fi
+}
+
 case "$action" in
   raise) action="+5" ;;
   lower) action="-5" ;;
@@ -61,9 +88,10 @@ elif [[ $action =~ ^([+-])([0-9]+)$ ]]; then
     exit 1
   fi
 
+  maximum=$(maximum_percent)
   if [[ $direction == "+" ]]; then
     next=$((current + step))
-    ((next <= 100)) || next=100
+    ((next <= maximum)) || next=$maximum
   else
     next=$((current - step))
     ((next >= 0)) || next=0
@@ -83,4 +111,4 @@ else
   icon="volume-high"
 fi
 
-omarchy-osd -i "$icon" -p "${percent:-0}"
+omarchy-osd -i "$icon" -p "${percent:-0}" -x "$(maximum_percent)"

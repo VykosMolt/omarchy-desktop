@@ -25,6 +25,12 @@ Item {
   property int tickCount: 0
   property color tickColor: bar ? bar.background : Color.background
 
+  // Notches at particular values rather than evenly spaced ones, for a track
+  // whose one interesting point is not at a fraction of its length: audio
+  // marks 100% on a slider that runs to 200%. Values outside the range are
+  // skipped, so a caller can leave the list bound while the range changes.
+  property var tickValues: []
+
   onValueChanged: if (!dragging) liveValue = value
 
   signal moved(real value)
@@ -77,6 +83,21 @@ Item {
       anchors.verticalCenter: track.verticalCenter
       x: Math.max(0, Math.min(track.width - width,
                               track.width * (index / (root.tickCount - 1)) - width / 2))
+    }
+  }
+
+  Repeater {
+    model: Array.isArray(root.tickValues) ? root.tickValues : []
+    Rectangle {
+      required property var modelData
+      readonly property real fraction: (Number(modelData) - root.minimum) / root.range
+      visible: fraction > 0 && fraction < 1
+      width: Math.max(1, Style.space(2))
+      height: root.trackHeight + Style.space(4)
+      radius: 1
+      color: root.tickColor
+      anchors.verticalCenter: track.verticalCenter
+      x: Math.max(0, Math.min(track.width - width, track.width * fraction - width / 2))
     }
   }
 

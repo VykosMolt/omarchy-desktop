@@ -143,6 +143,14 @@ Panel {
     if (!volumeSinkProc.running) volumeSinkProc.running = true
   }
 
+  // Plasma keeps its sliders at 100% until "Raise maximum volume" is switched
+  // on, which lifts them to 150%. The same switch lives at the bottom of this
+  // panel, persisted in its shell.json entry, and the ceiling is 200%. On by
+  // default: a quiet output is what the headroom is for, and the switch is one
+  // row away for anyone who wants the slider to stop at 100 again.
+  readonly property bool raiseMaximumVolume: setting("raiseMaximumVolume", true) === true
+  readonly property real maximumVolume: Model.maximumVolume(raiseMaximumVolume)
+
   readonly property real outputVolume: volumeSink && volumeSink.audio ? volumeSink.audio.volume : 0
   readonly property bool outputMuted: volumeSink && volumeSink.audio ? volumeSink.audio.muted : false
   readonly property real inputVolume: source && source.audio ? source.audio.volume : 0
@@ -155,6 +163,7 @@ Panel {
   //   "output"  — output slider + sink device list
   //   "input"   — input slider + source device list
   //   "streams" — per-app playback streams
+  //   "options" — the raise-maximum-volume switch
   // selectedIndex semantics within a section:
   //   -1            → on the slider row (h/l adjusts volume, m/Enter mute)
   //   0..N-1        → on the Nth device/stream row
@@ -187,6 +196,7 @@ Panel {
     if (section === "output") return displayAudioSinks.length
     if (section === "input") return displayAudioSources.length
     if (section === "streams") return displayAudioStreams.length
+    if (section === "options") return 1
     return 0
   }
 
@@ -194,6 +204,7 @@ Panel {
     if (section === "output") return true
     if (section === "input") return displayAudioSources.length > 0 || !!source
     if (section === "streams") return displayAudioStreams.length > 0
+    if (section === "options") return true
     return false
   }
 
@@ -210,6 +221,7 @@ Panel {
     if (sectionVisible("output")) list.push("output")
     if (sectionVisible("input")) list.push("input")
     if (sectionVisible("streams")) list.push("streams")
+    if (sectionVisible("options")) list.push("options")
     return list
   }
 
@@ -282,7 +294,7 @@ Panel {
     }
     if (focusSection === "streams" && selectedIndex >= 0 && selectedIndex < displayAudioStreams.length) {
       var s = displayAudioStreams[selectedIndex]
-      if (s && s.audio) s.audio.volume = Math.max(0, Math.min(1.5, s.audio.volume + delta))
+      if (s && s.audio) s.audio.volume = Model.clampVolume(s.audio.volume + delta, maximumVolume)
     }
   }
 
@@ -304,7 +316,9 @@ Panel {
     if (focusSection === "streams" && selectedIndex >= 0) {
       var st = displayAudioStreams[selectedIndex]
       if (st && st.audio) st.audio.muted = !st.audio.muted
+      return
     }
+    if (focusSection === "options") toggleRaiseMaximumVolume()
   }
 
   onOpenedChanged: {
@@ -425,16 +439,21 @@ Panel {
 
   function setOutputVolume(v) {
     if (!volumeSink || !volumeSink.audio) return outputVolume
-    var volume = Math.max(0, Math.min(1, v))
+    var volume = Model.clampVolume(v, maximumVolume)
     volumeSink.audio.volume = volume
     return volume
   }
 
   function showVolumeOsd(volume) {
     if (!bar || !bar.shell) return
+    var percent = Math.round(volume * 100)
     bar.shell.summon("omarchy.osd", JSON.stringify({
       icon: outputIcon(volume),
-      value: Math.round(volume * 100)
+      value: percent,
+      // The bar runs to the ceiling, as Plasma's does, so with the maximum
+      // raised 100% fills half of it. The readout still says 100%.
+      max: Math.round(maximumVolume * 100),
+      progressText: percent + "%"
     }))
   }
 
@@ -458,6 +477,23 @@ Panel {
     var mute = anyAudible
     if (hasOutput) volumeSink.audio.muted = mute
     if (hasInput) source.audio.muted = mute
+  }
+
+  // Switching the raised maximum off pulls anything above 100% back to it, as
+  // Plasma does, so no slider is left sitting past its own end.
+  function toggleRaiseMaximumVolume() {
+    var raised = !raiseMaximumVolume
+    if (!raised) {
+      if (hasOutput && outputVolume > 1) volumeSink.audio.volume = 1
+      var streams = audioStreams
+      for (var i = 0; i < streams.length; i++) {
+        var s = streams[i]
+        if (s && s.audio && s.audio.volume > 1) s.audio.volume = 1
+      }
+    }
+    settings = Object.assign({}, settings, { raiseMaximumVolume: raised })
+    if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
+      bar.shell.updateEntryInline(moduleName, settings)
   }
 
   function setDefaultSink(node) {
@@ -831,8 +867,11 @@ Panel {
                 anchors.leftMargin: Style.space(6)
                 anchors.rightMargin: Style.space(6)
                 minimum: 0
-                maximum: 1
+                maximum: root.maximumVolume
                 step: 0.05
+                // Plasma notches 100% into a raised track; the notch only
+                // exists while there is something past it.
+                tickValues: [1]
                 value: root.outputVolume
                 opacity: root.outputMuted ? 0.5 : 1.0
                 enabled: !!root.sink
@@ -998,6 +1037,44 @@ Panel {
                 node: modelData
                 rowIndex: index
               }
+            }
+          }
+
+          // ---- Options ----
+          PanelSeparator {
+            foreground: root.bar.foreground
+          }
+
+          Column {
+            width: parent.width
+            spacing: Style.space(6)
+
+            PanelSectionHeader {
+              text: "OPTIONS"
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+            }
+
+            // Plasma's "Raise maximum volume", as a row rather than a menu
+            // item so it is one keyboard cursor stop like everything else.
+            Toggle {
+              id: raiseMaximumRow
+              width: parent.width
+              label: "Raise maximum volume"
+              description: "Let output and per-app sliders run to "
+                + Math.round(Model.maximumVolume(true) * 100) + "%"
+              checked: root.raiseMaximumVolume
+              hasCursor: root.cursorActive && root.focusSection === "options" && root.selectedIndex === 0
+              onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(raiseMaximumRow)
+              foreground: root.bar.foreground
+              fontFamily: root.bar.fontFamily
+              onHovered: function(on) {
+                if (!on) return
+                root.cursorActive = true
+                root.focusSection = "options"
+                root.selectedIndex = 0
+              }
+              onClicked: root.toggleRaiseMaximumVolume()
             }
           }
         }
@@ -1218,8 +1295,9 @@ Panel {
         bar: root.bar
         width: parent.width
         minimum: 0
-        maximum: 1.5
+        maximum: root.maximumVolume
         step: 0.05
+        tickValues: [1]
         value: streamRow.streamVolume
         opacity: streamRow.streamMuted ? 0.5 : 1.0
 

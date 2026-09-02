@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # omarchy:summary=Show the Omarchy Quickshell on-screen display
-# omarchy:args=[-i|--icon <icon>] [-m|--message <text>] [-p|--progress <0-100>] [-d|--duration <ms>]
-# omarchy:examples=omarchy osd -i brightness -p 50 | omarchy osd -m "Hello"
+# omarchy:args=[-i|--icon <icon>] [-m|--message <text>] [-p|--progress <0-max>] [-x|--max <max>] [-d|--duration <ms>]
+# omarchy:examples=omarchy osd -i brightness -p 50 | omarchy osd -i volume-high -p 130 -x 200 | omarchy osd -m "Hello"
 
 set -euo pipefail
 
@@ -18,6 +18,9 @@ while (($#)); do
     -i|--icon) icon="${2:-}"; shift 2 ;;
     -m|--message) message="${2:-}"; shift 2 ;;
     -p|--progress) progress="${2:-}"; shift 2 ;;
+    # The bar's full extent. Volume raised past 100% draws on a 200% bar, as
+    # Plasma's OSD does; the readout stays the plain percentage.
+    -x|--max) max="${2:-100}"; shift 2 ;;
     -d|--duration) duration="${2:-}"; shift 2 ;;
     -h|--help) omarchy osd --help; exit 0 ;;
     *) echo "Unknown OSD option: $1" >&2; exit 1 ;;

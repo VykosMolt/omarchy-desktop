@@ -22,10 +22,29 @@ function listSnapshot(list) {
   return list && list.slice ? list.slice() : []
 }
 
+// Plasma's applet stops its sliders at 100% until "Raise maximum volume" is
+// switched on, which lifts them to 150%. The same switch exists here, with
+// the ceiling at 200%.
+var RAISED_MAXIMUM_VOLUME = 2
+
+function maximumVolume(raised) {
+  return raised === true ? RAISED_MAXIMUM_VOLUME : 1
+}
+
+function clampVolume(volume, maximum) {
+  var v = Number(volume)
+  if (!isFinite(v)) v = 0
+  var max = Number(maximum)
+  if (!isFinite(max) || max <= 0) max = 1
+  return Math.max(0, Math.min(max, v))
+}
+
 function outputVolumeName(volume, muted) {
   if (muted) return "Muted"
   var p = Math.round(volume * 100)
   if (p === 0) return "Silenced"
+  if (p > 150) return "Ear splitter"
+  if (p > 100) return "Overdrive"
   if (p >= 100) return "Concert hall"
   if (p >= 85) return "Party mode"
   if (p >= 70) return "Cranked up"
@@ -238,6 +257,9 @@ if (typeof module !== "undefined") {
     isPlaybackStream: isPlaybackStream,
     isAudioSource: isAudioSource,
     listSnapshot: listSnapshot,
+    RAISED_MAXIMUM_VOLUME: RAISED_MAXIMUM_VOLUME,
+    maximumVolume: maximumVolume,
+    clampVolume: clampVolume,
     outputVolumeName: outputVolumeName,
     parseSinkAvailability: parseSinkAvailability,
     friendlyDeviceLabel: friendlyDeviceLabel,

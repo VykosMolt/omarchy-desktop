@@ -28,6 +28,20 @@ assertDeepEqual(
 )
 
 assertDeepEqual(
+  osd.stateForShow('volume', '', '130', '200', '130%', ''),
+  {
+    iconKey: 'volume',
+    maxValue: 200,
+    hasProgress: true,
+    value: 130,
+    message: '130%',
+    icon: osd.iconFor('volume', 65),
+    duration: 1200
+  },
+  'osd draws a raised volume on a 200% bar with the plain percentage as readout'
+)
+
+assertDeepEqual(
   osd.stateForShow('media-pause', 'Paused', '', '100', '', 'nope'),
   {
     iconKey: 'media-pause',
