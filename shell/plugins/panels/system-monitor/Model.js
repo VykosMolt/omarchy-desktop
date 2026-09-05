@@ -1,7 +1,8 @@
 // Pure helpers for the system monitor panel: CPU delta arithmetic, byte and
-// percentage formatting, process sorting and truncation, and every argument
-// vector the panel runs. Panel.qml keeps only presentation and wiring, so all
-// of this is reachable from Node.
+// percentage formatting, the window and process rows with their sorting,
+// filtering and truncation, and every argument vector the panel runs.
+// Panel.qml keeps only presentation and wiring, so all of this is reachable
+// from Node.
 
 var CPU_ICON = "󰻠"
 var MEMORY_ICON = "󰍛"
@@ -192,6 +193,34 @@ function barTooltip(cpu, memory, load) {
   return "CPU " + formatPercent(cpu, 0) + " · Memory " + formatPercent(memory, 0) + " · Load " + formatLoad(load)
 }
 
+// ------------------------------------------------------------------ views
+
+// The panel is two lists over the same machine: the windows the user can see,
+// and every process behind them. Apps is the default because the question
+// that opens a task manager is nearly always "which of my apps is stuck".
+function normalizeView(view) {
+  return String(view) === "processes" ? "processes" : "apps"
+}
+
+function viewOptions() {
+  return [
+    { value: "apps", label: "Apps" },
+    { value: "processes", label: "Processes" }
+  ]
+}
+
+function viewIndexFor(view) {
+  return normalizeView(view) === "processes" ? 1 : 0
+}
+
+function viewForIndex(index) {
+  return Math.round(toNumber(index, 0)) === 1 ? "processes" : "apps"
+}
+
+function otherView(view) {
+  return normalizeView(view) === "apps" ? "processes" : "apps"
+}
+
 // -------------------------------------------------------------- processes
 
 // A process name and command line are whatever the process chose to call
@@ -268,6 +297,10 @@ function sortKeyForIndex(index) {
   return Math.round(toNumber(index, 0)) === 1 ? "memory" : "cpu"
 }
 
+function otherSortKey(key) {
+  return normalizeSortKey(key) === "cpu" ? "memory" : "cpu"
+}
+
 // Descending on the chosen key, then on the other one, then on pid so the list
 // does not reshuffle between samples when two processes are both idle.
 function sortProcesses(rows, key) {
@@ -287,6 +320,16 @@ function sortProcesses(rows, key) {
     return toNumber(a && a.pid, 0) - toNumber(b && b.pid, 0)
   })
   return list
+}
+
+// The sampler returns every process, so the panel can search all of them; the
+// Processes view still shows only the top of the ranking until a filter is
+// typed, because five hundred rows is a dump rather than a monitor. A filter
+// lifts the cap: the point of typing "discord" is to find it wherever it ranks.
+function limitProcesses(rows, limit, query) {
+  var list = Array.isArray(rows) ? rows : []
+  if (normalizeQuery(query) !== "") return list
+  return list.slice(0, clampLimit(limit))
 }
 
 function clampIndex(index, length) {
@@ -317,6 +360,209 @@ function processMemory(row) {
   return formatKb(toNumber((row || {}).rssKb, -1))
 }
 
+// ---------------------------------------------------------------- windows
+
+// One row per window the compositor shows. The panel lifts plain values off
+// Hyprland's toplevel handles -- address, pid, class, title, workspace -- and
+// this keeps only what parses: a row has to have an address to be a window at
+// all, and a pid is optional, because a fresh window's IPC object can lag a
+// beat behind its handle. Rows without a pid can still be closed; they only
+// cannot be signalled. `handle` is the live toplevel, passed through untouched
+// so the panel can close or activate it; everything else is data.
+function parseWindows(list) {
+  var input = Array.isArray(list) ? list : []
+  var rows = []
+  for (var i = 0; i < input.length; i++) {
+    var w = input[i]
+    if (!w || typeof w !== "object") continue
+
+    var address = String(w.address === undefined || w.address === null ? "" : w.address)
+    if (address === "") continue
+    // Hyprland hides a window it has swallowed or moved to a special
+    // workspace; an unmapped one has not been shown yet. Neither is anything
+    // the user would call an open app.
+    if (w.mapped === false || w.hidden === true) continue
+
+    var pid = Math.round(toNumber(w.pid, 0))
+    if (!isFinite(pid) || pid <= 0) pid = 0
+
+    var workspaceId = fieldNumber(w.workspaceId)
+
+    rows.push({
+      address: address,
+      pid: pid,
+      appId: String(w.appId === undefined || w.appId === null ? "" : w.appId),
+      className: String(w.className === undefined || w.className === null ? "" : w.className),
+      title: String(w.title === undefined || w.title === null ? "" : w.title),
+      name: String(w.name === undefined || w.name === null ? "" : w.name),
+      icon: String(w.icon === undefined || w.icon === null ? "" : w.icon),
+      workspaceId: workspaceId === null ? null : Math.round(workspaceId),
+      activated: w.activated === true,
+      handle: w.handle === undefined ? null : w.handle
+    })
+  }
+  return rows
+}
+
+// The name a user knows the app by: the desktop entry's name when one matched
+// the window class, otherwise the class itself, otherwise the Wayland app id.
+function windowName(row) {
+  var r = row || {}
+  return sanitizeText(r.name, 32) || sanitizeText(r.className, 32) || sanitizeText(r.appId, 32) || "window"
+}
+
+function windowTitle(row) {
+  return sanitizeText((row || {}).title, 120)
+}
+
+function windowDetail(row) {
+  var title = windowTitle(row)
+  if (title !== "") return title
+  return sanitizeText((row || {}).className, 120)
+}
+
+function windowWorkspaceLabel(row) {
+  var id = (row || {}).workspaceId
+  if (id === null || id === undefined) return ""
+  var n = Number(id)
+  if (!isFinite(n)) return ""
+  // Negative ids are Hyprland's special workspaces, named rather than numbered
+  // on the bar, so a number there would mean nothing to the user.
+  if (n < 0) return "special"
+  return String(Math.round(n))
+}
+
+function windowTooltip(row) {
+  var r = row || {}
+  var parts = []
+  var pid = Math.round(toNumber(r.pid, 0))
+  if (pid > 0) parts.push("pid " + pid)
+  var cls = sanitizeText(r.className, 80)
+  if (cls !== "") parts.push(cls)
+  var ws = windowWorkspaceLabel(r)
+  if (ws !== "") parts.push("workspace " + ws)
+  var title = sanitizeText(r.title, 400)
+  if (title !== "") parts.push(title)
+  return parts.join("  ·  ")
+}
+
+// Grouped by app, so a browser's six windows sit together, then by workspace
+// and title within the app, and finally by address so the order holds still
+// between refreshes.
+function sortWindows(rows) {
+  var list = Array.isArray(rows) ? rows.slice() : []
+  list.sort(function(a, b) {
+    var an = windowName(a).toLowerCase()
+    var bn = windowName(b).toLowerCase()
+    if (an !== bn) return an < bn ? -1 : 1
+
+    var aw = toNumber(a && a.workspaceId, 0)
+    var bw = toNumber(b && b.workspaceId, 0)
+    if (aw !== bw) return aw - bw
+
+    var at = windowTitle(a).toLowerCase()
+    var bt = windowTitle(b).toLowerCase()
+    if (at !== bt) return at < bt ? -1 : 1
+
+    var aa = String((a || {}).address || "")
+    var ba = String((b || {}).address || "")
+    return aa < ba ? -1 : (aa > ba ? 1 : 0)
+  })
+  return list
+}
+
+// A window's figures are its main process's. Electron apps and browsers fan
+// out into renderers that carry the real load, but without parent ids there is
+// no honest way to sum them, and a figure that describes the wrong thing is
+// worse than an em dash. Windows whose pid is missing from the sample read
+// unknown, never zero.
+function attachUsage(windows, processes) {
+  var byPid = {}
+  var procs = Array.isArray(processes) ? processes : []
+  for (var i = 0; i < procs.length; i++) {
+    var p = procs[i]
+    if (p && p.pid > 0) byPid[p.pid] = p
+  }
+
+  var list = Array.isArray(windows) ? windows : []
+  var out = []
+  for (var j = 0; j < list.length; j++) {
+    var w = list[j]
+    if (!w) continue
+    var row = {}
+    for (var key in w) row[key] = w[key]
+    var match = w.pid > 0 ? byPid[w.pid] : undefined
+    row.cpu = match ? match.cpu : null
+    row.rssKb = match ? match.rssKb : null
+    out.push(row)
+  }
+  return out
+}
+
+// --------------------------------------------------------------- filtering
+
+function normalizeQuery(text) {
+  return String(text === undefined || text === null ? "" : text)
+    .toLowerCase().replace(/\s+/g, " ").replace(/^ | $/g, "")
+}
+
+// Every word typed has to appear in one of the row's fields. Case-insensitive
+// substring, no regex: the query is the user's, but a stray "(" in it must
+// not turn into a syntax error.
+function matchesQuery(fields, query) {
+  var q = normalizeQuery(query)
+  if (q === "") return true
+  var haystack = []
+  var list = Array.isArray(fields) ? fields : [fields]
+  for (var i = 0; i < list.length; i++) {
+    var f = list[i]
+    if (f === undefined || f === null) continue
+    haystack.push(String(f).toLowerCase())
+  }
+  var words = q.split(" ")
+  for (var w = 0; w < words.length; w++) {
+    var found = false
+    for (var h = 0; h < haystack.length && !found; h++) {
+      if (haystack[h].indexOf(words[w]) >= 0) found = true
+    }
+    if (!found) return false
+  }
+  return true
+}
+
+function filterProcesses(rows, query) {
+  var list = Array.isArray(rows) ? rows : []
+  if (normalizeQuery(query) === "") return list
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var r = list[i]
+    if (!r) continue
+    if (matchesQuery([r.name, r.command, r.pid], query)) out.push(r)
+  }
+  return out
+}
+
+function filterWindows(rows, query) {
+  var list = Array.isArray(rows) ? rows : []
+  if (normalizeQuery(query) === "") return list
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var r = list[i]
+    if (!r) continue
+    if (matchesQuery([r.name, r.className, r.appId, r.title, r.pid], query)) out.push(r)
+  }
+  return out
+}
+
+function emptyMessage(view, query, sampling) {
+  var filtered = normalizeQuery(query) !== ""
+  if (normalizeView(view) === "apps") {
+    return filtered ? "No open window matches" : "No open windows"
+  }
+  if (filtered) return "No process matches"
+  return sampling ? "Sampling…" : "No processes"
+}
+
 // ------------------------------------------------------------- settings
 
 function clampLimit(value) {
@@ -329,16 +575,19 @@ function clampSeconds(value, fallback, min, max) {
 
 // -------------------------------------------------------------- commands
 
-// Every command is an argument vector. Nothing built from a process name or a
-// command line is ever interpolated into one -- the only value that crosses
-// into a command is a pid, and terminateCommand refuses anything that is not a
-// plain positive integer.
+// Every command is an argument vector. Nothing built from a process name, a
+// window title or a command line is ever interpolated into one -- the only
+// value that crosses into a command is a pid, and signalCommand refuses
+// anything that is not a plain positive integer above 1.
 function statsCommand() {
   return ["omarchy-system-stats", "--bar-widget"]
 }
 
-function processesCommand(limit, interval) {
-  var argv = ["omarchy-system-processes", "--limit", String(clampLimit(limit))]
+// No --limit: the panel filters and caps the list itself, so a search reaches
+// every process rather than the top of the ranking. The sampler's cost is the
+// scan over /proc, which does not change with the number of rows it prints.
+function processesCommand(interval) {
+  var argv = ["omarchy-system-processes"]
   var seconds = Number(interval)
   if (isFinite(seconds) && seconds > 0) argv.push("--interval", String(seconds))
   return argv
@@ -348,24 +597,106 @@ function meminfoCommand() {
   return ["cat", "/proc/meminfo"]
 }
 
-// SIGTERM, never SIGKILL, and never with privilege: no sudo, no pkexec. A
-// process the user does not own fails here, and the panel says so.
+// The two signals the panel can send, and the order it sends them in. TERM
+// asks; KILL cannot be asked. KILL is only ever offered for a pid this panel
+// has already sent TERM to and that is still running afterwards, which is
+// what `canForceKill` checks, so nothing here escalates on its own.
+var TERM = "TERM"
+var KILL = "KILL"
+
+function normalizeSignal(name) {
+  return String(name) === KILL ? KILL : TERM
+}
+
+// Never with privilege: no sudo, no pkexec. A process the user does not own
+// fails here, and the panel says so.
 //
 // pid 1 and anything below it is refused outright: a negative pid is a process
 // group and 0 is every process in the caller's group, so neither may reach
 // kill(1) whatever produced it.
-function terminateCommand(pid) {
+function signalCommand(pid, name) {
   var n = Number(pid)
   if (!isFinite(n) || Math.floor(n) !== n || n <= 1) return null
-  return ["kill", "-s", "TERM", String(n)]
+  return ["kill", "-s", normalizeSignal(name), String(n)]
+}
+
+function terminateCommand(pid) {
+  return signalCommand(pid, TERM)
+}
+
+function forceKillCommand(pid) {
+  return signalCommand(pid, KILL)
+}
+
+// The set of pids this panel has sent TERM to, kept by the panel as a plain
+// object. Force kill is offered for a row only while its pid is in that set,
+// and the set is pruned to the pids still running, so the offer disappears
+// with the process.
+function markTerminated(terminated, pid) {
+  var next = {}
+  for (var key in (terminated || {})) next[key] = true
+  var n = Math.round(toNumber(pid, 0))
+  if (n > 1) next[String(n)] = true
+  return next
+}
+
+function pruneTerminated(terminated, processes) {
+  var alive = {}
+  var procs = Array.isArray(processes) ? processes : []
+  for (var i = 0; i < procs.length; i++) {
+    var p = procs[i]
+    if (p && p.pid > 0) alive[String(p.pid)] = true
+  }
+  var next = {}
+  for (var key in (terminated || {})) {
+    if (alive[key] === true) next[key] = true
+  }
+  return next
+}
+
+function canForceKill(row, terminated) {
+  var pid = Math.round(toNumber((row || {}).pid, 0))
+  if (pid <= 1) return false
+  return !!(terminated && terminated[String(pid)] === true)
+}
+
+// Which signal a request on this row means right now.
+function signalFor(row, terminated) {
+  return canForceKill(row, terminated) ? KILL : TERM
+}
+
+function rowName(row, isWindow) {
+  return isWindow ? windowName(row) : processName(row)
+}
+
+function signalMessage(row, name, isWindow) {
+  var r = row || {}
+  var pid = Math.round(toNumber(r.pid, 0))
+  var label = rowName(r, isWindow)
+  var where = pid > 0 ? " (pid " + pid + ")" : ""
+  if (normalizeSignal(name) === KILL) {
+    return label + where + " did not end after SIGTERM. Force kill it with SIGKILL? Unsaved work is lost."
+  }
+  return "Send SIGTERM to " + label + where + "?"
 }
 
 function terminateMessage(row) {
-  var r = row || {}
-  var pid = Math.round(toNumber(r.pid, 0))
-  var name = processName(r)
-  if (pid <= 0) return "End " + name + "?"
-  return "Send SIGTERM to " + name + " (pid " + pid + ")?"
+  return signalMessage(row, TERM, false)
+}
+
+function signalActionLabel(name) {
+  return normalizeSignal(name) === KILL ? "Force kill" : "End"
+}
+
+function signalIcon(name) {
+  // close-circle for a polite end, close-octagon for the one that is not.
+  return normalizeSignal(name) === KILL ? "󰅜" : "󰅙"
+}
+
+function signalTooltip(name) {
+  return normalizeSignal(name) === KILL
+    ? "Force kill (SIGKILL) — it ignored SIGTERM"
+    : "End process (SIGTERM)"
 }
 
 // A failure has to be shown rather than swallowed: a process owned by another
@@ -383,13 +714,18 @@ function processFailure(exitCode, stderr) {
   return "Could not read processes: " + detail
 }
 
-function terminateFailure(exitCode, stderr, row) {
+function signalFailure(exitCode, stderr, row, name, isWindow) {
   var code = Math.round(toNumber(exitCode, -1))
   if (code === 0) return ""
 
   var detail = sanitizeText(stderr, 140)
   if (!detail) detail = "kill exited " + code
-  return "Could not end " + processName(row) + ": " + detail
+  var verb = normalizeSignal(name) === KILL ? "force kill" : "end"
+  return "Could not " + verb + " " + rowName(row, isWindow) + ": " + detail
+}
+
+function terminateFailure(exitCode, stderr, row) {
+  return signalFailure(exitCode, stderr, row, TERM, false)
 }
 
 if (typeof module !== "undefined") {
@@ -406,26 +742,60 @@ if (typeof module !== "undefined") {
     barLabel: barLabel,
     barLines: barLines,
     barTooltip: barTooltip,
+    normalizeView: normalizeView,
+    viewOptions: viewOptions,
+    viewIndexFor: viewIndexFor,
+    viewForIndex: viewForIndex,
+    otherView: otherView,
     sanitizeText: sanitizeText,
     parseProcesses: parseProcesses,
     normalizeSortKey: normalizeSortKey,
     sortOptions: sortOptions,
     sortIndexFor: sortIndexFor,
     sortKeyForIndex: sortKeyForIndex,
+    otherSortKey: otherSortKey,
     sortProcesses: sortProcesses,
+    limitProcesses: limitProcesses,
     clampIndex: clampIndex,
     processName: processName,
     processDetail: processDetail,
     processTooltip: processTooltip,
     processMemory: processMemory,
+    parseWindows: parseWindows,
+    windowName: windowName,
+    windowTitle: windowTitle,
+    windowDetail: windowDetail,
+    windowWorkspaceLabel: windowWorkspaceLabel,
+    windowTooltip: windowTooltip,
+    sortWindows: sortWindows,
+    attachUsage: attachUsage,
+    normalizeQuery: normalizeQuery,
+    matchesQuery: matchesQuery,
+    filterProcesses: filterProcesses,
+    filterWindows: filterWindows,
+    emptyMessage: emptyMessage,
     clampLimit: clampLimit,
     clampSeconds: clampSeconds,
     statsCommand: statsCommand,
     processesCommand: processesCommand,
     meminfoCommand: meminfoCommand,
+    TERM: TERM,
+    KILL: KILL,
+    normalizeSignal: normalizeSignal,
+    signalCommand: signalCommand,
     terminateCommand: terminateCommand,
+    forceKillCommand: forceKillCommand,
+    markTerminated: markTerminated,
+    pruneTerminated: pruneTerminated,
+    canForceKill: canForceKill,
+    signalFor: signalFor,
+    signalMessage: signalMessage,
     terminateMessage: terminateMessage,
-    terminateFailure: terminateFailure,
-    processFailure: processFailure
+    signalActionLabel: signalActionLabel,
+    signalIcon: signalIcon,
+    signalTooltip: signalTooltip,
+    processFailure: processFailure,
+    signalFailure: signalFailure,
+    terminateFailure: terminateFailure
   }
 }

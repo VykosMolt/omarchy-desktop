@@ -70,6 +70,7 @@ Example `shell.json` (bar subtree only shown):
 | `omarchy.power` | Battery/AC icon + popup with battery stats, power profiles, and system info | left = popup · right = toggle percentage |
 | `omarchy.bluetooth` | Bluetooth icon + popup with device list, connect/disconnect, battery | left = popup · right = toggle radio |
 | `omarchy.monitor` | Brightness and laptop display controls | left = popup |
+| `omarchy.system-monitor` | CPU and memory readout + task manager popup: open windows (close, end, force kill, focus) and every process, filtered by typing | left = popup · `j`/`k` rows · `h`/`l` views · `x` end · `c` close window · `/` filter |
 
 The `omarchy.indicators` widget loads individual bar indicators from `indicators/`. Omit `items` (or set it to an empty array) to show all indicators in the default order, or set `items` to a subset such as `["Dnd", "StayAwake"]`. Set `alwaysShow` to `true` to keep inactive indicators visible instead of revealing them only on hover. Multiple `omarchy.indicators` instances are allowed, so different sections can show different subsets.
 

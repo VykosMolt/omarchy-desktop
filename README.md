@@ -55,12 +55,19 @@ authority ends, not about whether anyone was paying attention.
 Removing things was most of the work, but not all of it. A few gaps were obvious
 once the distro stopped filling the screen.
 
-**A system monitor.** CPU and memory sit in the bar; clicking opens the detail:
-CPU with its one-minute load, memory used against total with cached and swap
-broken out, and the processes actually responsible, sortable by CPU or by memory
-and terminable from the list. Built the same way the Power widget is, one
-bar-widget plugin whose `Panel.qml` is both the bar item and the popup, so it
-sits beside Audio, Network and Bluetooth rather than off on its own.
+**A system monitor that is also the task manager.** CPU and memory sit in the
+bar; clicking, or SUPER+M, opens the detail: CPU with its one-minute load,
+memory used against total with cached and swap broken out, and below them two
+views over the same machine. Apps is one row per open window, with its icon,
+title and workspace, and the things a task manager is for: close it the way its
+own close button would, end its process, or focus it. Processes is the full
+ranking, sortable by CPU or by memory. Both are filtered by typing, and the
+filter searches every process, not just the top of the ranking. Ending is
+SIGTERM behind a confirmation; a process still running after that turns its
+action into Force kill, behind its own confirmation, and SIGKILL is offered no
+other way. Built the same way the Power widget is, one bar-widget plugin whose
+`Panel.qml` is both the bar item and the popup, so it sits beside Audio,
+Network and Bluetooth rather than off on its own.
 
 **A hardware readout**, which is what replaced the system tray. The tray held
 nm-applet and blueman, both duplicating bar widgets that already existed, plus

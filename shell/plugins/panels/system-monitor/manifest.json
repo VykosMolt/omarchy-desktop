@@ -4,7 +4,7 @@
   "name": "System monitor",
   "version": "1.0.0",
   "author": "Omarchy",
-  "description": "CPU and memory in the bar, with a panel of the processes using them",
+  "description": "CPU and memory in the bar, with a task manager of open apps and the processes behind them",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "System monitor",
-    "description": "CPU and memory in the bar, with a panel of the processes using them",
+    "description": "CPU and memory in the bar, with a task manager of open apps and the processes behind them",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -37,7 +37,7 @@
         "key": "processLimit",
         "type": "integer",
         "label": "Processes listed",
-        "description": "How many processes the panel asks for.",
+        "description": "How many processes the Processes view lists until a filter is typed. A filter searches every process.",
         "min": 5,
         "max": 100,
         "step": 5,

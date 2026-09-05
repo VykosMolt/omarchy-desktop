@@ -146,8 +146,20 @@ BarWidget {
     sampleProc.running = true
   }
 
+  // The temperature and the fan are explained by processes, not by windows, so
+  // open the monitor on its Processes view when the widget is on this bar. The
+  // shell's toggle is the fallback for a monitor living somewhere else.
   function openSystemMonitor() {
-    if (!root.bar || !root.bar.shell || typeof root.bar.shell.toggle !== "function") return
+    if (!root.bar) return
+    var monitor = typeof root.bar.findPanelWidget === "function"
+      ? root.bar.findPanelWidget("omarchy.system-monitor")
+      : null
+    if (monitor && typeof monitor.openView === "function") {
+      if (monitor.opened === true) monitor.close()
+      else monitor.openView("processes")
+      return
+    }
+    if (!root.bar.shell || typeof root.bar.shell.toggle !== "function") return
     root.bar.shell.toggle("omarchy.system-monitor")
   }
 
