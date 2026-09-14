@@ -30,13 +30,12 @@ Item {
   property int qrSize: 0
   property string error: ""
   property bool loading: false
-  property bool expectedStop: false
+  property int requestSerial: 0
   property bool pendingShow: false
   property string pendingIface: ""
   property string password: ""
   property bool passwordVisible: false
   property string passwordError: ""
-  property bool pwExpectedStop: false
 
   readonly property bool showingQr: qrSize > 0 && !loading && error === ""
 
@@ -54,9 +53,11 @@ Item {
     // generator emits is authoritative and overwrites it. A payload without
     // one clears the title: a re-summon may be sharing a different
     // connection, so the previous card's name must not label this one.
+    root.requestSerial++
+    root.clearContents()
+    root.opened = true
     root.ssid = payload.ssid !== undefined ? String(payload.ssid) : ""
     generate(String(payload.iface || ""))
-    root.opened = true
     // The window is instantiated hidden, so the content's `focus: true` is
     // evaluated before the surface is mapped and Escape would land nowhere.
     // Re-acquire after mapping.
@@ -65,14 +66,7 @@ Item {
     })
   }
 
-  function close() {
-    root.opened = false
-    root.pendingShow = false
-    if (qrProc.running) {
-      root.expectedStop = true
-      qrProc.running = false
-    }
-    if (pwProc.running) pwProc.running = false
+  function clearContents() {
     root.qrSize = 0
     root.qrRows = []
     root.error = ""
@@ -80,10 +74,18 @@ Item {
     root.iface = ""
     root.ssid = ""
     root.secured = false
-    // The Wi-Fi password only enters shell memory while the card is up.
     root.password = ""
     root.passwordVisible = false
     root.passwordError = ""
+    if (pwProc.running) pwProc.running = false
+  }
+
+  function close() {
+    root.requestSerial++
+    root.opened = false
+    root.pendingShow = false
+    if (qrProc.running) qrProc.running = false
+    root.clearContents()
   }
 
   function dismiss() {
@@ -93,40 +95,51 @@ Item {
   }
 
   function generate(requestedIface) {
-    if (qrProc.running) {
-      // Whether the run in flight is a dismissal's SIGTERM still landing or
-      // a live generation for an earlier summon, the latest request wins:
-      // queue it for onExited and stop the old process.
+    if (!root.opened) return
+    loading = true
+    if (qrProc.pendingResult) {
+      // Drain every signal from the canceled run before reusing its Process.
       pendingShow = true
       pendingIface = requestedIface
-      if (!expectedStop) {
-        expectedStop = true
-        qrProc.running = false
-      }
+      if (qrProc.running) qrProc.running = false
       return
     }
-    qrSize = 0
-    qrRows = []
-    error = ""
-    loading = true
-    expectedStop = false
-    // A re-summon while the card is still loaded reaches here without a
-    // close() in between, and may be sharing a different connection now:
-    // neither the previous reveal's password nor a reveal still in flight
-    // may survive onto the new card.
-    iface = ""
-    secured = false
-    password = ""
-    passwordVisible = false
-    passwordError = ""
-    if (pwProc.running) {
-      pwExpectedStop = true
-      pwProc.running = false
-    }
+    qrProc.serial = root.requestSerial
+    qrProc.startConfirmed = false
+    qrProc.pendingResult = true
+    qrProc.outDone = false
+    qrProc.errDone = false
+    qrProc.resultExited = false
+    qrProc.output = ""
+    qrProc.errorOutput = ""
     qrProc.command = requestedIface
       ? ["omarchy-network-qr", "--meta", requestedIface]
       : ["omarchy-network-qr", "--meta"]
     qrProc.running = true
+  }
+
+  function settleQr() {
+    if (!qrProc.pendingResult || !qrProc.resultExited || !qrProc.outDone || !qrProc.errDone) return
+    qrProc.pendingResult = false
+    if (root.opened && qrProc.serial === root.requestSerial) {
+      root.loading = false
+      if (qrProc.exitCode === 0) root.updateQr(qrProc.output)
+      if (qrProc.exitCode !== 0 || root.qrSize === 0) {
+        root.qrRows = []
+        root.qrSize = 0
+        root.error = qrProc.errorOutput.trim() || "Could not generate the Wi-Fi QR code"
+      }
+    }
+    qrProc.output = ""
+    qrProc.errorOutput = ""
+    if (root.pendingShow) {
+      root.pendingShow = false
+      var serial = root.requestSerial
+      var requestedIface = root.pendingIface
+      Qt.callLater(function() {
+        if (root.opened && serial === root.requestSerial) root.generate(requestedIface)
+      })
+    }
   }
 
   function updateQr(raw) {
@@ -144,68 +157,105 @@ Item {
   function togglePassword() {
     if (passwordVisible) { passwordVisible = false; return }
     if (password !== "") { passwordVisible = true; return }
-    if (pwProc.running || !iface) return
+    if (pwProc.pendingResult || !iface || !root.opened) return
     passwordError = ""
-    // Only a deliberate new lookup lowers the canceled-fetch guard, right as
-    // it launches -- see the pwProc comment.
-    pwExpectedStop = false
+    pwProc.serial = root.requestSerial
+    pwProc.startConfirmed = false
+    pwProc.pendingResult = true
+    pwProc.outDone = false
+    pwProc.resultExited = false
+    pwProc.output = ""
     pwProc.command = ["omarchy-network-password", iface]
     pwProc.running = true
   }
 
+  function settlePassword() {
+    if (!pwProc.pendingResult || !pwProc.resultExited || !pwProc.outDone) return
+    pwProc.pendingResult = false
+    if (root.opened && pwProc.serial === root.requestSerial) {
+      // The helper adds one line terminator. Edge spaces belong to the key.
+      var value = pwProc.output.replace(/\n$/, "")
+      if (pwProc.exitCode === 0 && value !== "") {
+        root.password = value
+        root.passwordVisible = true
+      } else root.passwordError = "Could not read the Wi-Fi password"
+    }
+    pwProc.output = ""
+  }
+
   Process {
     id: qrProc
-    // Both collectors check expectedStop: a dismissal mid-generation kills
-    // the process, but buffered output still arrives afterwards and would
-    // repopulate qrSize -- reopening the card the user just closed. The flag
-    // stays set through onExited (generate resets it) because the exit and
-    // stream-finished signals have no guaranteed order.
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (qrProc.pendingResult && !qrProc.startConfirmed && !qrProc.running) {
+        qrProc.exitCode = 127
+        qrProc.errDone = true; qrProc.outDone = true
+        qrProc.resultExited = true
+        root.settleQr()
+      }
+    })
+    property int serial: -1
+    property bool pendingResult: false
+    property bool outDone: false
+    property bool errDone: false
+    property bool resultExited: false
+    property int exitCode: 0
+    property string output: ""
+    property string errorOutput: ""
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: if (!root.expectedStop) root.updateQr(text)
+      onStreamFinished: {
+        qrProc.output = text
+        qrProc.outDone = true
+        root.settleQr()
+      }
     }
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: if (!root.expectedStop) root.error = String(text || "").trim()
+      onStreamFinished: {
+        qrProc.errorOutput = text
+        qrProc.errDone = true
+        root.settleQr()
+      }
     }
-    onExited: function(exitCode) {
-      root.loading = false
-      if (root.pendingShow) {
-        root.pendingShow = false
-        // expectedStop stays set until generate() launches the replacement:
-        // the canceled run's collectors may fire between here and then, and
-        // must keep being dropped.
-        Qt.callLater(function() { root.generate(root.pendingIface) })
-        return
-      }
-      if (root.expectedStop) return
-      if (exitCode !== 0 || root.qrSize === 0) {
-        root.qrSize = 0
-        root.qrRows = []
-        if (root.error === "") root.error = "Could not generate the Wi-Fi QR code"
-      }
+    onExited: function(code) {
+      qrProc.exitCode = code
+      qrProc.resultExited = true
+      root.settleQr()
     }
   }
 
-  // The Wi-Fi password only enters shell memory when the user clicks to
-  // reveal it, and close() drops it again. Both handlers bail when the card
-  // is gone so a fetch that was in flight during dismissal can't stash the
-  // secret into a closed panel's state, and check pwExpectedStop so a fetch
-  // that a regeneration killed can't reveal the previous network's password
-  // under the new card. The exit and stream-finished signals have no
-  // guaranteed order, so the flag survives onExited; only togglePassword
-  // lowers it, as it launches the next deliberate lookup.
   Process {
     id: pwProc
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (pwProc.pendingResult && !pwProc.startConfirmed && !pwProc.running) {
+        pwProc.exitCode = 127
+        pwProc.outDone = true
+        pwProc.resultExited = true
+        root.settlePassword()
+      }
+    })
+    property int serial: -1
+    property bool pendingResult: false
+    property bool outDone: false
+    property bool resultExited: false
+    property int exitCode: 0
+    property string output: ""
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: if (root.opened && !root.pwExpectedStop) root.password = String(text || "").trim()
+      onStreamFinished: {
+        pwProc.output = text
+        pwProc.outDone = true
+        root.settlePassword()
+      }
     }
-    onExited: function(exitCode) {
-      if (root.pwExpectedStop) return
-      if (!root.opened) return
-      if (exitCode === 0 && root.password !== "") root.passwordVisible = true
-      else root.passwordError = "Could not read the Wi-Fi password"
+    onExited: function(code) {
+      pwProc.exitCode = code
+      pwProc.resultExited = true
+      root.settlePassword()
     }
   }
 

@@ -45,7 +45,7 @@ icon "$data/icons/hicolor/scalable/apps/browser.svg"
 icon "$data/icons/hicolor/scalable/apps/hicolor-only.svg"
 
 run_resolver() {
-  HOME="$home" XDG_DATA_DIRS="$data" PATH="$stub_bin:$PATH" \
+  HOME="$home" XDG_DATA_HOME="${icon_data_home:-$home/.local/share}" XDG_DATA_DIRS="$data" PATH="$stub_bin:$PATH" \
     timeout 30 "$resolver" "$@"
 }
 
@@ -92,3 +92,9 @@ pass "an unresolvable name is skipped without failing"
 out=$(run_resolver; echo "rc=$?")
 [[ $out == "rc=0" ]] || fail "no names asked for is not an error" "$out"
 pass "asking for nothing resolves nothing"
+
+icon_data_home="$tmpdir/custom data"
+icon "$icon_data_home/icons/hicolor/256x256/apps/custom-root.png"
+out=$(run_resolver custom-root)
+[[ $out == "$icon_data_home/icons/hicolor/256x256/apps/custom-root.png" ]] || fail "icon resolver honors XDG_DATA_HOME" "$out"
+pass "icon resolver honors XDG_DATA_HOME"

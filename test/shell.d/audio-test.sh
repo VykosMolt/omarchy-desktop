@@ -61,3 +61,54 @@ assertEqual(audio.unmatchedMprisStreamLabel('audio-src', players, streams), 'Spo
 assertEqual(audio.streamLabel(streams[1], players, streams), 'Spotify', 'audio labels generic streams from MPRIS')
 assert(audio.streamRepresentsPlayer(streams[1], players[0], players, streams), 'audio links generic streams to active player')
 JS
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/panels/audio/Panel.qml', 'utf8')
+const state = { nodes: [{ id: 7 }] }
+state.root = state
+vm.createContext(state)
+for (const name of ['nodeIds', 'nodeForId']) vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], state)
+const snapshot = state.nodeIds(state.nodes)
+state.nodes = []
+assertDeepEqual(snapshot, [7], 'audio display snapshots contain primitive node IDs')
+assertEqual(state.nodeForId(snapshot[0]), null, 'a removed PipeWire node resolves to no action before deferred repaint')
+JS
+
+# Exercise privilege selection with PTY/non-PTY stdin. Both escalation tools
+# are stubs; no USB device or privileged operation is touched.
+ROOT="$ROOT" python3 - <<'PYTHON'
+import os, pty, subprocess, tempfile
+from pathlib import Path
+root = Path(os.environ["ROOT"])
+source = (root / "bin/omarchy-restart-audio").read_text()
+function = source.split("run_usb_reset() {", 1)[1].split("\n}\n", 1)[0]
+script = "run_usb_reset() {" + function + "\n}\n" + 'run_usb_reset "1-2.3" "001/007"\n'
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Path(directory)
+    for command in ("sudo", "pkexec", "usbreset"):
+        stub = fixture / command
+        stub.write_text('#!/bin/bash\nprintf "%s\\n" "${0##*/}" "$@" >"$AUDIO_RESET_LOG"\n')
+        stub.chmod(0o755)
+    env = os.environ.copy()
+    env.update(PATH=directory + ":" + env["PATH"], SCRIPT_PATH=str(root / "bin/omarchy-restart-audio"), AUDIO_RESET_LOG=str(fixture / "argv"))
+    subprocess.run(["bash", "-c", script], input=b"", env=env, check=True)
+    args = (fixture / "argv").read_text().splitlines()
+    if os.geteuid() == 0:
+        assert args == ["usbreset", "001/007"], args
+    else:
+        assert args == ["pkexec", str(root / "bin/omarchy-restart-audio"), "--reset-usb", "1-2.3"], args
+        master, slave = pty.openpty()
+        try:
+            subprocess.run(["bash", "-c", script], stdin=slave, env=env, check=True)
+        finally:
+            os.close(master)
+            os.close(slave)
+        args = (fixture / "argv").read_text().splitlines()
+        assert args == ["sudo", "--", str(root / "bin/omarchy-restart-audio"), "--reset-usb", "1-2.3"], args
+    # Invalid internal requests must stop before any host discovery/reset.
+    proc = subprocess.run([str(root / "bin/omarchy-restart-audio"), "--reset-usb", "../../other"], env=env, capture_output=True)
+    assert proc.returncode != 0
+PYTHON
+pass "USB audio recovery chooses terminal or graphical escalation for one verified device"

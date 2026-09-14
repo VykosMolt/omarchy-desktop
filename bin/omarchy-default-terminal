@@ -40,7 +40,9 @@ if omarchy-cmd-missing "$terminal"; then
   exit 1
 fi
 
-cat >~/.config/xdg-terminals.list <<EOF
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}"
+mkdir -p "$config_dir" || exit 1
+cat >"$config_dir/xdg-terminals.list" <<EOF
 # Terminal emulator preference order for xdg-terminal-exec
 # The first found and valid terminal will be used
 $desktop_id

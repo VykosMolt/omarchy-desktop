@@ -2,6 +2,9 @@
 
 # omarchy:summary=Watch Hyprland monitor events and recover monitor toggles when a monitor is removed
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+
 SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
 
 # Hyprland's event socket is a unix stream, and bash cannot read one by itself.
@@ -36,8 +39,8 @@ if omarchy-cmd-missing socat && omarchy-cmd-missing python3; then
   echo "omarchy-hyprland-monitor-watch: needs socat or python3 to read $SOCKET" >&2
   exit 1
 fi
-LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-monitor-clamshell.lock"
-MODELESS_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-monitor-modeless.lock"
+LOCK="$runtime_dir/omarchy-monitor-clamshell.lock"
+MODELESS_LOCK="$runtime_dir/omarchy-monitor-modeless.lock"
 
 sync_clamshell() {
   (

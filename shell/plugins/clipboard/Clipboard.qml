@@ -163,7 +163,7 @@ Item {
       cursorActive = true
       selectedIndex = delta < 0 ? displayModel.count - 1 : 0
     } else {
-      selectedIndex = (selectedIndex + delta + displayModel.count) % displayModel.count
+      selectedIndex = ((selectedIndex + delta) % displayModel.count + displayModel.count) % displayModel.count
     }
     resultList.positionViewAtIndex(selectedIndex, ListView.Contain)
   }
@@ -238,7 +238,11 @@ Item {
     Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-clipboard-open", "--history-index", String(row.historyIndex)])
   }
 
-  Component.onCompleted: initProc.running = true
+  Component.onCompleted: {
+    currentProc.running = true
+    textWatchProc.running = true
+    imageWatchProc.running = true
+  }
 
   ListModel { id: displayModel }
 
@@ -258,19 +262,8 @@ Item {
     onFileChanged: reload()
   }
 
-  // Reap watchers left behind by a previous shell instance, then start our
-  // own. The pdeathsig on the watchers makes the kernel kill them whenever
-  // the shell exits, however it exits, so no further lifecycle management.
-  Process {
-    id: initProc
-    command: ["pkill", "-f", "wl-paste .*--watch .*/shell/plugins/clipboard/capture\\.sh"]
-    onExited: {
-      currentProc.running = true
-      textWatchProc.running = true
-      imageWatchProc.running = true
-    }
-  }
-
+  // Parent-death signals clean up our watchers without killing another
+  // session's clipboard processes during shell startup.
   Process {
     id: currentProc
     command: [root.captureScript]
@@ -497,6 +490,8 @@ Item {
                       source: parent.parent.previewImage
                       fillMode: Image.PreserveAspectFit
                       asynchronous: true
+                      sourceSize.width: Math.ceil(width * (panel.screen ? panel.screen.devicePixelRatio : 1))
+                      sourceSize.height: Math.ceil(height * (panel.screen ? panel.screen.devicePixelRatio : 1))
                       smooth: true
                     }
 
@@ -575,6 +570,8 @@ Item {
                 fillMode: Image.PreserveAspectFit
                 verticalAlignment: Image.AlignTop
                 asynchronous: true
+                sourceSize.width: Math.ceil(width * (panel.screen ? panel.screen.devicePixelRatio : 1))
+                sourceSize.height: Math.ceil(height * (panel.screen ? panel.screen.devicePixelRatio : 1))
                 smooth: true
               }
             }

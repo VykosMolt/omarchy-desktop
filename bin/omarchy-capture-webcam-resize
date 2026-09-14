@@ -5,10 +5,13 @@
 # omarchy:args=<smaller|larger|reset|small|medium|large>
 # omarchy:examples=omarchy capture webcam resize smaller | omarchy-capture-webcam-resize reset
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+
 set -euo pipefail
 
 readonly MARGIN=40
-readonly REGION_FILE="${XDG_RUNTIME_DIR:-/tmp}/omarchy-screenrecord-region"
+readonly REGION_FILE="$runtime_dir/omarchy-screenrecord-region"
 
 usage() {
   echo "Usage: omarchy-capture-webcam-resize <smaller|larger|reset|small|medium|large>" >&2

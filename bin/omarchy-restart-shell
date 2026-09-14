@@ -3,30 +3,91 @@
 # omarchy:summary=Restart the Omarchy shell
 # omarchy:examples=omarchy restart shell
 
-# A caller opened after dev link/unlink may disagree with the still-running
-# desktop. The user manager receives Hyprland's environment at session start.
-session_omarchy_path=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^OMARCHY_PATH=//p' | tail -n 1)
-: "${session_omarchy_path:=$OMARCHY_PATH}"
+# The isolated session gives its services a private EnvironmentFile; the user
+# manager's environment can still name a different desktop checkout.
+if [[ ${OMARCHY_ARCH_SESSION:-0} == 1 ]]; then
+  session_omarchy_path=${OMARCHY_PATH:-}
+else
+  session_omarchy_path=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^OMARCHY_PATH=//p' | tail -n 1)
+  : "${session_omarchy_path:=${OMARCHY_PATH:-}}"
+fi
 
 CONFIG_DIR="$session_omarchy_path/shell"
 [[ -f $CONFIG_DIR/shell.qml ]] || { echo "Omarchy shell config not found: $CONFIG_DIR" >&2; exit 1; }
+config_file=$(realpath -e -- "$CONFIG_DIR/shell.qml") || exit 1
 
-# Allow running from outside the session (e.g. over ssh) by deriving the
-# Hyprland instance signature from the newest instance runtime dir.
-# Newest is not the same as running: a compositor that exited leaves its runtime
-# directory behind, and picking that one sends the relaunch to a socket nothing
-# is listening on -- the old shell is killed and no new one arrives. Walk newest
-# first and take the first instance that actually answers.
-if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+source "$session_omarchy_path/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+exec 9> "$runtime_dir/omarchy-shell-restart.lock"
+flock -w 30 9 || { echo "Another shell restart is still in progress." >&2; exit 1; }
+
+managed_session=0
+if [[ ${OMARCHY_ARCH_SESSION:-0} == 1 ]]; then
+  flock -n -E 75 "$runtime_dir/omarchy-arch-session.lock" true
+  if (( $? != 75 )) || [[ ! -r $runtime_dir/omarchy-arch-session.env ]]; then
+    echo "The Omarchy Arch session is not active." >&2
+    exit 1
+  fi
+  managed_session=1
+fi
+
+# Resolve a displayless isolated caller by the compositor's config path.
+# Generic callers retain live-socket discovery, skipping stale runtime dirs.
+if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && (( managed_session )); then
+  compositor_instances=$(timeout --kill-after=1s 2s hyprctl -j instances 2>/dev/null) || exit 1
+  signature=$(python3 - "$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua" "$compositor_instances" <<'PYTHON'
+import json, os, sys
+expected = os.path.realpath(sys.argv[1])
+matches = []
+try:
+    instances = json.loads(sys.argv[2])
+    for instance in instances:
+        try:
+            with open(f"/proc/{int(instance['pid'])}/cmdline", "rb") as source:
+                args = [os.fsdecode(arg) for arg in source.read().split(b"\0") if arg]
+            for index, arg in enumerate(args):
+                value = args[index + 1] if arg in ("--config", "-c") and index + 1 < len(args) else arg.removeprefix("--config=") if arg.startswith("--config=") else None
+                if value is not None and os.path.realpath(value) == expected:
+                    if isinstance(instance.get("instance"), str) and instance["instance"]:
+                        matches.append(instance["instance"])
+                    break
+        except (OSError, KeyError, TypeError, ValueError):
+            continue
+except (ValueError, TypeError):
+    sys.exit(1)
+if len(matches) != 1:
+    sys.exit(1)
+print(matches[0])
+PYTHON
+  ) || { echo "Could not identify the Omarchy Arch compositor; not restarting." >&2; exit 1; }
+  export HYPRLAND_INSTANCE_SIGNATURE="$signature"
+elif [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
   while IFS= read -r hypr_dir; do
     [[ -S $hypr_dir/.socket.sock ]] || continue
-    if HYPRLAND_INSTANCE_SIGNATURE=${hypr_dir##*/} hyprctl version >/dev/null 2>&1; then
+    if HYPRLAND_INSTANCE_SIGNATURE=${hypr_dir##*/} timeout --kill-after=1s 2s hyprctl version >/dev/null 2>&1; then
       export HYPRLAND_INSTANCE_SIGNATURE=${hypr_dir##*/}
       break
     fi
   done < <(find "${XDG_RUNTIME_DIR:-/run/user/$UID}/hypr" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null |
     sort -rn | cut -d' ' -f2-)
 fi
+
+list_instances() {
+  local result
+  result=$(LC_ALL=C timeout --kill-after=1s 2s quickshell list --all -j) || return 1
+  # Quickshell prints this successful empty result as text even with --json.
+  if [[ $result == "No running instances." ]]; then
+    printf '[]\n'
+    return 0
+  fi
+  jq -ce --arg config "$config_file" '
+    select(type == "array")
+    | map(select(.config_path == $config))
+    | select(all(.[]; .id | type == "string" and test("^[A-Za-z0-9_-]+$")))
+  ' <<<"$result"
+}
+
+instances=$(list_instances) || { echo "Could not list Omarchy shell instances; not restarting." >&2; exit 1; }
 
 # Restarting a live lock client would kill the lock screen and strand the
 # session behind Hyprland's failsafe. But a LOCK session without an active
@@ -36,13 +97,32 @@ fi
 # ask the lock service rather than merely pinging the shell: only a locker
 # that reports the lock secure or in progress is worth preserving.
 relock=0
-if omarchy-hyprland-session-locked; then
-  locking=$(OMARCHY_PATH="$session_omarchy_path" OMARCHY_SHELL_IPC_TIMEOUT=0.5s omarchy-shell lock status 2>/dev/null |
-    jq -r '.secure or .requested' 2>/dev/null)
-  if [[ $locking == "true" ]]; then
-    echo "Refusing to restart Omarchy shell while the session is locked." >&2
-    exit 1
-  fi
+omarchy-hyprland-session-locked
+lock_status=$?
+if (( lock_status != 0 && lock_status != 1 )); then
+  echo "Could not determine whether Hyprland is locked; not restarting." >&2
+  exit 1
+elif (( lock_status == 0 )); then
+  # Check every discovered instance: a newer idle shell does not prove an
+  # older duplicate is not the actual locker. Only explicit idle replies or
+  # a verified absence of instances authorize recovery of the failsafe.
+  while IFS= read -r instance_id; do
+    status_json=$(timeout --kill-after=1s 0.5s qs ipc --id "$instance_id" call -- lock status 2>/dev/null) || {
+      echo "Could not determine the shell lock state; not restarting." >&2
+      exit 1
+    }
+    locking=$(jq -er '
+      select(type == "object" and (.secure | type == "boolean") and (.requested | type == "boolean"))
+      | if .secure or .requested then "locked" else "idle" end
+    ' <<<"$status_json" 2>/dev/null) || {
+      echo "Could not determine the shell lock state; not restarting." >&2
+      exit 1
+    }
+    if [[ $locking == locked ]]; then
+      echo "Refusing to restart Omarchy shell while the session is locked." >&2
+      exit 1
+    fi
+  done < <(jq -r '.[].id' <<<"$instances")
   relock=1
 fi
 
@@ -71,26 +151,46 @@ relock_session() {
   return 1
 }
 
-shell_was_running=0
-OMARCHY_PATH="$session_omarchy_path" OMARCHY_SHELL_IPC_TIMEOUT=0.5s \
-  omarchy-shell shell ping >/dev/null 2>&1 && shell_was_running=1
-
-# Each kill stops the oldest matching instance and only returns once it has
-# fully exited, so the no-duplicate launch below can't race a dying shell.
-killed_any=0
-while timeout 5 quickshell kill -p "$CONFIG_DIR" --any-display >/dev/null 2>&1; do killed_any=1; done
-
-# A kill that matched nothing used to fall through to the readiness poll, where
-# the shell it failed to stop answered the ping and the restart reported
-# success without having restarted anything.
-if (( shell_was_running && !killed_any )); then
-  echo "Could not stop the running Omarchy shell; not restarting." >&2
-  exit 1
-fi
+# Stop the finite set whose lock state was checked, by stable instance ID.
+# A failure is not evidence of absence; verify the target actually disappeared.
+while IFS= read -r instance_id; do
+  if ! timeout --kill-after=1s 5s quickshell kill --id "$instance_id" >/dev/null 2>&1; then
+    remaining=$(list_instances) || { echo "Could not verify shell shutdown." >&2; exit 1; }
+    if jq -e --arg id "$instance_id" 'any(.[]; .id == $id)' <<<"$remaining" >/dev/null; then
+      echo "Could not stop the running Omarchy shell; not restarting." >&2
+      exit 1
+    fi
+  fi
+done < <(jq -r '.[].id' <<<"$instances")
+# A successful IPC kill acknowledges the request before the process and its
+# runtime record have finished disappearing. Wait for actual absence.
+shutdown_deadline=$((SECONDS + 5))
+while true; do
+  remaining=$(list_instances) || { echo "Could not verify shell shutdown." >&2; exit 1; }
+  [[ $(jq 'length' <<<"$remaining") == 0 ]] && break
+  if (( SECONDS >= shutdown_deadline )); then
+    echo "Omarchy shell instances remain after shutdown; not restarting." >&2
+    exit 1
+  fi
+  sleep 0.1
+done
 
 # Spawn from Hyprland so the shell inherits the canonical session environment,
 # not transient variables from a terminal, SSH connection, or development tool.
-hyprctl dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")' >/dev/null
+if (( managed_session )); then
+  # Keep the replacement in the session unit, including when an older restart
+  # left the shell detached and the unit inactive. systemd serializes teardown
+  # of the old launcher with startup of its replacement.
+  if ! systemctl --user restart omarchy-arch-shell.service; then
+    echo "Could not restart the Omarchy shell service." >&2
+    exit 1
+  fi
+else
+  if ! hyprctl dispatch 'hl.dsp.exec_cmd("omarchy-launch-shell")' >/dev/null; then
+    echo "Could not launch the Omarchy shell through Hyprland." >&2
+    exit 1
+  fi
+fi
 
 for (( attempt = 0; attempt < 20; attempt++ )); do
   if OMARCHY_PATH="$session_omarchy_path" OMARCHY_SHELL_IPC_TIMEOUT=0.5s omarchy-shell shell ping >/dev/null 2>&1; then

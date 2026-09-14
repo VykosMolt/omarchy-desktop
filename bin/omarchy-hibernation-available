@@ -2,18 +2,8 @@
 
 # omarchy:summary=Check if hibernation is supported
 
-if [[ ! -f /sys/power/image_size ]]; then
-  exit 1
-fi
-
-# Sum all swap sizes (excluding zram)
-SWAPSIZE_KB=$(awk '!/Filename|zram/ {sum += $3} END {print sum+0}' /proc/swaps)
-SWAPSIZE=$(( 1024 * ${SWAPSIZE_KB:-0} ))
-
-HIBERNATION_IMAGE_SIZE=$(cat /sys/power/image_size)
-
-if (( SWAPSIZE > HIBERNATION_IMAGE_SIZE )) && [[ -f /etc/mkinitcpio.conf.d/omarchy_resume.conf ]]; then
-  exit 0
-else
-  exit 1
-fi
+# logind checks the host's sleep policy, kernel support, swap and authorization.
+# A session must not require a distro-owned initramfs fragment to exist.
+capability=$(timeout 2s busctl call org.freedesktop.login1 /org/freedesktop/login1 \
+  org.freedesktop.login1.Manager CanHibernate 2>/dev/null) || exit 1
+[[ $capability == 's "yes"' || $capability == 's "challenge"' ]]

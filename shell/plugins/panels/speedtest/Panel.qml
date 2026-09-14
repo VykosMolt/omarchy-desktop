@@ -23,7 +23,10 @@ Item {
 
   property bool running: false
   property bool expectedStop: false
-  property bool pendingRun: false
+  property int requestSerial: 0
+  property string pendingPhase: ""
+  property bool lookupConnection: false
+  property bool statusQueued: false
   property string phase: ""        // "down" | "up" | ""
   property string stderrText: ""
   property string downloadMbps: ""
@@ -41,15 +44,17 @@ Item {
   function open(payloadJson) {
     var payload = {}
     try { payload = JSON.parse(payloadJson || "{}") || {} } catch (e) {}
-    if (payload.connection !== undefined) root.connectionName = String(payload.connection)
-    else refreshConnectionName()
+    root.lookupConnection = payload.connection === undefined
+    if (!root.lookupConnection) root.connectionName = String(payload.connection)
     root.opened = true
     runSpeedTest()
   }
 
   function close() {
+    root.requestSerial++
     root.opened = false
-    root.pendingRun = false
+    root.pendingPhase = ""
+    root.statusQueued = false
     phaseTimer.stop()
     // Clear the phase before killing the process: onExited advances to the
     // upload phase when it still reads "down".
@@ -69,36 +74,83 @@ Item {
 
   function refreshConnectionName() {
     root.connectionName = ""
-    statusProc.running = false
+    root.statusQueued = true
+    root.pumpStatus()
+  }
+
+  function pumpStatus() {
+    if (!root.opened || !root.lookupConnection || !root.statusQueued || statusProc.running || statusProc.pendingResult) return
+    root.statusQueued = false
+    statusProc.startConfirmed = false
+    statusProc.serial = root.requestSerial
+    statusProc.pendingResult = true
+    statusProc.resultExited = false
+    statusProc.outDone = false
+    statusProc.output = ""
     statusProc.running = true
   }
 
+  function finishStatus() {
+    if (!statusProc.pendingResult || !statusProc.resultExited || !statusProc.outDone) return
+    statusProc.pendingResult = false
+    if (root.opened && root.lookupConnection && statusProc.serial === root.requestSerial && statusProc.code === 0) {
+      var fields = statusProc.output.trim().split("\t")
+      if (fields[0] === "wifi") root.connectionName = fields[1] || "Wi-Fi"
+      else if (fields[0] === "ethernet") root.connectionName = "Ethernet"
+    }
+    Qt.callLater(root.pumpStatus)
+  }
+
   function updateSpeedTestLine(line) {
+    if (!root.opened || speedTestProc.serial !== root.requestSerial) return
     var value = parseFloat(line)
     if (!isFinite(value) || value < 0) return
-
     if (phase === "down") downloadMbps = String(value)
     else if (phase === "up") uploadMbps = String(value)
   }
 
+  function updateSpeedTestOutput(text) {
+    var end = String(text).lastIndexOf("\n")
+    if (end < 0) return
+    var lines = String(text).slice(0, end).split("\n")
+    root.updateSpeedTestLine(lines[lines.length - 1])
+  }
+
   function runSpeedTest() {
-    if (speedTestProc.running) {
-      // A dismissal's SIGTERM is still in flight; Process.running stays true
-      // until the child exits, so queue the fresh run for onExited.
-      if (expectedStop) pendingRun = true
-      return
-    }
+    if (!root.opened) return
+    root.requestSerial++
     error = ""
     downloadMbps = ""
     uploadMbps = ""
     running = true
-    startPhase("down")
+    phase = ""
+    pendingPhase = "down"
+    phaseTimer.stop()
+    if (speedTestProc.running) {
+      expectedStop = true
+      speedTestProc.running = false
+    }
+    if (root.lookupConnection) root.refreshConnectionName()
+    root.pumpPhase()
+  }
+
+  function pumpPhase() {
+    if (!root.opened || root.pendingPhase === "" || speedTestProc.running || speedTestProc.pendingResult) return
+    var nextPhase = root.pendingPhase
+    root.pendingPhase = ""
+    root.startPhase(nextPhase)
   }
 
   function startPhase(nextPhase) {
     expectedStop = false
     phase = nextPhase
     stderrText = ""
+    speedTestProc.startConfirmed = false
+    speedTestProc.serial = root.requestSerial
+    speedTestProc.pendingResult = true
+    speedTestProc.resultExited = false
+    speedTestProc.outDone = false
+    speedTestProc.errDone = false
     speedTestProc.command = ["omarchy-network-speedtest", nextPhase]
     speedTestProc.running = true
     phaseTimer.restart()
@@ -106,58 +158,82 @@ Item {
 
   function stopPhase() {
     phaseTimer.stop()
-    if (speedTestProc.running) {
+    if (speedTestProc.pendingResult) {
       expectedStop = true
-      speedTestProc.running = false
+      if (speedTestProc.running) speedTestProc.running = false
       return
     }
     finishPhase()
   }
 
   function finishPhase() {
-    if (phase === "down") {
-      startPhase("up")
-      return
+    if (!root.opened) return
+    if (phase === "down") root.pendingPhase = "up"
+    else {
+      phase = ""
+      running = false
+      expectedStop = false
     }
+    Qt.callLater(root.pumpPhase)
+  }
 
-    phase = ""
-    running = false
-    expectedStop = false
+  function settleSpeedTest() {
+    if (!speedTestProc.pendingResult || !speedTestProc.resultExited || !speedTestProc.outDone || !speedTestProc.errDone) return
+    speedTestProc.pendingResult = false
+    if (root.opened && speedTestProc.serial === root.requestSerial) {
+      if (!root.expectedStop && speedTestProc.code !== 0) {
+        root.error = root.stderrText || "Speed test failed"
+        root.phase = ""
+        root.running = false
+      } else root.finishPhase()
+    }
+    Qt.callLater(root.pumpPhase)
   }
 
   Process {
     id: speedTestProc
-    stdout: SplitParser { onRead: function(line) { root.updateSpeedTestLine(line) } }
-    // Exit and stream-finished have no guaranteed order: when a failed exit
-    // beat the collector and published the generic message, replace it with
-    // the specific one once it lands.
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    property int serial: -1
+    property bool pendingResult: false
+    property bool resultExited: false
+    property bool outDone: false
+    property bool errDone: false
+    property int code: 0
+    stdout: StdioCollector {
+      waitForEnd: false
+      onDataChanged: root.updateSpeedTestOutput(text)
+      onStreamFinished: {
+        root.updateSpeedTestOutput(text)
+        speedTestProc.outDone = true
+        root.settleSpeedTest()
+      }
+    }
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        root.stderrText = String(text || "").trim()
-        if (root.error !== "" && root.stderrText !== "") root.error = root.stderrText
+        if (speedTestProc.serial === root.requestSerial) root.stderrText = String(text || "").trim()
+        speedTestProc.errDone = true
+        root.settleSpeedTest()
       }
     }
     onExited: function(exitCode) {
       phaseTimer.stop()
-
-      if (root.pendingRun) {
-        root.pendingRun = false
-        root.expectedStop = false
-        if (root.opened) Qt.callLater(root.runSpeedTest)
-        return
-      }
-
-      if (!root.expectedStop && exitCode !== 0) {
-        root.error = root.stderrText || "Speed test failed"
-        root.phase = ""
-        root.running = false
-        return
-      }
-
-      root.expectedStop = false
-      root.finishPhase()
+      speedTestProc.code = exitCode
+      speedTestProc.resultExited = true
+      root.settleSpeedTest()
     }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (speedTestProc.pendingResult && !speedTestProc.startConfirmed && !speedTestProc.running) {
+        speedTestProc.code = 127
+        speedTestProc.outDone = true
+        speedTestProc.resultExited = true
+        speedTestProc.errDone = true
+        phaseTimer.stop()
+        root.settleSpeedTest()
+      }
+      root.pumpPhase()
+    })
   }
 
   Timer {
@@ -171,15 +247,33 @@ Item {
   // field is the kind, second the SSID (wifi) or device (ethernet).
   Process {
     id: statusProc
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    property int serial: -1
+    property bool pendingResult: false
+    property bool resultExited: false
+    property bool outDone: false
+    property int code: 0
+    property string output: ""
     command: ["omarchy-network-status"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        var fields = String(text || "").trim().split("\t")
-        if (fields[0] === "wifi") root.connectionName = fields[1] || "Wi-Fi"
-        else if (fields[0] === "ethernet") root.connectionName = "Ethernet"
-      }
+      onStreamFinished: { statusProc.output = text; statusProc.outDone = true; root.finishStatus() }
     }
+    onExited: function(exitCode) {
+      statusProc.code = exitCode
+      statusProc.resultExited = true
+      root.finishStatus()
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (statusProc.pendingResult && !statusProc.startConfirmed && !statusProc.running) {
+        statusProc.code = 127
+        statusProc.outDone = true
+        statusProc.resultExited = true
+        root.finishStatus()
+      }
+      root.pumpStatus()
+    })
   }
 
   SpeedTestOverlay {

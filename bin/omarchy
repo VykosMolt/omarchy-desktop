@@ -26,7 +26,6 @@ declare -A ROUTE_IS_ALIAS
 declare -A BINARY_TO_KEY
 declare -A GROUP_DESCRIPTIONS
 
-GROUP_DESCRIPTIONS[ascii]="Text drawn as ASCII art"
 GROUP_DESCRIPTIONS[audio]="Audio input and output controls"
 GROUP_DESCRIPTIONS[bar]="Omarchy shell bar layout and settings"
 GROUP_DESCRIPTIONS[battery]="Battery status helpers"
@@ -36,7 +35,6 @@ GROUP_DESCRIPTIONS[capture]="Screenshots and screen recording"
 GROUP_DESCRIPTIONS[clipboard]="Clipboard helpers"
 GROUP_DESCRIPTIONS[cmd]="Command and shortcut helpers"
 GROUP_DESCRIPTIONS[default]="Default application selection"
-GROUP_DESCRIPTIONS[disk]="Disk performance helpers"
 GROUP_DESCRIPTIONS[display]="Display and text scaling"
 GROUP_DESCRIPTIONS[dns]="DNS resolver configuration"
 GROUP_DESCRIPTIONS[file]="File selection helpers"
@@ -52,9 +50,7 @@ GROUP_DESCRIPTIONS[monitor]="Monitor status helpers"
 GROUP_DESCRIPTIONS[network]="Network status helpers"
 GROUP_DESCRIPTIONS[notification]="Notification helpers"
 GROUP_DESCRIPTIONS[osd]="On-screen display status helpers"
-GROUP_DESCRIPTIONS[power]="Power supply detection"
 GROUP_DESCRIPTIONS[powerprofiles]="Power profile management"
-GROUP_DESCRIPTIONS[remove]="Launcher entry removal"
 GROUP_DESCRIPTIONS[restart]="Restart Omarchy components"
 GROUP_DESCRIPTIONS[shell]="Omarchy shell IPC helpers"
 GROUP_DESCRIPTIONS[system]="System status, reboot, shutdown, logout, and lock"
@@ -62,7 +58,6 @@ GROUP_DESCRIPTIONS[theme]="Theme management"
 GROUP_DESCRIPTIONS[toggle]="Toggle Omarchy features"
 GROUP_DESCRIPTIONS[transcode]="Image and video transcoding"
 GROUP_DESCRIPTIONS[weather]="Weather status"
-GROUP_DESCRIPTIONS[webapp]="Web app protocol handlers"
 
 join_words() {
   local separator="$1"

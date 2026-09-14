@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# omarchy:summary=Connect or disconnect the VPN
+# omarchy:group=network
+# omarchy:args=[toggle|on|off]
+# omarchy:examples=omarchy network vpn-toggle|omarchy network vpn-toggle off
+
+ACTION="${1:-toggle}"
+
+case "$ACTION" in
+  toggle | on | off) ;;
+  *)
+    echo "Usage: omarchy-network-vpn-toggle [toggle|on|off]" >&2
+    exit 1
+    ;;
+esac
+
+if omarchy-cmd-missing mullvad jq; then
+  omarchy-notification-send -g 󰦝 "No VPN this session can switch"
+  exit 1
+fi
+
+if [[ $ACTION == "toggle" ]]; then
+  case "$(mullvad status -j 2>/dev/null | jq -r '.state // ""')" in
+    connected | connecting) ACTION=off ;;
+    *) ACTION=on ;;
+  esac
+fi
+
+# Not waited on: the daemon reaches its target by itself and the panel polls the
+# status back, where blocking here would freeze the switch for the handshake.
+if [[ $ACTION == "on" ]]; then
+  mullvad connect >/dev/null || exit 1
+  omarchy-notification-send -g 󰦝 "VPN connecting"
+else
+  mullvad disconnect >/dev/null || exit 1
+  omarchy-notification-send -g 󰦝 "VPN disconnected"
+fi

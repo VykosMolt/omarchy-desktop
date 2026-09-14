@@ -66,8 +66,7 @@ Item {
   property string filterText: ""
   property int selectedIndex: 0
   property bool cursorActive: false
-  property int requestSerial: 0
-  property int applySerial: 0
+  property var resultQueue: []
   property var items: ({})
   property var itemOrder: []
   property var navStack: []
@@ -115,8 +114,8 @@ Item {
     : Math.min(contentMargin * 2 + headerHeight + contentSpacing + visibleRowsHeight, panel.height - Style.gapsOut * 2)
 
   function finishRequest(selection) {
+    root.opened = false
     if (!root.requestActive || !root.doneFile) {
-      root.opened = false
       return
     }
 
@@ -126,11 +125,17 @@ Item {
     root.selectionFile = ""
     root.doneFile = ""
 
-    if (selection === null || selection === undefined) {
-      resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(activeDoneFile)]
-    } else {
-      resultProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(selection) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
-    }
+    var command = selection === null || selection === undefined
+      ? ["bash", "-c", ": > \"$1\"", "--", activeDoneFile]
+      : ["bash", "-c", "printf '%s\\n' \"$3\" > \"$1\"; : > \"$2\"", "--", activeSelectionFile, activeDoneFile, String(selection)]
+    root.resultQueue = root.resultQueue.concat([command])
+    root.writeNextResult()
+  }
+
+  function writeNextResult() {
+    if (resultProc.running || root.resultQueue.length === 0) return
+    resultProc.command = root.resultQueue[0]
+    root.resultQueue = root.resultQueue.slice(1)
     resultProc.running = true
   }
 
@@ -236,8 +241,8 @@ Item {
     return MenuModel.normalizeItem(id, raw)
   }
 
-  function parseMenuJsonc(raw) {
-    return MenuModel.parseMenuJsonc(raw)
+  function parseMenuJsonc(raw, partial) {
+    return MenuModel.parseMenuJsonc(raw, partial)
   }
 
   // Merge defaults + user extension. Later entries override earlier ones
@@ -463,10 +468,6 @@ Item {
     return MenuModel.isDescendantOf(root.items, id, ancestorId)
   }
 
-  function childCount(id) {
-    return MenuModel.childCount(root.items, root.itemOrder, id)
-  }
-
   // Guarded items are hidden when their `when:` evaluates false. Static
   // submenus are also hidden when none of their descendants are visible;
   // provider-backed menus stay visible because their rows load on demand.
@@ -585,7 +586,6 @@ Item {
         target: "",
         detail: detail,
         path: "",
-        childCount: 0,
         action: "",
         provider: "",
         score: i,
@@ -779,7 +779,6 @@ Item {
     } else if (row.kind === "app") {
       var appId = row.appId
       var label = row.label
-      applySerial = requestSerial
       opened = false
       filterText = ""
       if (root.appLibrary) root.appLibrary.launch(appId, label)
@@ -815,7 +814,6 @@ Item {
   }
 
   function applyDmenuSelection(value) {
-    applySerial = requestSerial
     opened = false
     filterText = ""
     root.finishRequest(value)
@@ -824,7 +822,6 @@ Item {
   function applySelected(id, action) {
     if (!id) { cancel(); return }
 
-    applySerial = requestSerial
     opened = false
     filterText = ""
     root.runAction(action)
@@ -837,7 +834,7 @@ Item {
   }
 
   function openExistingMenu(initialMenu) {
-    requestSerial += 1
+    if (root.requestActive) root.finishRequest(null)
     mode = "menu"
     requestActive = false
     selectionFile = ""
@@ -861,7 +858,7 @@ Item {
   }
 
   function openDmenu(payload) {
-    requestSerial += 1
+    if (root.requestActive) root.finishRequest(null)
     mode = payload.mode === "input" ? "input" : "select"
     dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
     dmenuOptions = Array.isArray(payload.options) ? payload.options : []
@@ -943,10 +940,7 @@ Item {
 
   Process {
     id: resultProc
-    onExited: {
-      if (root.applySerial === root.requestSerial)
-        root.opened = false
-    }
+    onExited: root.writeNextResult()
   }
 
   PointerMoveGate {
@@ -962,7 +956,7 @@ Item {
   }
 
   // The JSONC sources are watched so live edits to the default file (or the
-  // user extension at ~/.config/omarchy/extensions/omarchy-menu.jsonc) take
+  // user extension at $OMARCHY_CONFIG_HOME/extensions/omarchy-menu.jsonc) take
   // effect without restarting the shell.
   FileView {
     id: defaultMenuFile
@@ -978,7 +972,7 @@ Item {
     path: root.userMenuPath
     watchChanges: true
     printErrors: false
-    onLoaded: { root.userMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
+    onLoaded: { root.userMenuItems = root.parseMenuJsonc(text(), true); root.rebuildItemsFromSources() }
     onLoadFailed: { root.userMenuItems = []; root.rebuildItemsFromSources() }
     onFileChanged: reload()
   }
@@ -1261,7 +1255,6 @@ Item {
               required property string detail
               required property string path
               required property string action
-              required property int childCount
               required property bool disabled
 
               readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
@@ -1276,17 +1269,6 @@ Item {
               radius: root.cornerRadius
               color: row.hasCursor ? root.selectedBackground : "transparent"
               borderSpec: row.hasCursor ? root.selectedBorderSpec : Border.none()
-
-              Rectangle {
-                visible: false
-                width: Style.space(4)
-                height: parent.height - Style.space(18)
-                radius: Math.min(root.cornerRadius, Style.space(4))
-                color: root.selectedBackground
-                anchors.left: parent.left
-                anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
-                anchors.verticalCenter: parent.verticalCenter
-              }
 
               Text {
                 id: iconText
@@ -1362,17 +1344,6 @@ Item {
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
                 spacing: 0
-
-                Text {
-                  textFormat: Text.PlainText
-                  visible: false
-                  text: row.childCount
-                  color: root.foreground
-                  opacity: 0.45
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.verticalCenter: parent.verticalCenter
-                }
 
                 Text {
                   textFormat: Text.PlainText

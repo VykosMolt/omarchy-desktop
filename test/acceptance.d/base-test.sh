@@ -6,7 +6,8 @@ if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
 fi
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-ARTIFACTS="${OMARCHY_ACCEPTANCE_DIR:-/tmp/omarchy-acceptance}"
+ARTIFACTS="${OMARCHY_ACCEPTANCE_DIR:-$HOME/.cache/omarchy-acceptance}"
+source "$ROOT/lib/omarchy-paths.sh"
 
 mkdir -p "$ARTIFACTS"
 
@@ -34,14 +35,15 @@ screenshot() {
 
 screen_contains() {
   local text="$1"
-  local snapshot="/tmp/omarchy-acceptance-ocr-$$.png"
+  local snapshot
+  snapshot=$(mktemp "$ARTIFACTS/ocr.XXXXXX.png") || return 1
 
   if ! timeout 10 grim "$snapshot" 2>/dev/null; then
     rm -f "$snapshot"
     return 1
   fi
-  tesseract "$snapshot" stdout --psm 11 2>/dev/null | grep -Fi -- "$text" >/dev/null
-  local status=$?
+  local status=0
+  tesseract "$snapshot" stdout --psm 11 2>/dev/null | grep -Fi -- "$text" >/dev/null || status=$?
   rm -f "$snapshot"
   return $status
 }
@@ -68,7 +70,9 @@ window_present() {
 }
 
 window_absent() {
-  ! window_present "$1"
+  local clients
+  clients=$(hyprctl -j clients) || return 1
+  jq -e --arg class "$1" '[.[] | select(.class | test($class))] | length == 0' <<<"$clients"
 }
 
 layer_present() {
@@ -76,7 +80,9 @@ layer_present() {
 }
 
 layer_absent() {
-  ! layer_present "$1"
+  local layers
+  layers=$(hyprctl -j layers) || return 1
+  jq -e --arg ns "$1" 'select(type == "object") | [.. | objects | select(.namespace? == $ns)] | length == 0' <<<"$layers"
 }
 
 # A layer can be mapped but parked off the monitor: the bar hides that way so
@@ -84,12 +90,13 @@ layer_absent() {
 # what matters is that the user can actually see it. Layer boxes are local to
 # their monitor and in logical coordinates, so compare them with local bounds
 # derived from the monitor's scaled pixel size.
-layer_on_screen() {
-  local monitors
+visible_layer_count() {
+  local monitors layers
   monitors=$(hyprctl -j monitors) || return 1
+  layers=$(hyprctl -j layers) || return 1
 
-  hyprctl -j layers | jq -e --arg ns "$1" --argjson monitors "$monitors" '
-    to_entries[]
+  jq --arg ns "$1" --argjson monitors "$monitors" '
+    [to_entries[]
     | .key as $name
     | .value as $levels
     | ($monitors[] | select(.name == $name)) as $m
@@ -99,24 +106,14 @@ layer_on_screen() {
     | select(
         .x + .w > 0 and .x < $width and
         .y + .h > 0 and .y < $height
-      )
-  ' >/dev/null
+      )] | length
+  ' <<<"$layers"
 }
 
-# A point on the desktop that no window covers, as "x,y" in logical
-# coordinates, or empty when every part of the screen is covered. Uses the gaps
-# a tiling layout leaves at the screen edge.
-uncovered_point() {
-  hyprctl -j monitors | jq -r --argjson clients "$(hyprctl -j clients)" '
-    .[0] as $m
-    | ($m.width / $m.scale | floor) as $w
-    | ($m.height / $m.scale | floor) as $h
-    | [$clients[] | select(.workspace.id == $m.activeWorkspace.id)] as $on
-    | [range(2; $w; 17) as $x | range(2; $h; 17) as $y
-       | select([$on[] | select($x >= .at[0] and $x < .at[0] + .size[0]
-                              and $y >= .at[1] and $y < .at[1] + .size[1])] | length == 0)
-       | "\($x),\($y)"]
-    | .[0] // ""'
+layer_on_screen() {
+  local count
+  count=$(visible_layer_count "$1") || return 1
+  (( count > 0 ))
 }
 
 # grim a patch and print its mean colour and standard deviation. A surface that
@@ -134,7 +131,9 @@ patch_stats() {
 }
 
 layer_off_screen() {
-  ! layer_on_screen "$1"
+  local count
+  count=$(visible_layer_count "$1") || return 1
+  (( count == 0 ))
 }
 
 # Close every window matching a class regex, by address so multi-window apps

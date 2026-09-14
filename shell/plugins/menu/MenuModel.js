@@ -1,45 +1,93 @@
 function stripJsonc(raw) {
-  return String(raw || "")
-    .replace(/^\s*\/\/[^\n]*(\n|$)/gm, "")
-    .replace(/,(\s*[}\]])/g, "$1")
+  var text = String(raw || "")
+  var clean = ""
+  var quoted = false
+  var escaped = false
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charAt(i)
+    if (quoted) {
+      clean += c
+      if (escaped) escaped = false
+      else if (c === "\\") escaped = true
+      else if (c === '"') quoted = false
+    } else if (c === '"') {
+      quoted = true
+      clean += c
+    } else if (c === "/" && text.charAt(i + 1) === "/") {
+      while (i < text.length && text.charAt(i) !== "\n") i++
+      clean += "\n"
+    } else if (c === "/" && text.charAt(i + 1) === "*") {
+      var end = text.indexOf("*/", i + 2)
+      if (end < 0) return ""
+      clean += " "
+      i = end + 1
+    } else clean += c
+  }
+
+  var out = ""
+  quoted = false
+  escaped = false
+  for (var j = 0; j < clean.length; j++) {
+    var ch = clean.charAt(j)
+    if (quoted) {
+      out += ch
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') quoted = false
+    } else if (ch === '"') {
+      quoted = true
+      out += ch
+    } else if (ch === ",") {
+      var next = j + 1
+      while (/\s/.test(clean.charAt(next)) && next < clean.length) next++
+      if (clean.charAt(next) !== "}" && clean.charAt(next) !== "]") out += ch
+    } else out += ch
+  }
+  return out
 }
 
 function normalizeAliases(value) {
-  if (Array.isArray(value)) return value.filter(function(v) { return v })
+  if (Array.isArray(value)) return value.filter(function(v) { return typeof v === "string" && v.length > 0 })
   if (typeof value === "string" && value) return [value]
   return []
 }
 
-function normalizeItem(id, raw) {
+function normalizeItem(id, raw, partial) {
   var value = raw || {}
   var aliases = normalizeAliases(value.aliases)
-  var parent = value.parent
+  var parent = typeof value.parent === "string" ? value.parent : undefined
   if (parent === undefined)
     parent = id.indexOf(".") >= 0 ? id.split(".").slice(0, -1).join(".") : "root"
   if (id === "root") parent = ""
 
-  var kind = value.action ? "action" : (value.target ? "link" : "menu")
+  var kind = typeof value.action === "string" && value.action ? "action" : (typeof value.target === "string" && value.target ? "link" : "menu")
 
-  return {
+  var normalized = {
     id: id,
     parent: parent,
     kind: kind,
-    icon: value.icon || "",
-    iconFont: value.iconFont || "",
-    label: value.label || id,
-    title: value.title || "",
-    target: value.target || "",
-    description: value.description || "",
-    action: value.action || "",
-    provider: value.provider || "",
+    icon: typeof value.icon === "string" ? value.icon : "",
+    iconFont: typeof value.iconFont === "string" ? value.iconFont : "",
+    label: typeof value.label === "string" ? value.label : id,
+    title: typeof value.title === "string" ? value.title : "",
+    target: typeof value.target === "string" ? value.target : "",
+    description: typeof value.description === "string" ? value.description : "",
+    action: typeof value.action === "string" ? value.action : "",
+    provider: typeof value.provider === "string" ? value.provider : "",
     aliases: aliases,
-    when: value.when || "",
-    checked: value.checked || "",
-    disabled: value.disabled || ""
+    when: typeof value.when === "string" ? value.when : "",
+    checked: typeof value.checked === "string" ? value.checked : "",
+    disabled: typeof value.disabled === "string" ? value.disabled : ""
   }
+  if (!partial) return normalized
+  var supplied = { id: id }
+  for (var key in normalized) {
+    if (key !== "kind" && Object.prototype.hasOwnProperty.call(value, key)) supplied[key] = normalized[key]
+  }
+  return supplied
 }
 
-function parseMenuJsonc(raw) {
+function parseMenuJsonc(raw, partial) {
   var stripped = stripJsonc(raw)
   if (!stripped.trim()) return []
 
@@ -58,13 +106,13 @@ function parseMenuJsonc(raw) {
   for (var id in source) {
     var entry = source[id]
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
-    out.push(normalizeItem(id, entry))
+    out.push(normalizeItem(id, entry, partial))
   }
   return out
 }
 
 function mergeMenuSources(defaultItems, userItems) {
-  var nextItems = ({})
+  var nextItems = Object.create(null)
   var nextOrder = []
   var sources = [defaultItems || [], userItems || []]
 
@@ -79,7 +127,7 @@ function mergeMenuSources(defaultItems, userItems) {
       for (var k in prior) merged[k] = prior[k]
       for (var k2 in entry) merged[k2] = entry[k2]
       merged.id = entry.id
-      nextItems[entry.id] = merged
+      nextItems[entry.id] = normalizeItem(entry.id, merged)
     }
   }
 
@@ -109,7 +157,7 @@ function mergeAppRows(items, itemOrder, appRows) {
   var source = items || ({})
   var order = Array.isArray(itemOrder) ? itemOrder : []
   var rows = Array.isArray(appRows) ? appRows : []
-  var nextItems = ({})
+  var nextItems = Object.create(null)
   var nextOrder = []
 
   for (var i = 0; i < order.length; i++) {
@@ -141,7 +189,7 @@ function swapProviderRows(items, itemOrder, menuId, rows) {
   var source = items || ({})
   var order = Array.isArray(itemOrder) ? itemOrder : []
   var incoming = Array.isArray(rows) ? rows : []
-  var nextItems = ({})
+  var nextItems = Object.create(null)
   var nextOrder = []
 
   for (var i = 0; i < order.length; i++) {
@@ -240,16 +288,6 @@ function isDescendantOf(items, id, ancestorId) {
   }
 
   return false
-}
-
-function childCount(items, itemOrder, id) {
-  var count = 0
-  var order = Array.isArray(itemOrder) ? itemOrder : []
-  for (var i = 0; i < order.length; i++) {
-    var entry = item(items, order[i])
-    if (entry && entry.parent === id) count += 1
-  }
-  return count
 }
 
 function isVisible(items, itemOrder, whenResults, entry, depth) {
@@ -376,7 +414,6 @@ function displayRow(items, itemOrder, checkedResults, disabledResults, entry, de
     target: target,
     detail: detail || "",
     path: pathFor(items, entry.id),
-    childCount: (entry.kind === "menu" || entry.kind === "link") ? childCount(items, itemOrder, target) : 0,
     action: entry.action || "",
     provider: entry.provider || "",
     score: score || 0,
@@ -443,8 +480,9 @@ function substituteGuardReaders(expression) {
 }
 
 function guardLine(id, tag, expression) {
-  return "if { " + substituteGuardReaders(expression) + "; } >/dev/null 2>&1; then echo "
-    + id + ":" + tag + ":1; else echo " + id + ":" + tag + ":0; fi\n"
+  var prefix = "'" + String(id + ":" + tag + ":").replace(/'/g, "'\\''") + "'"
+  return "if { " + substituteGuardReaders(expression) + "; } >/dev/null 2>&1; then printf '%s1\\n' "
+    + prefix + "; else printf '%s0\\n' " + prefix + "; fi\n"
 }
 
 // One bash script for every `when:`, `checked:` and `disabled:` in the menu,
@@ -484,7 +522,6 @@ if (typeof module !== "undefined") {
     pathFor: pathFor,
     parentPathFor: parentPathFor,
     isDescendantOf: isDescendantOf,
-    childCount: childCount,
     isVisible: isVisible,
     isDisabled: isDisabled,
     labelFor: labelFor,

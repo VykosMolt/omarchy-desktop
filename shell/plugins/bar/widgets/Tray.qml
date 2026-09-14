@@ -114,9 +114,12 @@ BarWidget {
   }
 
   function openTrayMenu(item, anchorItem, mouse) {
-    if (!item || !item.menu) {
-      var point = anchorItem.QsWindow.contentItem.mapFromItem(anchorItem, mouse.x, mouse.y)
-      item.display(anchorItem.QsWindow.window, point.x, point.y)
+    if (!item || !anchorItem) return
+    if (!item.menu) {
+      var window = anchorItem.QsWindow.window
+      if (!window) return
+      var point = window.contentItem.mapFromItem(anchorItem, mouse.x, mouse.y)
+      item.display(window, point.x, point.y)
       return
     }
 

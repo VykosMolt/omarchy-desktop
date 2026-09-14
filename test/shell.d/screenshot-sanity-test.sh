@@ -18,6 +18,106 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The capture contract can be checked without a desktop. Only this fully
+# stubbed subprocess clears OMARCHY_NO_UI; live rendering remains opt-in below.
+(
+  fixture=$(mktemp -d)
+  mkdir -p "$fixture/bin" "$fixture/runtime" "$fixture/pictures"
+  export XDG_RUNTIME_DIR="$fixture/runtime" OMARCHY_SCREENSHOT_DIR="$fixture/pictures"
+  export OMARCHY_TEST_CAPTURE_FIXTURE="$fixture" OMARCHY_NO_UI=0 OMARCHY_PATH="$ROOT"
+  export PATH="$fixture/bin:$ROOT/bin:$PATH"
+  source "$ROOT/lib/omarchy-process.sh"
+  cleanup_fixture() {
+    local record
+    for record in "$fixture"/runtime/omarchy-capture-*/freeze.json "$fixture"/unrelated.json; do
+      omarchy_process_control "$record" TERM || true
+    done
+    rm -rf "$fixture"
+  }
+  trap cleanup_fixture EXIT
+
+  cat >"$fixture/bin/hyprctl" <<'SH'
+#!/bin/bash
+case $1 in
+  getoption) printf '{"int":1}\n' ;;
+  monitors) printf '[{"name":"DP-1","focused":true,"activeWorkspace":{"id":1},"width":1920,"height":1080,"scale":1,"x":0,"y":0,"transform":%s}]\n' "${OMARCHY_TEST_TRANSFORM:-0}" ;;
+  clients) printf '[{"workspace":{"id":1},"at":[100,100],"size":[400,300]}]\n' ;;
+  *) exit 0 ;;
+esac
+SH
+  cat >"$fixture/bin/hyprpicker" <<'PYTHON'
+#!/usr/bin/python3
+import time
+while True:
+    time.sleep(1)
+PYTHON
+  cat >"$fixture/bin/slurp" <<'PYTHON'
+#!/usr/bin/python3
+import os, sys, time
+if os.environ.get("OMARCHY_TEST_WAIT") == "1":
+    while True:
+        time.sleep(1)
+else:
+    sys.stdin.read()
+    print("150,150 1x1")
+PYTHON
+  cat >"$fixture/bin/grim" <<'SH'
+#!/bin/bash
+[[ ${OMARCHY_TEST_GRIM_FAIL:-0} == 1 ]] && exit 1
+if [[ ${*: -1} == - ]]; then
+  printf fixture
+else
+  printf fixture >"${*: -1}"
+fi
+SH
+  cat >"$fixture/bin/wl-copy" <<'SH'
+#!/bin/bash
+cat >"$OMARCHY_TEST_CAPTURE_FIXTURE/clipboard"
+SH
+  cat >"$fixture/bin/omarchy-notification-send" <<'SH'
+#!/bin/bash
+exit 0
+SH
+  chmod +x "$fixture/bin"/*
+
+  first=$("$ROOT/bin/omarchy-capture-screenshot" fullscreen save)
+  second=$("$ROOT/bin/omarchy-capture-screenshot" fullscreen save)
+  [[ -s $first && -s $second && $first != "$second" ]] || fail "captures get distinct output paths"
+  if OMARCHY_TEST_GRIM_FAIL=1 "$ROOT/bin/omarchy-capture-screenshot" fullscreen copy; then
+    fail "copy mode propagates capture failure through the clipboard pipe"
+  fi
+  if "$ROOT/bin/omarchy-capture-screenshot" fullscreen invalid; then
+    fail "invalid screenshot processing is refused"
+  fi
+  pass "screenshot filenames, argument validation and pipeline failures are handled headlessly"
+
+  selection=$("$ROOT/bin/omarchy-capture-region" smart)
+  [[ $selection == '100,100 400x300' ]] || fail "a bare click picks the smallest containing window" "$selection"
+  selection=$(OMARCHY_TEST_TRANSFORM=5 "$ROOT/bin/omarchy-capture-region" fullscreen)
+  [[ $selection == '0,0 1080x1920' ]] || fail "flipped portrait monitors swap capture dimensions" "$selection"
+  pass "capture geometry handles tiny window clicks and flipped portrait displays"
+
+  # An independently launched slurp stays alive while our picker is cancelled.
+  OMARCHY_TEST_WAIT=1 slurp </dev/null >/dev/null 2>&1 &
+  unrelated=$!
+  omarchy_process_record "$unrelated" "$fixture/unrelated.json"
+  OMARCHY_TEST_WAIT=1 "$ROOT/bin/omarchy-capture-region" region >"$fixture/selection" &
+  selecting=$!
+  ready=false
+  for _ in {1..50}; do
+    for record in "$fixture"/runtime/omarchy-capture-*/picker.json; do
+      if omarchy_process_control "$record"; then ready=true; break; fi
+    done
+    [[ $ready == true ]] && break
+    sleep 0.05
+  done
+  [[ $ready == true ]] || fail "owned picker registers a process identity"
+  "$ROOT/bin/omarchy-capture-region" --cancel || fail "owned picker can be cancelled"
+  wait "$selecting" && fail "a cancelled selection must not succeed"
+  omarchy_process_control "$fixture/unrelated.json" || fail "cancelling capture signalled an unrelated slurp"
+  pass "picker cancellation signals only its recorded process identity"
+)
+
 require_compositor "screenshot sanity test"
 
 if ! command -v quickshell >/dev/null 2>&1; then

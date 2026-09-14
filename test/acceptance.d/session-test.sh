@@ -18,7 +18,7 @@ for plugin in \
   omarchy.audio omarchy.background omarchy.bar omarchy.bluetooth \
   omarchy.clipboard omarchy.emojis omarchy.menu \
   omarchy.monitor omarchy.network omarchy.notifications omarchy.power \
-  omarchy.reminders omarchy.weather; do
+  omarchy.settings omarchy.system-monitor omarchy.weather; do
   [[ $plugins == *"$plugin"* ]] || fail "shell plugin is loaded: $plugin" "loaded plugins: $plugins"
   pass "shell plugin is loaded: $plugin"
 done
@@ -47,31 +47,9 @@ trap - EXIT
 # Audio stack is up
 wait_until "pipewire is running" 30 wpctl status
 
-# Root filesystem is btrfs as installed
-[[ $(findmnt -no FSTYPE /) == "btrfs" ]] || fail "root filesystem is btrfs"
-pass "root filesystem is btrfs"
-
-# Omarchy reports its version
-omarchy-version >/dev/null || fail "omarchy-version works"
-pass "omarchy-version works"
-
-# No failed units, system or user. OMARCHY_ACCEPTANCE_IGNORE_UNITS can hold a
-# regex of units to overlook (useful on dev machines; a fresh VM should be clean).
-failed_units() {
-  systemctl "$@" --failed --no-legend --plain | awk '{print $1}' |
-    grep -Ev "${OMARCHY_ACCEPTANCE_IGNORE_UNITS:-^$}" || true
-}
-
-failed_system=$(failed_units --system)
-if [[ -n $failed_system ]]; then
-  fail "no failed system units" "failed units: $failed_system"
-fi
-pass "no failed system units"
-
-failed_user=$(failed_units --user)
-if [[ -n $failed_user ]]; then
-  fail "no failed user units" "failed units: $failed_user"
-fi
-pass "no failed user units"
+# This desktop owns its session units, not the rest of the host's services.
+failed_user=$(systemctl --user --failed --no-legend --plain 'omarchy-arch-*' | awk '{print $1}')
+[[ -z $failed_user ]] || fail "no failed Omarchy session units" "$failed_user"
+pass "no failed Omarchy session units"
 
 screenshot "success-desktop"

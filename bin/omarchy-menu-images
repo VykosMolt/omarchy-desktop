@@ -105,7 +105,6 @@ if [[ -n $current_image ]]; then
 fi
 
 cache_dir="$OMARCHY_CACHE_HOME/image-selector"
-index_file="$cache_dir/index.tsv"
 rows=""
 mkdir -p "$cache_dir"
 
@@ -178,12 +177,7 @@ thumbnail_for() {
   local signature hash thumbnail
 
   signature=$(stat -Lc '%s:%Y' "$image") || return
-  hash=$(awk -F '\t' -v path="$image" -v sig="$signature" '$1 == path && $2 == sig { print $3; exit }' "$index_file" 2>/dev/null)
-
-  if [[ -z $hash ]]; then
-    hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
-    printf '%s\t%s\t%s\n' "$image" "$signature" "$hash" >>"$index_file"
-  fi
+  hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
 
   thumbnail="$cache_dir/$hash.jpg"
 

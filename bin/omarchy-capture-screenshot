@@ -6,15 +6,22 @@
 # omarchy:examples=omarchy screenshot | omarchy capture screenshot region
 # omarchy:aliases=omarchy screenshot
 
-[[ -f ~/.config/user-dirs.dirs ]] && source ~/.config/user-dirs.dirs
+set -o pipefail
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+omarchy_require_ui || exit 1
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+user_dirs="${XDG_CONFIG_HOME:-$HOME/.config}/user-dirs.dirs"
+[[ -f $user_dirs ]] && source "$user_dirs"
 OUTPUT_DIR="${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-$HOME/Pictures}}"
 
 if [[ ! -d $OUTPUT_DIR ]]; then
-  mkdir -p "$OUTPUT_DIR"
+  mkdir -p "$OUTPUT_DIR" || exit 1
   omarchy-notification-send "Created screenshot directory: $OUTPUT_DIR" -t 2000
 fi
 
-pkill slurp && exit 0
+omarchy-capture-region --cancel && exit 0
+exec {screenshot_lock_fd}>"$runtime_dir/omarchy-screenshot.lock"
+flock -n "$screenshot_lock_fd" || exit 0
 
 SCREENSHOT_EDITOR="${OMARCHY_SCREENSHOT_EDITOR:-tensaku-edit}"
 
@@ -31,6 +38,8 @@ set -- "${ARGS[@]}"
 
 MODE="${1:-smart}"
 PROCESSING="${2:-slurp}"
+case $MODE in smart | region | windows | fullscreen) ;; *) exit 1 ;; esac
+case $PROCESSING in slurp | copy | save) ;; *) exit 1 ;; esac
 
 # The picker leaves the screen freeze running (PID on its first output line)
 # so grim captures the frozen overlay rather than live content shifting
@@ -39,7 +48,8 @@ PROCESSING="${2:-slurp}"
 # Software-composited cursors (Hyprland's fallback on GPUs without working
 # hardware cursors) are baked into the frames grim captures, so force
 # hardware cursors until after grim runs and restore the setting on exit.
-NO_HW_CURSORS=$(hyprctl getoption cursor:no_hardware_cursors -j | jq '.int')
+NO_HW_CURSORS=$(hyprctl getoption cursor:no_hardware_cursors -j | jq -r '.int // empty')
+[[ $NO_HW_CURSORS =~ ^[0-2]$ ]] || exit 1
 
 set_no_hw_cursors() {
   hyprctl eval "hl.config({ cursor = { no_hardware_cursors = $1 } })" &>/dev/null ||
@@ -47,24 +57,26 @@ set_no_hw_cursors() {
 }
 
 cleanup() {
-  [[ -n $FREEZE_PID ]] && kill $FREEZE_PID 2>/dev/null
+  [[ -n $FREEZE_PID ]] && omarchy-system-signal --signal TERM "$FREEZE_PID" 2>/dev/null
   set_no_hw_cursors "$NO_HW_CURSORS"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 set_no_hw_cursors 0
-{ read -r FREEZE_PID; read -r SELECTION; } < <(omarchy-capture-region "$MODE" --keep-freeze)
+{ read -r FREEZE_PID; read -r SELECTION; } < <(omarchy-capture-region "$MODE" --keep-freeze {screenshot_lock_fd}>&-)
 
 [[ -z $SELECTION ]] && exit 0
 
-FILENAME="screenshot-$(date +'%Y-%m-%d_%H-%M-%S').png"
+FILENAME="screenshot-$(date +'%Y-%m-%d_%H-%M-%S_%N').png"
 FILEPATH="$OUTPUT_DIR/$FILENAME"
 
 case "$PROCESSING" in
   slurp)
     grim -g "$SELECTION" "$FILEPATH" || exit 1
     echo "$FILEPATH"
-    wl-copy --type image/png <"$FILEPATH"
+    wl-copy --type image/png <"$FILEPATH" || exit 1
 
     # Best-effort: the screenshot is already saved and on the clipboard, so a
     # notification outage must not report the capture itself as failed.

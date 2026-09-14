@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 ShellRoot {
   id: root
@@ -7,6 +8,7 @@ ShellRoot {
   property string resultPath: Quickshell.env("OMARCHY_QML_TEST_RESULT")
   property var failures: []
   property var commands: []
+  Item { id: visualHost }
 
   function fail(message) {
     failures.push(String(message))
@@ -74,7 +76,7 @@ ShellRoot {
       return null
     }
 
-    var item = component.createObject(root, {
+    var item = component.createObject(visualHost, {
       indicatorHost: indicatorHost,
       indicatorBlock: "inactive",
       activeOverride: null
@@ -109,7 +111,7 @@ ShellRoot {
     })
 
     if (resultPath) {
-      Quickshell.execDetached(["bash", "-lc", "printf '%s' " + shellQuote(payload) + " > " + shellQuote(resultPath)])
+      resultFile.setText(payload)
     }
   }
 
@@ -123,7 +125,7 @@ ShellRoot {
       return
     }
 
-    var tray = component.createObject(root, {
+    var tray = component.createObject(visualHost, {
       bar: mockBar,
       settings: { items: ["StayAwake"] }
     })
@@ -150,9 +152,7 @@ ShellRoot {
     })
   }
 
-  function shellQuote(value) {
-    return "'" + String(value).replace(/'/g, "'\\''") + "'"
-  }
+  FileView { id: resultFile; path: root.resultPath; printErrors: false; atomicWrites: true }
 
   readonly property string rootPath: Quickshell.env("OMARCHY_PATH")
 
@@ -178,7 +178,14 @@ ShellRoot {
         root.assertTrue(root.commandCount("omarchy-capture-screenrecording") === 1, "Screen Recording left click starts a recording when idle")
         screenRecording.recording = true
         screenRecording.triggerPress(Qt.LeftButton)
-        root.assertTrue(root.commandCount("omarchy-capture-screenrecording --stop-recording") === 1, "Screen Recording left click stops active recording")
+        root.assertTrue(root.commandCount("omarchy-capture-screenrecording --stop-recording") === 0, "a hidden indicator ignores forwarded clicks")
+        screenRecording.indicatorBlock = "active"
+        screenRecording.enabled = false
+        screenRecording.triggerPress(Qt.LeftButton)
+        root.assertTrue(root.commandCount("omarchy-capture-screenrecording --stop-recording") === 0, "a disabled indicator ignores forwarded clicks")
+        screenRecording.enabled = true
+        screenRecording.triggerPress(Qt.LeftButton)
+        root.assertTrue(root.commandCount("omarchy-capture-screenrecording --stop-recording") === 1, "Screen Recording left click stops active recording " + JSON.stringify({ visible: screenRecording.visible, enabled: screenRecording.enabled, active: screenRecording.active, block: screenRecording.indicatorBlock, interactive: screenRecording.interactive, concealed: screenRecording.concealed, effective: screenRecording.effectiveActive, pressable: screenRecording.pressable }))
       }
 
       var stayAwake = root.createIndicator("StayAwake")

@@ -4,6 +4,9 @@
 # omarchy:args=[--no-osd] [--monitor name] [+N%|N%-|N%|off|on]
 # omarchy:examples=omarchy brightness display | omarchy brightness display +5% | omarchy brightness display --monitor DP-1 50% | omarchy brightness display off | omarchy brightness display on
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+
 no_osd=0
 monitor=""
 
@@ -73,7 +76,7 @@ fi
 
 # Drop overlapping brightness key events so concurrent invocations do not race.
 # Hardware key repeat present on some devices can otherwise glitch OSD rendering.
-exec {lock_fd}>"${XDG_RUNTIME_DIR:-/tmp}/omarchy-brightness-display.lock"
+exec {lock_fd}>"$runtime_dir/omarchy-brightness-display.lock"
 flock -n "$lock_fd" || exit 0
 
 if use_apple_display; then

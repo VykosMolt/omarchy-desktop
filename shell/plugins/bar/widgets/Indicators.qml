@@ -290,6 +290,7 @@ BarWidget {
       id: blockLoader
 
       anchors.centerIn: parent
+      active: activeIndicatorBlockRoot.reportActiveState
       sourceComponent: activeIndicatorBlockRoot.horizontal ? horizontalActiveIndicatorBlock : verticalActiveIndicatorBlock
     }
 
@@ -352,6 +353,7 @@ BarWidget {
       id: blockLoader
 
       anchors.centerIn: parent
+      active: indicatorBlockRoot.reportActiveState
       sourceComponent: indicatorBlockRoot.horizontal ? horizontalIndicatorBlock : verticalIndicatorBlock
     }
 

@@ -170,6 +170,10 @@ assertEqual(
 )
 assertEqual(calendar.isoWeekLiteral(2026, 0, 5), '02', 'clock zero-pads the ISO week token')
 
+assertEqual(calendar.clockWeekFormat("'www' ww", '02'), "'www' 02", 'clock week expansion leaves quoted literal text intact')
+assertEqual(calendar.clockWeekFormat("''ww 'W'ww", '02'), "''02 'W'02", 'clock week expansion respects escaped apostrophes')
+assertEqual(calendar.clockWeekFormat("HH:mm 'ww", '02'), "HH:mm 'ww", 'clock week expansion leaves an unterminated literal intact')
+
 // ---- seconds detection, which decides how often the widget's clock ticks
 assert(calendar.clockNeedsSeconds('dddd HH:mm:ss'), 'clock sees seconds in the live preset')
 assert(calendar.clockNeedsSeconds('h:mm:ss AP'), 'clock sees seconds in an AM/PM format')

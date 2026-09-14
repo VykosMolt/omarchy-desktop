@@ -24,6 +24,7 @@ state_lua="$state_dir/touchpad-disabled.lua"
 cat >"$stub_dir/hyprctl" <<'EOF'
 #!/bin/bash
 case $1 in
+  devices) printf '%s\n' '{"touch":[{"name":"wacom-hid-52eb-finger"}]}' ;;
   eval) printf '%s\n' "$2" >>"$HYPRCTL_LOG" ;;
   reload) printf 'reload\n' >>"$HYPRCTL_LOG" ;;
 esac
@@ -88,7 +89,7 @@ run_toggle touchpad
 pass "default toggle action flips the persisted state"
 
 : >"$log_file"
-stub_device touchscreen 'wacom-hid-52eb-finger'
+# Touchscreens come from hyprctl; no omarchy-hw-touchscreen helper ships.
 ts_name_file="$state_dir/touchscreen-disabled-name"
 
 run_toggle touchscreen off

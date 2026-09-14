@@ -1,6 +1,4 @@
 local paths = require("default.hypr.paths")
-local require_optional = require("default.hypr.require_optional")
-
 
 -- Cursor size, unless the session already set one. The host's cursor size is
 -- the user's choice and lives in gtk settings.ini and the environment; a

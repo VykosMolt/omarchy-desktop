@@ -73,9 +73,6 @@ Panel {
     return Model.isAudioSource(node)
   }
 
-  property var cachedAudioSinks: []
-  property var cachedAudioSources: []
-
   readonly property var rawAudioSinks: {
     var list = []
     for (var i = 0; i < candidateSinks.length; i++)
@@ -90,8 +87,8 @@ Panel {
     return list
   }
 
-  readonly property var audioSinks: rawAudioSinks.length > 0 ? rawAudioSinks : cachedAudioSinks
-  readonly property var audioSources: rawAudioSources.length > 0 ? rawAudioSources : cachedAudioSources
+  readonly property var audioSinks: rawAudioSinks
+  readonly property var audioSources: rawAudioSources
 
   readonly property var audioStreams: {
     var list = []
@@ -105,6 +102,8 @@ Panel {
   // removal signal; rebuilding a Repeater from that signal path has crashed
   // in Quickshell's PipeWire service. The snapshot timer lets that mutation
   // settle first, and closed panels keep their repeaters detached entirely.
+  // Store primitive IDs only: a removed node must never outlive PipeWire in
+  // a JavaScript snapshot. Delegates resolve against the current live model.
   property var displayAudioSinks: []
   property var displayAudioSources: []
   property var displayAudioStreams: []
@@ -156,8 +155,6 @@ Panel {
   readonly property real inputVolume: source && source.audio ? source.audio.volume : 0
   readonly property bool inputMuted: source && source.audio ? source.audio.muted : false
 
-  onRawAudioSinksChanged: if (rawAudioSinks.length > 0) cachedAudioSinks = rawAudioSinks
-  onRawAudioSourcesChanged: if (rawAudioSources.length > 0) cachedAudioSources = rawAudioSources
 
   // Single cursor model shared by keyboard and mouse. Sections:
   //   "output"  — output slider + sink device list
@@ -293,7 +290,7 @@ Panel {
       return
     }
     if (focusSection === "streams" && selectedIndex >= 0 && selectedIndex < displayAudioStreams.length) {
-      var s = displayAudioStreams[selectedIndex]
+      var s = nodeForId(displayAudioStreams[selectedIndex])
       if (s && s.audio) s.audio.volume = Model.clampVolume(s.audio.volume + delta, maximumVolume)
     }
   }
@@ -303,18 +300,18 @@ Panel {
     if (focusSection === "header") { toggleAllMuted(); return }
     if (focusSection === "output") {
       if (selectedIndex === -1) { toggleOutputMute(); return }
-      var sink = displayAudioSinks[selectedIndex]
+      var sink = nodeForId(displayAudioSinks[selectedIndex])
       if (sink) setDefaultSink(sink)
       return
     }
     if (focusSection === "input") {
       if (selectedIndex === -1) { toggleInputMute(); return }
-      var src = displayAudioSources[selectedIndex]
+      var src = nodeForId(displayAudioSources[selectedIndex])
       if (src) setDefaultSource(src)
       return
     }
     if (focusSection === "streams" && selectedIndex >= 0) {
-      var st = displayAudioStreams[selectedIndex]
+      var st = nodeForId(displayAudioStreams[selectedIndex])
       if (st && st.audio) st.audio.muted = !st.audio.muted
       return
     }
@@ -338,15 +335,22 @@ Panel {
   onAudioSourcesChanged: scheduleDisplayAudioModelRefresh()
   onAudioStreamsChanged: scheduleDisplayAudioModelRefresh()
 
-  function listSnapshot(list) {
-    return Model.listSnapshot(list)
+  function nodeIds(list) {
+    return list.map(function(node) { return node.id })
+  }
+
+  function nodeForId(id) {
+    var live = root.nodes
+    for (var i = 0; i < live.length; i++)
+      if (live[i] && live[i].id === id) return live[i]
+    return null
   }
 
   function refreshDisplayAudioModels() {
     if (!opened) return
-    displayAudioSinks = listSnapshot(audioSinks)
-    displayAudioSources = listSnapshot(audioSources)
-    displayAudioStreams = listSnapshot(audioStreams)
+    displayAudioSinks = nodeIds(audioSinks)
+    displayAudioSources = nodeIds(audioSources)
+    displayAudioStreams = nodeIds(audioStreams)
     clampCursor()
   }
 
@@ -595,15 +599,15 @@ Panel {
     // Spotify exposes its PipeWire stream as "audio-src". For generic stream
     // names, use the one MPRIS player not already represented by another audio
     // stream (e.g. Chromium, or ALSA apps like cliamp).
-    return Model.unmatchedMprisStreamLabel(label, mprisPlayers, displayAudioStreams)
+    return Model.unmatchedMprisStreamLabel(label, mprisPlayers, audioStreams)
   }
 
   function streamLabel(node) {
-    return Model.streamLabel(node, mprisPlayers, displayAudioStreams)
+    return Model.streamLabel(node, mprisPlayers, audioStreams)
   }
 
   function streamRepresentsPlayer(node, player) {
-    return Model.streamRepresentsPlayer(node, player, mprisPlayers, displayAudioStreams)
+    return Model.streamRepresentsPlayer(node, player, mprisPlayers, audioStreams)
   }
 
   implicitWidth: button.implicitWidth
@@ -711,7 +715,7 @@ Panel {
           if (!root.cursorActive) return
           if (root.focusSection === "streams" && root.selectedIndex >= 0
               && root.selectedIndex < root.displayAudioStreams.length) {
-            var s = root.displayAudioStreams[root.selectedIndex]
+            var s = root.nodeForId(root.displayAudioStreams[root.selectedIndex])
             if (s && s.audio) s.audio.muted = !s.audio.muted
           } else if (root.focusSection === "input") {
             root.toggleInputMute()
@@ -896,7 +900,7 @@ Panel {
                 required property var modelData
                 required property int index
                 width: panelColumn.width
-                node: modelData
+                node: root.nodeForId(modelData)
                 rowIndex: index
               }
             }
@@ -1004,7 +1008,7 @@ Panel {
                 required property var modelData
                 required property int index
                 width: panelColumn.width
-                node: modelData
+                node: root.nodeForId(modelData)
                 rowIndex: index
               }
             }
@@ -1034,7 +1038,7 @@ Panel {
                 required property var modelData
                 required property int index
                 width: panelColumn.width
-                node: modelData
+                node: root.nodeForId(modelData)
                 rowIndex: index
               }
             }

@@ -36,7 +36,11 @@ export OMARCHY_PATH="$ROOT"
 # sets its own HOME still gets roots under it.
 CLI_TEST_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-cli-test.XXXXXX")
 export HOME="$CLI_TEST_SANDBOX/home"
-mkdir -p "$HOME"
+mkdir -p "$HOME" "$CLI_TEST_SANDBOX/runtime"
+chmod 700 "$CLI_TEST_SANDBOX/runtime"
+export XDG_RUNTIME_DIR="$CLI_TEST_SANDBOX/runtime"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/unavailable-bus"
+unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE DISPLAY
 
 # Assigns a fresh temporary directory to the named variable and registers it for
 # removal on exit, so every scratch directory this suite makes is cleaned up.
@@ -223,7 +227,7 @@ if grep -qE '^  arch( |$)' <<<"$output"; then
 fi
 pass "a group whose commands are all hidden stays out of the top-level listing"
 
-for internal in omarchy-arch-session omarchy-apply-lock; do
+for internal in omarchy-arch-session; do
   if "$CLI" commands --json | jq -e --arg binary "$internal" \
     '.commands[] | select(.binary == $binary)' >/dev/null; then
     fail "$internal stays out of the default command listing"
@@ -235,8 +239,10 @@ for internal in omarchy-arch-session omarchy-apply-lock; do
 done
 pass "session plumbing is hidden from the command listing"
 
-output=$(timeout 5 "$CLI" apply lock --help)
-assert_output_contains "hidden session plumbing still routes" "$output" "omarchy-apply-lock"
+if "$CLI" commands --all --json | jq -e '.commands[] | select(.binary == "omarchy-apply-lock")' >/dev/null; then
+  fail "PAM provisioning is not part of the session"
+fi
+pass "PAM provisioning is not part of the session"
 
 output=$("$CLI" screenshot --help)
 assert_output_contains "root alias resolves to command help" "$output" "omarchy-capture-screenshot"
@@ -427,13 +433,20 @@ LEGACY_THEME_HOME="$PI_TMPDIR/legacy-theme-home"
 LEGACY_NEXT_THEME="$LEGACY_THEME_HOME/.local/state/omarchy/current/next-theme"
 mkdir -p "$LEGACY_NEXT_THEME"
 cp "$LEGACY_COLORS_FILE" "$LEGACY_NEXT_THEME/colors.toml"
+mkdir -p "$LEGACY_THEME_HOME/.config/omarchy/themed"
+cat >"$LEGACY_THEME_HOME/.config/omarchy/themed/legacy-palette.txt.tpl" <<'EOF'
+dark_bg = "{{ dark_bg }}"
+lighter_bg = "{{ lighter_bg }}"
+dark_fg = "{{ dark_fg }}"
+bright_fg = "{{ bright_fg }}"
+EOF
 OMARCHY_PATH="$ROOT" HOME="$LEGACY_THEME_HOME" "$ROOT/bin/omarchy-theme-set-templates"
 grep -qx 'background #101010' "$LEGACY_NEXT_THEME/kitty.conf" || fail "legacy theme generates terminal background"
 grep -qx 'foreground #f0f0f0' "$LEGACY_NEXT_THEME/kitty.conf" || fail "legacy theme generates terminal foreground"
-grep -Fq 'dark_bg = "#111111"' "$LEGACY_NEXT_THEME/neovim.lua" || fail "legacy theme preserves dark_bg in generated editor theme"
-grep -Fq 'lighter_bg = "#131313"' "$LEGACY_NEXT_THEME/neovim.lua" || fail "legacy theme preserves lighter_bg in generated editor theme"
-grep -Fq 'dark_fg = "#d0d0d0"' "$LEGACY_NEXT_THEME/neovim.lua" || fail "legacy theme preserves dark_fg in generated editor theme"
-grep -Fq 'bright_fg = "#ffffff"' "$LEGACY_NEXT_THEME/neovim.lua" || fail "legacy theme preserves bright_fg in generated editor theme"
+grep -Fq 'dark_bg = "#111111"' "$LEGACY_NEXT_THEME/legacy-palette.txt" || fail "legacy theme preserves dark_bg in generated editor theme"
+grep -Fq 'lighter_bg = "#131313"' "$LEGACY_NEXT_THEME/legacy-palette.txt" || fail "legacy theme preserves lighter_bg in generated editor theme"
+grep -Fq 'dark_fg = "#d0d0d0"' "$LEGACY_NEXT_THEME/legacy-palette.txt" || fail "legacy theme preserves dark_fg in generated editor theme"
+grep -Fq 'bright_fg = "#ffffff"' "$LEGACY_NEXT_THEME/legacy-palette.txt" || fail "legacy theme preserves bright_fg in generated editor theme"
 if rg -q '\{\{[^}]+\}\}' "$LEGACY_NEXT_THEME"; then
   fail "legacy theme renders every template placeholder"
 fi
@@ -472,14 +485,30 @@ awk '
 ' "$NEXT_THEME/shell.toml" || fail "theme shell section override is merged"
 pass "theme shell section override is merged"
 
+# The themes ship no wallpapers of their own, so a theme switch has nothing of
+# its own to point the background at and must still stage the rest of the theme
+# rather than failing partway through.
 make_tmpdir THEME_TMPDIR
 OMARCHY_PATH="$ROOT" HOME="$THEME_TMPDIR" OMARCHY_THEME_HEADLESS=1 "$ROOT/bin/omarchy-theme-set" "Tokyo Night"
-background_path=$(readlink -f "$THEME_TMPDIR/.local/state/omarchy/current/background" 2>/dev/null || true)
-expected_background="$THEME_TMPDIR/.local/state/omarchy/current/theme/backgrounds/0-winding-road.webp"
-[[ $background_path == "$expected_background" ]] || fail "headless theme set creates current background symlink"
-[[ -f $background_path ]] || fail "headless theme background target exists"
+[[ ! -e $THEME_TMPDIR/.local/state/omarchy/current/background ]] ||
+  fail "headless theme set invents no background when nothing supplies one"
+[[ -f $THEME_TMPDIR/.local/state/omarchy/current/theme/colors.toml ]] ||
+  fail "headless theme set still stages the theme itself"
 [[ ! -e $THEME_TMPDIR/.config/omarchy/current ]] || fail "headless theme set avoids config current state"
-pass "headless theme set creates current background symlink"
+pass "headless theme set stages a theme that ships no backgrounds"
+
+# With a background available the link is still made, so the selection path
+# itself stays covered now that the backgrounds come from the user's folders.
+make_tmpdir THEME_BG_TMPDIR
+user_backgrounds="$THEME_BG_TMPDIR/.config/omarchy/backgrounds/tokyo-night"
+mkdir -p "$user_backgrounds"
+printf 'not really an image\n' >"$user_backgrounds/wall.png"
+OMARCHY_PATH="$ROOT" HOME="$THEME_BG_TMPDIR" OMARCHY_THEME_HEADLESS=1 "$ROOT/bin/omarchy-theme-set" "Tokyo Night"
+background_path=$(readlink -f "$THEME_BG_TMPDIR/.local/state/omarchy/current/background" 2>/dev/null || true)
+[[ $background_path == "$user_backgrounds/wall.png" ]] ||
+  fail "headless theme set links a background the user supplied" "got: $background_path"
+[[ -f $background_path ]] || fail "headless theme background target exists"
+pass "headless theme set links a background the user supplied"
 
 cp "$NEXT_THEME/colors.toml" "$CURRENT_THEME/colors.toml"
 

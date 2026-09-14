@@ -61,6 +61,7 @@ BarWidget {
         anchors.verticalCenter: parent.verticalCenter
 
         property bool needsScroll: implicitWidth > scrollClip.width
+        onNeedsScrollChanged: if (!needsScroll) x = 0
 
         NumberAnimation on x {
           id: scrollAnim

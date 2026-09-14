@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # In-guest acceptance suite. Runs inside a live Omarchy session (typically a
-# VM installed by omarchy-iso-test, reached over SSH) and verifies that the
+# dedicated VM, reached over SSH) and verifies that the
 # desktop actually works: session health, application launches, and shell
 # surfaces (launcher, emoji picker, menu).
 #
@@ -12,7 +12,18 @@ set -euo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 TEST_DIR="$ROOT/test/acceptance.d"
 
-export OMARCHY_ACCEPTANCE_DIR="${OMARCHY_ACCEPTANCE_DIR:-/tmp/omarchy-acceptance}"
+# Import this desktop's isolated roots before running any stateful check.
+if [[ -r $HOME/omarchy-arch-port/runtime/env.sh ]]; then
+  source "$HOME/omarchy-arch-port/runtime/env.sh"
+fi
+[[ ${OMARCHY_ARCH_SESSION:-0} == 1 ]] || {
+  echo "Run acceptance inside an isolated Omarchy Arch session." >&2
+  exit 1
+}
+source "$ROOT/lib/omarchy-paths.sh"
+omarchy_require_ui || exit 1
+
+export OMARCHY_ACCEPTANCE_DIR="${OMARCHY_ACCEPTANCE_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/omarchy-acceptance.XXXXXX")}"
 mkdir -p "$OMARCHY_ACCEPTANCE_DIR"
 
 # Discover the graphical session so the suite works over SSH, where none of
@@ -39,11 +50,29 @@ wait_for_session() {
   local signature
 
   while true; do
-    signature=$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)
+    # Match the configured compositor, including over SSH. The newest socket
+    # can belong to the account's other desktop session.
+    signature=$(timeout 3 hyprctl -j instances 2>/dev/null | python3 -c '
+import json, os, sys
+expected = os.path.realpath(sys.argv[1])
+matches = []
+for instance in json.load(sys.stdin):
+    try:
+        with open("/proc/%d/cmdline" % instance["pid"], "rb") as source:
+            args = [os.fsdecode(arg) for arg in source.read().split(b"\0") if arg]
+        for index, arg in enumerate(args[:-1]):
+            if arg in ("--config", "-c") and os.path.realpath(args[index + 1]) == expected:
+                matches.append(instance["instance"])
+                break
+    except (OSError, KeyError, TypeError, ValueError):
+        continue
+if len(matches) == 1:
+    print(matches[0])
+' "$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua" || true)
 
     if [[ -n $signature ]]; then
       export HYPRLAND_INSTANCE_SIGNATURE="$signature"
-      hyprctl -j monitors >/dev/null 2>&1 && return 0
+      timeout 3 hyprctl -j monitors >/dev/null 2>&1 && return 0
     fi
 
     if ((SECONDS >= boot_deadline)); then
@@ -59,8 +88,9 @@ wait_for_session
 printf 'ok - Hyprland session is up (signature %s)\n' "$HYPRLAND_INSTANCE_SIGNATURE"
 
 if [[ -z ${WAYLAND_DISPLAY:-} ]]; then
-  display=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name "wayland-*" ! -name "*.lock" -printf '%f\n' 2>/dev/null | head -1)
-  export WAYLAND_DISPLAY="${display:-wayland-1}"
+  display=$(timeout 3 hyprctl -j instances | jq -r --arg instance "$HYPRLAND_INSTANCE_SIGNATURE" '.[] | select(.instance == $instance) | .wl_socket')
+  [[ -n $display && $display != null ]] || { echo "No Wayland display for the isolated session." >&2; exit 1; }
+  export WAYLAND_DISPLAY="$display"
 fi
 
 shopt -s nullglob

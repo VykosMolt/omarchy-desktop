@@ -347,7 +347,7 @@ assert(
   'a write is followed by a re-read rather than by an assumption that it took'
 )
 assert(
-  /root\.setError\(rowId, Model\.commandError\(writeProcess\.command/.test(panelSource),
+  /root\.setError\(rowId \+ "\.write", Model\.commandError\(writeProcess\.command/.test(panelSource),
   'a failed write puts the command failure on the row instead of swallowing it'
 )
 assert(
@@ -358,6 +358,23 @@ assert(
   /readonly property var shellConfig: root\.shell && root\.shell\.shellConfig/.test(panelSource),
   'shell-owned values are read from the live shell config, never from a private copy'
 )
+
+// Exercise error persistence through the mandatory read after a failed write.
+const vm = require('vm')
+const state = { errors: {}, writeRow: 'appearance.font', writeProcess: { code: 1, command: ['omarchy-font-set', 'bad'], errorText: 'font unavailable' }, Model: settings, refreshRow: () => {}, pumpWrites: () => {}, Qt: { callLater: () => {} } }
+state.root = state
+vm.createContext(state)
+for (const name of ['errorFor', 'setError', 'clearError', 'finishRead', 'finishWrite']) {
+  const fn = panelSource.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))
+  vm.runInContext(fn[0], state)
+}
+state.finishWrite()
+state.finishRead({ rowId: 'appearance.font', code: 0, outputText: 'previous font', apply: () => {} })
+assert(state.errorFor('appearance.font').includes('font unavailable'), 'successful reread cannot erase a failed write error')
+state.writeRow = 'appearance.font'
+state.writeProcess.code = 0
+state.finishWrite()
+assertEqual(state.errorFor('appearance.font'), '', 'a successful retry clears the write error')
 
 // ------------------------------------------------------------------ the menu
 
@@ -407,3 +424,90 @@ if rg -q 'omarchy\.settings' "$ROOT/config/hypr" "$ROOT/default/hypr"; then
   fail "the settings panel takes no keybinding"
 fi
 pass "the settings panel takes no keybinding"
+
+# The font setting updates XML as data and preserves unrelated rules/settings.
+(
+  fixture=$(mktemp -d)
+  trap 'rm -rf "$fixture"' EXIT
+  mkdir -p "$fixture/bin" "$fixture/config/fontconfig" "$fixture/config/kitty"
+  cat >"$fixture/bin/fc-list" <<'STUB'
+#!/bin/bash
+printf '%s\n' 'Fixture & <Mono>,Fixture Mono Alias'
+STUB
+  for command in omarchy-restart-terminal omarchy-restart-shell omarchy-hook; do
+    printf '#!/bin/bash\nexit 0\n' >"$fixture/bin/$command"
+  done
+  chmod +x "$fixture/bin"/*
+  export PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config"
+  unset KITTY_CONFIG_DIRECTORY
+  config="$XDG_CONFIG_HOME/fontconfig/fonts.conf"
+  cat >"$config" <<'XML'
+<?xml version="1.0"?>
+<fontconfig>
+  <!-- Keep this preference. -->
+  <match target="font"><edit name="hintstyle"><const>hintslight</const></edit></match>
+  <match target="pattern"><test name="family" compare="not_eq"><string>monospace</string></test><edit name="family" mode="prepend_first"><string>Unrelated Family</string></edit></match>
+</fontconfig>
+XML
+  printf 'font_size 14\nfont_family Old Font\nmap ctrl+f show_scrollback\n' >"$fixture/kitty.conf"
+  ln -s "$fixture/kitty.conf" "$XDG_CONFIG_HOME/kitty/kitty.conf"
+  "$ROOT/bin/omarchy-font-set" 'Fixture & <Mono>'
+  CONFIG="$config" KITTY="$fixture/kitty.conf" python3 - <<'PYTHON'
+import os
+import xml.etree.ElementTree as ET
+from pathlib import Path
+path = Path(os.environ["CONFIG"])
+assert "Keep this preference." in path.read_text()
+root = ET.parse(path).getroot()
+assert root.find("match[@target='font']/edit/const").text == "hintslight"
+assert root.find("match/test[@compare='not_eq']/../edit/string").text == "Unrelated Family"
+rules = [m for m in root.findall("match") if m.findtext("test/string") == "monospace" and m.find("test").get("compare", "eq") == "eq"]
+assert len(rules) == 1
+assert rules[0].findtext("edit/string") == "Fixture & <Mono>"
+assert Path(os.environ["KITTY"]).read_text() == "font_size 14\nfont_family Fixture & <Mono>\nmap ctrl+f show_scrollback\n"
+PYTHON
+  [[ -L $XDG_CONFIG_HOME/kitty/kitty.conf ]] || fail "font changes preserve kitty config symlinks"
+  "$ROOT/bin/omarchy-font-set" 'Fixture Mono Alias'
+  [[ $(rg -o '<test name="family" qual="any">' "$config" | wc -l) == 1 ]] ||
+    fail "repeated font changes reuse the monospace preference"
+  printf '<fontconfig><broken>' >"$config"
+  cp "$config" "$fixture/before-fontconfig"
+  cp "$fixture/kitty.conf" "$fixture/before-kitty"
+  if "$ROOT/bin/omarchy-font-set" 'Fixture & <Mono>' 2>/dev/null; then
+    fail "invalid fontconfig XML is rejected"
+  fi
+  cmp -s "$config" "$fixture/before-fontconfig" || fail "invalid XML is not overwritten"
+  cmp -s "$fixture/kitty.conf" "$fixture/before-kitty" || fail "invalid XML does not partially change kitty"
+  pass "font changes preserve unrelated XML, terminal settings and symlinks, and reject malformed config"
+)
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/panels/settings/Panel.qml', 'utf8')
+const block = source.slice(source.indexOf('  component Reader: Process {'), source.indexOf('\n  Reader {'))
+const reads = []
+const deferred = []
+const reader = { running: false, pendingResult: true, startConfirmed: false, rerun: false, resultExited: false, outDone: false, errDone: false, root: { finishRead: value => reads.push(value.code) }, Qt: { callLater: fn => deferred.push(fn) } }
+reader.reader = reader
+vm.createContext(reader)
+for (const name of ['request', 'pump', 'settle']) vm.runInContext(block.match(new RegExp('    function ' + name + '\\([^]*?\\n    }'))[0], reader)
+const recovery = block.match(/onRunningChanged: if \(!running\) Qt\.callLater\((function\(\) \{[^]*?\n    \})\)/)
+vm.runInContext('recover = ' + recovery[1], reader)
+reader.recover()
+assertDeepEqual(reads, [127], 'a settings reader reports failed startup without waiting for absent collector signals')
+assertEqual(reader.pendingResult, false, 'failed reader startup releases its completion gate')
+reader.pendingResult = true
+reader.startConfirmed = true
+reader.resultExited = true
+reader.outDone = reader.errDone = false
+reader.rerun = true
+reader.settle()
+reader.pump()
+assertEqual(reader.running, false, 'a settings reread waits for predecessor collectors after exit')
+reader.outDone = reader.errDone = true
+reader.settle()
+deferred.splice(0).forEach(fn => fn())
+assertEqual(reader.running, true, 'a superseding settings read starts after the old result fully drains')
+assertDeepEqual(reads, [127], 'a superseded result is never published')
+JS

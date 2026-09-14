@@ -138,7 +138,7 @@ if [[ $shell_output == "true" ]]; then
   printf 'size\t%s\n' "${capacity}Wh"
   printf 'time\t%s\n' "$time_remaining"
 
-  cycles=$(cat "$power_supply_path"/BAT*/cycle_count 2>/dev/null | head -1)
+  cycles=$(read_first_battery_file cycle_count)
 
   [[ -n $cycles ]] && printf 'cycles\t%s\n' "$cycles"
 

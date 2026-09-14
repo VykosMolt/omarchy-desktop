@@ -5,6 +5,8 @@
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
+set -e
+
 TEMPLATES_DIR="$OMARCHY_PATH/default/themed"
 USER_TEMPLATES_DIR="$OMARCHY_CONFIG_HOME/themed"
 NEXT_THEME_DIR="$OMARCHY_STATE_HOME/current/next-theme"
@@ -192,6 +194,7 @@ shell_gradient_value() {
   done
 
   [[ -n $GRADIENT_ANGLE ]] && printf " %sdeg" "$GRADIENT_ANGLE"
+  return 0
 }
 
 add_template_value() {
@@ -219,7 +222,7 @@ add_mix_value() {
   start="${THEME_COLORS[$start_key]:-}"
   end="${THEME_COLORS[$end_key]:-}"
 
-  [[ $start =~ ^#[0-9A-Fa-f]{6}$ && $end =~ ^#[0-9A-Fa-f]{6}$ ]] || return
+  [[ $start =~ ^#[0-9A-Fa-f]{6}$ && $end =~ ^#[0-9A-Fa-f]{6}$ ]] || return 0
 
   value=$(mix_color "$start" "$end" "$amount")
 
@@ -297,10 +300,8 @@ strip_shell_section_header() {
   local file="$2"
 
   awk -v section="$section" '
-    BEGIN { skipping_header = 0 }
     /^[[:space:]]*\[[^]]+\][[:space:]]*($|#)/ {
       if ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*($|#)") {
-        skipping_header = 1
         next
       }
     }
@@ -312,13 +313,13 @@ apply_shell_section_override() {
   local override="$1"
   local section tmp body
 
-  [[ -f $NEXT_THEME_DIR/shell.toml ]] || return
-  [[ -f $override ]] || return
+  [[ -f $NEXT_THEME_DIR/shell.toml ]] || return 0
+  [[ -f $override ]] || return 0
 
   section=$(basename "$override")
   section="${section#shell.}"
   section="${section%.toml}"
-  [[ $section =~ ^[A-Za-z0-9_-]+$ ]] || return
+  [[ $section =~ ^[A-Za-z0-9_-]+$ ]] || return 0
 
   tmp=$(mktemp)
   body=$(mktemp)
@@ -372,15 +373,18 @@ apply_shell_section_overrides() {
 # Only generate dynamic templates for themes with a colors.toml definition
 if [[ -f $COLORS_FILE ]]; then
   sed_script=$(mktemp)
+  trap 'rm -f "$sed_script"' EXIT
 
   shopt -s nullglob
   template_files=("$USER_TEMPLATES_DIR"/*.tpl "$TEMPLATES_DIR"/*.tpl)
 
   # Parsing and alias/fallback resolution (legacy colorN names, derived
   # shades, mode/theme_type) is shared with every other colors.toml consumer.
+  colors=$(omarchy-theme-color --file "$COLORS_FILE" --all) || exit 1
   while IFS=$'\t' read -r key value; do
+    [[ -n $key ]] || continue
     THEME_COLORS[$key]="$value"
-  done < <(omarchy-theme-color --file "$COLORS_FILE" --all)
+  done <<<"$colors"
 
   for key in "${!THEME_COLORS[@]}"; do
     add_template_value "$key" "${THEME_COLORS[$key]}"

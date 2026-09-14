@@ -37,12 +37,20 @@ mesa_render_node_present() {
   return 1
 }
 
+# Qt Multimedia's ffmpeg backend probes every hardware decoder it can reach at
+# startup and keeps what answers: on a hybrid laptop that is a live CUDA context
+# (libcuda, /dev/nvidia-uvm) and VDPAU next to the Intel VA-API driver it
+# actually uses, which by itself keeps the discrete card out of runtime suspend.
+# VA-API is the only accelerator the integrated GPU offers, so restrict the
+# probe to it. Same scope as the EGL pin: the shell only, never the session.
 mesa_egl_vendor="${OMARCHY_MESA_EGL_VENDOR:-/usr/share/glvnd/egl_vendor.d/50_mesa.json}"
 egl_vendor_env=()
 if [[ -r $mesa_egl_vendor ]] && mesa_render_node_present; then
   egl_vendor_env=(
     __EGL_VENDOR_LIBRARY_FILENAMES="$mesa_egl_vendor"
     __GLX_VENDOR_LIBRARY_NAME=mesa
+    QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi
+    QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=vaapi
   )
 fi
 
@@ -70,7 +78,7 @@ compositor_alive() {
   local attempt
 
   for attempt in 1 2 3; do
-    hyprctl -j monitors >/dev/null 2>&1 && return 0
+    timeout --kill-after=1s 2s hyprctl -j monitors >/dev/null 2>&1 && return 0
     (( attempt < 3 )) && sleep 0.5
   done
 

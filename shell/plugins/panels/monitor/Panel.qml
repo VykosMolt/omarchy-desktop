@@ -17,6 +17,14 @@ Panel {
   property int brightnessPercent: 0
   property int pendingBrightnessPercent: 0
   property bool brightnessSetQueued: false
+  property string pendingBrightnessMonitor: ""
+  property string previewBrightnessMonitor: ""
+  property int brightnessGeneration: 0
+  property bool brightnessWriteActive: false
+  property var actionQueue: []
+  property bool actionActive: false
+  property int pendingTextSizePx: 0
+  property bool textSizeWriteActive: false
   property bool brightnessAvailable: false
   property string internalMonitor: ""
   property string externalMonitor: ""
@@ -233,23 +241,29 @@ Panel {
     if (!stateProc.running) stateProc.running = true
   }
 
-  function setBrightness(value) {
+  function setBrightness(value, monitorName) {
     var percent = Model.clampBrightness(value)
+    root.brightnessGeneration++
     root.brightnessPercent = percent
     root.pendingBrightnessPercent = percent
+    root.pendingBrightnessMonitor = monitorName === undefined ? root.focusedMonitor : monitorName
+    root.brightnessSetQueued = true
+    root.pumpBrightness()
+  }
 
-    if (setBrightnessProc.running) {
-      root.brightnessSetQueued = true
-      return
-    }
-
+  function pumpBrightness() {
+    if (root.brightnessWriteActive || setBrightnessProc.running || !root.brightnessSetQueued) return
     root.brightnessSetQueued = false
-    setBrightnessProc.command = ["omarchy-brightness-display", "--no-osd", "--monitor", root.focusedMonitor, percent + "%"]
+    root.brightnessWriteActive = true
+    setBrightnessProc.startConfirmed = false
+    setBrightnessProc.command = ["omarchy-brightness-display", "--no-osd", "--monitor", root.pendingBrightnessMonitor, root.pendingBrightnessPercent + "%"]
     setBrightnessProc.running = true
   }
 
   function previewBrightness(value) {
+    root.brightnessGeneration++
     root.brightnessPercent = Model.clampBrightness(value)
+    root.previewBrightnessMonitor = root.focusedMonitor
     brightnessDebounce.restart()
   }
 
@@ -296,17 +310,32 @@ Panel {
     root.enabledDisplayCount = parsed.enabledDisplayCount
   }
 
-  function toggleDisplay(name, enabled) {
-    if (!name) return
-    if (enabled && root.enabledDisplayCount <= 1) return
+  function enqueueAction(key, command) {
+    root.actionQueue = root.actionQueue.filter(function(action) { return action.key !== key })
+      .concat([{ key: key, command: command }])
+    root.pumpAction()
+  }
 
-    actionProc.command = ["hyprctl", "keyword", "monitor", name + (enabled ? ",disable" : ",preferred,auto,auto")]
-    if (!actionProc.running) actionProc.running = true
+  function pumpAction() {
+    if (root.actionActive || actionProc.running || root.actionQueue.length === 0) return
+    var action = root.actionQueue[0]
+    root.actionQueue = root.actionQueue.slice(1)
+    root.actionActive = true
+    actionProc.startConfirmed = false
+    actionProc.command = action.command
+    actionProc.running = true
+  }
+
+  function toggleDisplay(name, enabled) {
+    if (!name || (enabled && root.enabledDisplayCount <= 1)) return
+    // The helper checks current compositor state under a lock; the displayed
+    // count only avoids an action that is already visibly impossible.
+    root.enqueueAction("display:" + name, ["omarchy-monitor-toggle", name, enabled ? "disable" : "enable"])
   }
 
   function setScale(scale) {
-    actionProc.command = ["bash", "-c", "omarchy-hyprland-monitor-scaling " + scale]
-    if (!actionProc.running) actionProc.running = true
+    if (!root.focusedMonitor) return
+    root.enqueueAction("scale:" + root.focusedMonitor, ["omarchy-hyprland-monitor-scaling", "--monitor", root.focusedMonitor, String(scale)])
   }
 
   // ---- Text size (shell base font + GTK text-scaling, via one CLI) ----
@@ -333,8 +362,20 @@ Panel {
   }
 
   function setTextSize(px) {
+    root.markReflowing()
+    root.textSizePreviewIndex = root.nearestTextStop(px)
+    root.pendingTextSizePx = px
+    root.pumpTextSize()
+  }
+
+  function pumpTextSize() {
+    if (root.textSizeWriteActive || textScaleProc.running || root.pendingTextSizePx <= 0) return
+    var px = root.pendingTextSizePx
+    root.pendingTextSizePx = 0
+    root.textSizeWriteActive = true
+    textScaleProc.startConfirmed = false
     textScaleProc.command = ["omarchy-display-text-size", String(px)]
-    if (!textScaleProc.running) textScaleProc.running = true
+    textScaleProc.running = true
   }
 
   function adjustTextSize(deltaSteps) {
@@ -385,6 +426,8 @@ Panel {
 
   Process {
     id: stateProc
+    property int readBrightnessGeneration: -1
+    onRunningChanged: if (running) readBrightnessGeneration = root.brightnessGeneration
     command: ["omarchy-monitor-state"]
     stdout: StdioCollector {
       waitForEnd: true
@@ -392,7 +435,11 @@ Panel {
         var lines = String(text || "").split("\n")
         var brightness = String(lines[0] || "").trim()
         root.brightnessAvailable = brightness !== "unavailable" && brightness !== ""
-        root.brightnessPercent = root.brightnessAvailable ? Math.max(0, Math.min(100, parseInt(brightness, 10))) : 0
+        if (stateProc.readBrightnessGeneration === root.brightnessGeneration
+            && !brightnessDebounce.running && !root.brightnessWriteActive && !root.brightnessSetQueued) {
+          var value = Number(brightness)
+          root.brightnessPercent = root.brightnessAvailable && isFinite(value) ? Model.clampBrightness(value) : 0
+        }
         root.internalMonitor = String(lines[1] || "").trim()
         root.externalMonitor = String(lines[2] || "").trim()
         root.internalEnabled = String(lines[3] || "").trim() !== ""
@@ -408,11 +455,13 @@ Panel {
     id: brightnessDebounce
     interval: 180
     repeat: false
-    onTriggered: root.setBrightness(root.brightnessPercent)
+    onTriggered: root.setBrightness(root.brightnessPercent, root.previewBrightnessMonitor)
   }
 
   Process {
     id: setBrightnessProc
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
     stdout: StdioCollector { waitForEnd: true }
     // Do NOT call refresh() after a brightness set completes. The local
     // brightnessPercent we just wrote is authoritative; re-reading via
@@ -421,18 +470,33 @@ Panel {
     // visible as a "bounce to zero" after h/l keypresses. External
     // brightness changes are still picked up by the 5s periodic refresh,
     // the open-time refresh, and Component.onCompleted.
-    onRunningChanged: {
-      if (running) return
-      if (root.brightnessSetQueued) {
-        root.setBrightness(root.pendingBrightnessPercent)
-      }
+    onExited: {
+      root.brightnessWriteActive = false
+      Qt.callLater(root.pumpBrightness)
     }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!setBrightnessProc.startConfirmed && !setBrightnessProc.running) {
+        root.brightnessWriteActive = false
+      }
+      root.pumpBrightness()
+    })
   }
 
   Process {
     id: actionProc
-    stdout: StdioCollector { waitForEnd: true }
-    onRunningChanged: if (!running) root.refresh()
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onExited: {
+      root.actionActive = false
+      root.refresh()
+      Qt.callLater(root.pumpAction)
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!actionProc.startConfirmed && !actionProc.running) {
+        root.actionActive = false
+      }
+      root.pumpAction()
+    })
   }
 
   // Applies text size via the CLI, which rewrites the shell override file;
@@ -440,7 +504,20 @@ Panel {
   // nothing to refresh here.
   Process {
     id: textScaleProc
-    stdout: StdioCollector { waitForEnd: true }
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onExited: function(exitCode) {
+      root.textSizeWriteActive = false
+      if (exitCode !== 0 && root.pendingTextSizePx === 0) root.textSizePreviewIndex = -1
+      Qt.callLater(root.pumpTextSize)
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!textScaleProc.startConfirmed && !textScaleProc.running) {
+        root.textSizeWriteActive = false
+        if (root.pendingTextSizePx === 0) root.textSizePreviewIndex = -1
+      }
+      root.pumpTextSize()
+    })
   }
 
   // Clears the hover-suppression flag once the reflow triggered by a text-size

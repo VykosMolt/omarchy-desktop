@@ -119,3 +119,19 @@ assert_volume 100 "volume keys honour the switch from the plugins list"
 echo 3 >"$state_file"
 run_volume -5
 assert_volume 0 "volume keys stop at zero"
+
+echo 8 >"$state_file"
+run_volume +008
+assert_volume 16 "leading zero step arguments are decimal"
+
+printf 'last[$(touch %s)]\n' "$tmpdir/injected" >"$XDG_RUNTIME_DIR/omarchy-audio-output-volume-mute-toggle.last"
+run_volume mute-toggle
+[[ ! -e $tmpdir/injected ]] || fail "malformed debounce state executed shell code"
+pass "malformed debounce state is ignored as data"
+
+echo 0 >"$state_file"
+for _ in {1..12}; do
+  run_volume +1 &
+done
+wait
+assert_volume 12 "concurrent volume key events preserve every increment"

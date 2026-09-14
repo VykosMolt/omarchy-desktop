@@ -4,7 +4,7 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-CONFIG_FILE="$HOME/.config/omarchy/shell.json"
+CONFIG_FILE="$OMARCHY_CONFIG_HOME/shell.json"
 DEFAULTS_FILE="$OMARCHY_PATH/config/omarchy/shell.json"
 config_backup=$(mktemp)
 config_existed=0
@@ -67,23 +67,14 @@ wait_until "root menu opens" 15 layer_present "omarchy-menu"
 wait_until "root menu content is visible" 15 screen_contains "Apps"
 screenshot "success-menu-01-root"
 
-wtype -k Down -k Down -k Down
-sleep 1
-screenshot "success-menu-02-style-selected"
-wtype -k Return
-
+omarchy-shell shell summon omarchy.menu '{"menu":"style"}' >/dev/null
 wait_until "style submenu is visible" 15 screen_contains "Theme"
-screenshot "success-menu-03-style-submenu"
+screenshot "success-menu-02-style"
 
-wtype -k Down -k Down -k Down -k Return
-sleep 1
-screenshot "success-menu-04-menu-bar-submenu"
-
+omarchy-shell shell summon omarchy.menu '{"menu":"style.bar.position"}' >/dev/null
+wait_until "bar position submenu is visible" 15 screen_contains "Left"
+wtype "Left"
 wtype -k Return
-sleep 1
-screenshot "success-menu-05-position-submenu"
-
-wtype -k Down -k Down -k Return
 wait_until "menu bar position changes to left" 20 bar_position_is "left"
 wait_until "menu bar becomes vertical" 20 bar_is_vertical
 wait_until "menu closes after selecting a position" 15 layer_absent "omarchy-menu"

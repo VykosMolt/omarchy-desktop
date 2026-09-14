@@ -65,3 +65,19 @@ for action in reboot shutdown; do
   fi
   pass "$action leaves state and windows alone when scheduling fails"
 done
+
+cat >"$mock_bin/busctl" <<'SH'
+#!/bin/bash
+printf 's "%s"\n' "$HIBERNATE_REPLY"
+SH
+chmod +x "$mock_bin/busctl"
+for reply in yes challenge; do
+  PATH="$mock_bin:$PATH" HIBERNATE_REPLY="$reply" "$ROOT/bin/omarchy-hibernation-available" ||
+    fail "logind permits hibernation with $reply"
+done
+for reply in no na invalid; do
+  if PATH="$mock_bin:$PATH" HIBERNATE_REPLY="$reply" "$ROOT/bin/omarchy-hibernation-available"; then
+    fail "logind refuses hibernation with $reply"
+  fi
+done
+pass "hibernation follows logind capability instead of distro provisioning files"

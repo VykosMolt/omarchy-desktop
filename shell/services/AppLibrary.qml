@@ -77,6 +77,8 @@ Item {
   // When the index was last rebuilt, so a caller asking to refresh does not
   // start a full rescan every time.
   property real lastIconScan: 0
+  property bool iconScanPending: false
+  property bool hiddenScanPending: false
   readonly property int iconScanMinIntervalMs: 60000
 
   // The shell may start before first-install packages have finished placing
@@ -89,7 +91,10 @@ Item {
   // so this path only exists for icons that land without the desktop entry
   // list changing. Rate-limit it: still live, no longer a rescan per keypress.
   function refreshIcons(force) {
-    if (iconIndexScan.running) return
+    if (iconIndexScan.running) {
+      if (force) root.iconScanPending = true
+      return
+    }
     var now = Date.now()
     if (!force && root.lastIconScan > 0 && now - root.lastIconScan < root.iconScanMinIntervalMs) return
 
@@ -104,6 +109,11 @@ Item {
     root.wantedIconNames = wanted
     iconIndexScan.command = root.iconIndexScanCommand(names)
     iconIndexScan.running = true
+  }
+
+  function refreshHiddenEntries() {
+    if (hiddenEntryScan.running) root.hiddenScanPending = true
+    else hiddenEntryScan.running = true
   }
 
   function launch(desktopId, name) {
@@ -237,7 +247,13 @@ Item {
     command: ["bash", "-c", root.hiddenEntryScanCommand()]
     stdout: SplitParser { onRead: function(line) { hiddenEntryOutput.text += line + "\n" } }
     onStarted: hiddenEntryOutput.text = ""
-    onExited: root.loadDesktopHiddenEntries(hiddenEntryOutput.text)
+    onExited: {
+      root.loadDesktopHiddenEntries(hiddenEntryOutput.text)
+      if (root.hiddenScanPending) {
+        root.hiddenScanPending = false
+        Qt.callLater(root.refreshHiddenEntries)
+      }
+    }
   }
 
   Process {
@@ -246,7 +262,13 @@ Item {
     onStarted: root.pendingIconIndex = ({})
     // Swapping the property re-evaluates every iconSource() binding, so
     // newly found icons appear without rebuilding the list.
-    onExited: root.iconIndex = root.pendingIconIndex
+    onExited: {
+      root.iconIndex = root.pendingIconIndex
+      if (root.iconScanPending) {
+        root.iconScanPending = false
+        Qt.callLater(function() { root.refreshIcons(true) })
+      }
+    }
   }
 
   // Coalesces bursts of app-list changes (a package install touches many
@@ -262,7 +284,7 @@ Item {
     watchChanges: true
     printErrors: false
     onLoaded: root.loadConfiguredHides(text())
-    onFileChanged: root.loadConfiguredHides(text())
+    onFileChanged: reload()
     onLoadFailed: root.loadConfiguredHides("")
   }
 
@@ -295,14 +317,14 @@ Item {
   Connections {
     target: DesktopEntries.applications
     function onValuesChanged() {
-      hiddenEntryScan.running = true
+      root.refreshHiddenEntries()
       iconIndexDebounce.restart()
       root.appsChanged()
     }
   }
 
   Component.onCompleted: {
-    hiddenEntryScan.running = true
+    root.refreshHiddenEntries()
     root.refreshIcons(true)
   }
 }

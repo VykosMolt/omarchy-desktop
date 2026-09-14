@@ -80,6 +80,26 @@ function nextClockFormat(ring, current) {
 
 // Two-digit ISO week, substituted into a format's 'ww' token before Qt
 // formats it -- Qt has no ISO week specifier of its own.
+// Qt date formats quote literal spans and escape an apostrophe by doubling
+// it. Expand only unquoted ww tokens; text such as 'www' stays literal.
+function clockWeekFormat(format, week) {
+  var text = String(format || "")
+  var out = ""
+  var quoted = false
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i]
+    if (ch === "'") {
+      out += ch
+      if (text[i + 1] === "'") { out += text[++i]; continue }
+      quoted = !quoted
+    } else if (!quoted && ch === "w" && text[i + 1] === "w") {
+      out += String(week)
+      i++
+    } else out += ch
+  }
+  return out
+}
+
 function isoWeekLiteral(year, month, day) {
   return pad2(isoWeek(year, month, day))
 }
@@ -303,6 +323,7 @@ if (typeof module !== "undefined") {
     clockNeedsSeconds: clockNeedsSeconds,
     clockFormatRing: clockFormatRing,
     nextClockFormat: nextClockFormat,
-    isoWeekLiteral: isoWeekLiteral
+    isoWeekLiteral: isoWeekLiteral,
+    clockWeekFormat: clockWeekFormat
   }
 }

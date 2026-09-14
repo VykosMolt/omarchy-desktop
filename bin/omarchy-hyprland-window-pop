@@ -8,6 +8,12 @@ height=${2:-900}
 x=${3:-}
 y=${4:-}
 
+if [[ ! $width =~ ^[0-9]+$ || ! $height =~ ^[0-9]+$ ||
+      ( -n $x && ! $x =~ ^-?[0-9]+$ ) || ( -n $y && ! $y =~ ^-?[0-9]+$ ) ]]; then
+  echo "Window dimensions and positions must be integers." >&2
+  exit 1
+fi
+
 active=$(hyprctl activewindow -j)
 pinned=$(echo "$active" | jq ".pinned")
 addr=$(echo "$active" | jq -r ".address")

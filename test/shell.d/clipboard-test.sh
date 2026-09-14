@@ -3,6 +3,7 @@
 set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
+export OMARCHY_PATH="$ROOT"
 
 run_node_test <<'JS'
 const fs = require('fs')
@@ -126,6 +127,22 @@ assertDeepEqual(
 assertDeepEqual(clipboard.displayRows(history, '', 0), [], 'clipboard display rows supports zero result limit')
 assertDeepEqual(clipboard.addEntry(history, 'next', 0), [], 'clipboard addEntry supports zero history limit')
 
+const vm = require('vm')
+const selectFunction = clipboardQml.match(/  function select\(delta\) \{[\s\S]*?\n  \}/)[0]
+const navigation = {
+  selectedIndex: 0, cursorActive: true,
+  displayModel: { count: 5 },
+  root: { disarmPointer() {} },
+  resultList: { positionViewAtIndex() {} },
+  ListView: { Contain: 0 }
+}
+vm.createContext(navigation)
+vm.runInContext(selectFunction, navigation)
+navigation.select(-6)
+assertEqual(navigation.selectedIndex, 4, 'clipboard PageUp wraps within a short history')
+navigation.select(6)
+assertEqual(navigation.selectedIndex, 0, 'clipboard PageDown wraps back to the original entry')
+
 assert(
   /function select\(delta\)[\s\S]*root\.disarmPointer\(\)[\s\S]*selectedIndex =/.test(clipboardQml),
   'clipboard keyboard navigation disarms pointer selection'
@@ -171,8 +188,8 @@ assert(
   'clipboard image watcher dies with the shell via pdeathsig'
 )
 assert(
-  clipboardQml.includes('command: ["pkill", "-f", "wl-paste .*--watch .*/shell/plugins/clipboard/capture\\\\.sh"]'),
-  'clipboard init reaps stale watchers before starting new ones'
+  !clipboardQml.includes('"pkill"'),
+  'clipboard startup leaves watchers belonging to other sessions alone'
 )
 assertEqual(
   (clipboardQml.match(/onExited: watchRestartTimer\.restart\(\)/g) || []).length,
@@ -390,6 +407,11 @@ image_path=$(jq -r '.path' <<<"$capture_output")
 jq -e '.mime == "image/jpeg"' <<<"$capture_output" >/dev/null && [[ $image_path == *.jpg ]] || fail "clipboard capture stores watched jpeg images with jpg extension"
 pass "clipboard capture stores watched jpeg images with jpg extension"
 
+capture_output=$(printf 'isolated-image' | OMARCHY_SESSION_STATE_HOME="$TMPDIR/session-state" XDG_STATE_HOME="$TMPDIR/other-state" PATH="$TMPDIR/bin:$PATH" "$ROOT/shell/plugins/clipboard/capture.sh" image/png)
+image_path=$(jq -r '.path' <<<"$capture_output")
+[[ $image_path == "$TMPDIR/session-state/omarchy/clipboard-images/"* && -s $image_path ]] || fail "clipboard capture honors the session state root"
+pass "clipboard capture honors the session state root"
+
 capture_output=$(printf 'secret' | CLIPBOARD_STATE=sensitive XDG_RUNTIME_DIR="$TMPDIR" XDG_STATE_HOME="$TMPDIR/state" PATH="$TMPDIR/bin:$PATH" "$ROOT/shell/plugins/clipboard/capture.sh" text)
 [[ -z $capture_output ]] || fail "clipboard capture ignores sensitive watched text"
 pass "clipboard capture ignores sensitive watched text"
@@ -426,15 +448,6 @@ current_script="$clipboard_lifecycle_dir/current/shell/plugins/clipboard/capture
 mkdir -p "$(dirname "$current_script")"
 cp "$ROOT/shell/plugins/clipboard/capture.sh" "$current_script"
 chmod +x "$current_script"
-
-PATH="$TMPDIR/bin:$PATH" wl-paste --type text --watch "$current_script" text &
-stale_pid=$!
-PIDS_TO_KILL+=("$stale_pid")
-sleep 0.2
-pgrep -f 'wl-paste .*--watch .*/shell/plugins/clipboard/capture\.sh' | grep -x "$stale_pid" >/dev/null || fail "clipboard reaper pattern matches running watchers"
-kill "$stale_pid" 2>/dev/null || true
-wait "$stale_pid" 2>/dev/null || true
-pass "clipboard reaper pattern matches running watchers"
 
 watch_owner="$clipboard_lifecycle_dir/watch-owner.sh"
 watch_pid_file="$clipboard_lifecycle_dir/watch.pid"

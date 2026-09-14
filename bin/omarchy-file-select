@@ -33,6 +33,10 @@ EXIT_CHOOSER_FAILED = 2
 
 
 def main():
+    if os.environ.get("OMARCHY_NO_UI") == "1":
+        print("omarchy-file-select: refusing to open a window because OMARCHY_NO_UI=1 is set.", file=sys.stderr)
+        return EXIT_CHOOSER_FAILED
+
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--title", default="Select file")
     parser.add_argument("--multiple", action="store_true")

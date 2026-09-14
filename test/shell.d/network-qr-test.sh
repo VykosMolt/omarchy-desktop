@@ -8,6 +8,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 
+# Missing default routes must still allow a connected Wi-Fi fallback. Keep
+# interface discovery independent of the machine running the suite.
+cat >"$tmp/bin/ip" <<'EOF'
+#!/bin/bash
+exit 2
+EOF
+chmod +x "$tmp/bin/ip"
+
 cat >"$tmp/bin/nmcli" <<'EOF'
 #!/bin/bash
 if [[ $* == *"DEVICE,TYPE,STATE"* ]]; then
@@ -16,6 +24,7 @@ elif [[ $* == *GENERAL.CON-UUID* ]]; then
   echo test-uuid
 else
   printf '%s' "$QR_NMCLI_FIELDS"
+  [[ ${QR_NMCLI_FAIL:-0} == 0 ]] || exit 1
 fi
 EOF
 
@@ -34,7 +43,7 @@ run_success_case() {
   local description=$1 fields=$2 expected_payload=$3
   shift 3
   local output meta matrix payload arg with_meta=false
-  local expected_matrix expected_security expected_ssid expected_iface="*"
+  local expected_matrix expected_security expected_ssid expected_iface="wlan0"
 
   for arg in "$@"; do
     [[ $arg == "--meta" ]] && with_meta=true || expected_iface=$arg
@@ -50,8 +59,8 @@ run_success_case() {
     matrix=$(tail -n +2 <<<"$output")
 
     # The meta line leads with the shared interface, security, and SSID. With
-    # no interface argument the helper detects one from the live host, so that
-    # field is only pinned when the case pinned it.
+    # no interface argument the fixture falls back from a failed route probe
+    # to its connected wlan0 device.
     expected_security=${expected_payload#WIFI:T:}
     expected_security=${expected_security%%;*}
     expected_ssid=$(head -n1 <<<"$fields")
@@ -118,3 +127,11 @@ expected_error="Enterprise Wi-Fi cannot be shared with a password QR code"
 [[ $enterprise_error == "$expected_error" ]] || fail "network QR helper rejects enterprise networks" "expected: $expected_error\nactual: $enterprise_error"
 [[ ! -e $QR_PAYLOAD_FILE ]] || fail "network QR helper rejects enterprise networks" "qrencode unexpectedly ran"
 pass "network QR helper rejects enterprise networks"
+
+export QR_PAYLOAD_FILE="$tmp/failed-fields-payload"
+if PATH="$tmp/bin:$PATH" QR_NMCLI_FAIL=1 QR_NMCLI_FIELDS=$'Partial SSID\n' \
+  "$ROOT/bin/omarchy-network-qr" wlan0 >/dev/null 2>&1; then
+  fail "failed credential reads cannot produce an open-network QR from partial data"
+fi
+[[ ! -e $QR_PAYLOAD_FILE ]] || fail "a failed credential read still invoked qrencode"
+pass "network QR rejects partial credential output from a failed query"

@@ -51,7 +51,13 @@ QtObject {
   function flatColor(value, fallback) {
     var token = firstColorToken(value)
     var role = String(token || "").replace(/^\s+|\s+$/g, "").toLowerCase()
-    if (root.shellValues[role] && root.shellValues[role] !== token) return flatColor(root.shellValues[role], fallback)
+    var seen = {}
+    while (typeof root.shellValues[role] === "string" && root.shellValues[role].length > 0) {
+      if (seen[role]) return fallback
+      seen[role] = true
+      token = firstColorToken(root.shellValues[role])
+      role = String(token || "").trim().toLowerCase()
+    }
     if (role === "foreground" || role === "text") return root.foreground
     if (role === "accent") return root.accent
     if (role === "urgent") return root.urgent
@@ -89,7 +95,6 @@ QtObject {
     property color background: root.composed("notifications.background", "notifications.background-alpha", root.background, 1.0)
     property color text: root.pick("notifications.text", root.foreground)
     property color border: root.composed("notifications.border", "notifications.border-alpha", root.accent, 1.0)
-    property color countdown: root.pick("notifications.countdown", root.accent)
   }
   readonly property QtObject menu: QtObject {
     property color background: root.composed("menu.background", "menu.background-alpha", root.background, 1.0)
@@ -187,7 +192,7 @@ QtObject {
   }
 
   // Re-derive `shellValues` from theme base + user override and push it to
-  // Style. User keys win, so a machine-level `~/.config/omarchy/shell.toml`
+  // Style. User keys win, so `$OMARCHY_CONFIG_HOME/shell.toml`
   // survives theme switches (which replace only themeShellValues).
   function mergeShell() {
     var merged = {}

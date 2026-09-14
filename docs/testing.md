@@ -1,36 +1,16 @@
 # Testing
 
-How the non-graphical test suites are organized: what each runner owns, the
-protocol test files speak, and the conventions that keep them runnable on any
-machine — including headless CI sandboxes with no compositor. The graphical
-acceptance suite in `test/acceptance.d/` is a separate thing that drives a live
-session and needs a compositor.
+How the non-graphical test suites are organized: what each runner owns, the protocol test files speak, and the conventions that keep them runnable on any machine — including headless CI sandboxes with no compositor. The graphical acceptance suite in `test/acceptance.d/` is a separate thing that drives a live session and needs a compositor.
 
 ## Suite map
 
-`./test/all` runs both suites below and keeps going when one fails, so a single
-failure cannot hide the other suite behind it. It reports the failed suites at
-the end and exits non-zero.
+`./test/all` runs both suites below and keeps going when one fails, so a single failure cannot hide the other suite behind it. It reports the failed suites at the end and exits non-zero.
 
-- **`./test/cli`** — one big script, one suite. It owns the CLI router: help
-  and group rendering, route resolution, aliases, hidden commands, and the
-  guarantee that a trailing `--help` never executes the target. It also owns
-  the metadata lint — every `omarchy-*` executable under `bin/` is checked for a
-  `# omarchy:summary=` header and against removed or redundant fields — plus
-  the theme pipeline: template rendering (`omarchy-theme-set-templates`,
-  `omarchy-theme-color`, `omarchy-theme-osc`), and the GNOME theme sync command
-  run against stub binaries and a fake `$HOME`.
-- **`./test/shell`** — runs every `test/shell.d/*-test.sh` (except
-  `base-test.sh` itself). Each file is an independent suite covering one area:
-  a shell plugin, a `bin/` command, a config invariant. This is
-  where new tests go.
-- **Acceptance** — everything that needs a real desktop doing real things.
-  Deliberately excluded from `./test/all`; it runs in a VM, not the
-  development session.
+- **`./test/cli`** — one big script, one suite. It owns the CLI router: help and group rendering, route resolution, aliases, hidden commands, and the guarantee that a trailing `--help` never executes the target. It also owns the metadata lint — every `omarchy-*` executable under `bin/` is checked for a `# omarchy:summary=` header and against removed or redundant fields — plus the theme pipeline: template rendering (`omarchy-theme-set-templates`, `omarchy-theme-color`, `omarchy-theme-osc`), and the GNOME theme sync command run against stub binaries and a fake `$HOME`.
+- **`./test/shell`** — runs every `test/shell.d/*-test.sh` (except `base-test.sh` itself). Each file is an independent suite covering one area: a shell plugin, a `bin/` command, a config invariant. This is where new tests go.
+- **Acceptance** — everything that needs a real desktop doing real things. Deliberately excluded from `./test/all`; it runs in a VM, not the development session.
 
-A new shell test only needs the right name: drop `<area>-test.sh` into
-`test/shell.d/` and `./test/shell` picks it up automatically. Shared fixtures
-live under `test/shell.d/fixtures/`.
+A new shell test only needs the right name: drop `<area>-test.sh` into `test/shell.d/` and `./test/shell` picks it up automatically. Shared fixtures live under `test/shell.d/fixtures/`.
 
 ## The base-test.sh contract
 
@@ -44,61 +24,27 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 ```
 
-`base-test.sh` refuses to be executed directly — it is a library. It discovers
-the repo root from its own location and exports it as `ROOT`, so tests
-reference files as `$ROOT/bin/...` and never depend on the caller's working
-directory or an installed Omarchy.
+`base-test.sh` refuses to be executed directly — it is a library. It discovers the repo root from its own location and exports it as `ROOT`, so tests reference files as `$ROOT/bin/...` and never depend on the caller's working directory or an installed Omarchy.
 
 Assertions are TAP-flavored and blunt:
 
 - `pass "description"` prints `ok - description`.
-- `fail "description" [detail]` prints the optional detail and
-  `not ok - description` to stderr, then **exits the file**. There is no
-  counting or continuing within a file: the first failed assertion ends it,
-  which keeps later assertions from reporting against state the failure
-  already invalidated.
+- `fail "description" [detail]` prints the optional detail and `not ok - description` to stderr, then **exits the file**. There is no counting or continuing within a file: the first failed assertion ends it, which keeps later assertions from reporting against state the failure already invalidated.
 - `require_command <cmd>` fails the file when a needed tool is absent.
 
-The runner compensates for that early exit: `./test/shell` continues past a
-failing file and summarizes the failures at the end. Aborting the whole run at
-the first bad file once let a single packaging failure mask 114 of 134 files.
-Failure granularity is therefore per file inside a run, per assertion inside a
-file.
+The runner compensates for that early exit: `./test/shell` continues past a failing file and summarizes the failures at the end. Aborting the whole run at the first bad file once let a single packaging failure mask 114 of 134 files. Failure granularity is therefore per file inside a run, per assertion inside a file.
 
 ## Compositor-dependent tests
 
-Some tests launch Quickshell or query Hyprland, but the suite must stay green
-on headless machines. `require_compositor "description"` handles this: when no
-compositor answers it prints `ok - no Wayland compositor; skipping ...` and
-exits 0 — a skip is a passing test — and otherwise returns so the file
-proceeds.
+The default suite uses a private runtime directory and user-bus address and clears display variables. Tests that need a compositor require `OMARCHY_TEST_GRAPHICAL=1` with a dedicated test session; they are never implicitly allowed onto the development desktop. Some tests launch Quickshell or query Hyprland, but the suite must stay green on headless machines. `require_compositor "description"` handles this: when no compositor answers it prints `ok - no Wayland compositor; skipping ...` and exits 0 — a skip is a passing test — and otherwise returns so the file proceeds.
 
-The probe is more than an environment check, because `WAYLAND_DISPLAY` only
-proves the variable was inherited. Sandboxes pass the environment through
-while blocking `$XDG_RUNTIME_DIR`, so Quickshell clears a bare variable check
-and then aborts inside QGuiApplication — a core dump per launch where a skip
-belonged. So `compositor_reachable` checks the socket actually exists, then
-asks Hyprland itself (`hyprctl -j monitors`, retried, and only when
-`HYPRLAND_INSTANCE_SIGNATURE` makes it askable), since a compositor that died
-mid-session leaves its socket behind. When the compositor is reachable,
-`require_compositor` also sets `ulimit -c 0`: Quickshell leaves through
-`qFatal()` if its connection drops mid-run, and the test should fail without
-writing a core dump as debris.
+The probe is more than an environment check, because `WAYLAND_DISPLAY` only proves the variable was inherited. Sandboxes pass the environment through while blocking `$XDG_RUNTIME_DIR`, so Quickshell clears a bare variable check and then aborts inside QGuiApplication — a core dump per launch where a skip belonged. So `compositor_reachable` checks the socket actually exists, then asks Hyprland itself (`hyprctl -j monitors`, retried, and only when `HYPRLAND_INSTANCE_SIGNATURE` makes it askable), since a compositor that died mid-session leaves its socket behind. When the compositor is reachable, `require_compositor` also sets `ulimit -c 0`: Quickshell leaves through `qFatal()` if its connection drops mid-run, and the test should fail without writing a core dump as debris.
 
-Gate only what needs gating — put `require_compositor` in files whose runtime
-half needs a live session, and keep static analysis of the same area in code
-that runs unconditionally before or beside it.
+Gate only what needs gating — put `require_compositor` in files whose runtime half needs a live session, and keep static analysis of the same area in code that runs unconditionally before or beside it.
 
 ## Linting QML: use the Qt6 qmllint, not the one on PATH
 
-`/usr/bin/qmllint` is **Qt5's**, from qt5-declarative. This shell is Qt6 and
-Quickshell, so that binary cannot parse it: it fails on typed function
-declarations (`function open(): void`), on optional chaining (`?.`), and on
-`transient` as an identifier, all of which are ordinary Qt6 QML. Worse, it
-reports nothing when it does. It exits 255 with both streams empty, because Qt
-routes its diagnostics through the logging category, which lands in the journal
-rather than on stderr. A loop that counts non-zero exits reads that as "this
-file has warnings" when it means "this file was never parsed".
+`/usr/bin/qmllint` is **Qt5's**, from qt5-declarative. This shell is Qt6 and Quickshell, so that binary cannot parse it: it fails on typed function declarations (`function open(): void`), on optional chaining (`?.`), and on `transient` as an identifier, all of which are ordinary Qt6 QML. Worse, it reports nothing when it does. It exits 255 with both streams empty, because Qt routes its diagnostics through the logging category, which lands in the journal rather than on stderr. A loop that counts non-zero exits reads that as "this file has warnings" when it means "this file was never parsed".
 
 The right invocation:
 
@@ -107,37 +53,17 @@ QT_FORCE_STDERR_LOGGING=1 /usr/lib/qt6/bin/qmllint \
   -I <dir containing a qs -> shell symlink> -I /usr/lib/qt6/qml <file>
 ```
 
-Two things that invocation needs. `QT_FORCE_STDERR_LOGGING=1` puts the
-diagnostics where they can be read. And the shell imports itself as `qs.Commons`,
-`qs.Ui` and so on, so qmllint needs an import root in which the shell directory
-is named `qs`; a symlink in a scratch directory is enough. Without it every file
-reports a failed `qs.*` import and a cascade of missing members behind it.
+Two things that invocation needs. `QT_FORCE_STDERR_LOGGING=1` puts the diagnostics where they can be read. And the shell imports itself as `qs.Commons`, `qs.Ui` and so on, so qmllint needs an import root in which the shell directory is named `qs`; a symlink in a scratch directory is enough. Without it every file reports a failed `qs.*` import and a cascade of missing members behind it.
 
-What it finds, tree-wide, is dominated by `[unqualified]` and
-`[missing-property]`. Most of both come from `property QtObject bar` -- widgets
-take the bar as an untyped object on purpose, so qmllint cannot know its members.
-Those are not defects and chasing them would mean typing an interface that is
-deliberately loose. The categories worth reading are `[unused-imports]`,
-`[property-override]`, `[unresolved-type]` and `[syntax]`.
+What it finds, tree-wide, is dominated by `[unqualified]` and `[missing-property]`. Most of both come from `property QtObject bar` -- widgets take the bar as an untyped object on purpose, so qmllint cannot know its members. Those are not defects and chasing them would mean typing an interface that is deliberately loose. The categories worth reading are `[unused-imports]`, `[property-override]`, `[unresolved-type]` and `[syntax]`.
 
-One known false positive: `id:` inside an `anchor { }` block reads as
-`[syntax] id declarations are only allowed in objects`. Qt accepts it, the ids
-resolve at runtime, and Bar.qml and PopupCard.qml both depend on them.
+One known false positive: `id:` inside an `anchor { }` block reads as `[syntax] id declarations are only allowed in objects`. Qt accepts it, the ids resolve at runtime, and Bar.qml and PopupCard.qml both depend on them.
 
 ## Unit-testing shell JavaScript from bash
 
-The Quickshell plugins keep their logic in plain `.js` modules
-(`shell/plugins/menu/MenuModel.js`, `bar/BarModel.js`, ...) that end in a
-guarded `if (typeof module !== "undefined") module.exports = {...}` block. QML
-imports them directly and ignores the guard; Node loads them as CommonJS. That
-dual citizenship is what makes the shell's model logic unit-testable without a
-compositor.
+The Quickshell plugins keep their logic in plain `.js` modules (`shell/plugins/menu/MenuModel.js`, `bar/BarModel.js`, ...) that end in a guarded `if (typeof module !== "undefined") module.exports = {...}` block. QML imports them directly and ignores the guard; Node loads them as CommonJS. That dual citizenship is what makes the shell's model logic unit-testable without a compositor.
 
-`run_node_test` is the bridge: it prepends a JS prelude to a heredoc and pipes
-the result into `node`. The prelude mirrors the bash assertion protocol
-(`pass`, `fail`, `assert`, `assertEqual`, `assertDeepEqual` — same
-`ok`/`not ok` lines, same exit-on-first-failure) and provides `root` (from the
-exported `ROOT`), `path`, and `requireFromRoot(relativePath)`:
+`run_node_test` is the bridge: it prepends a JS prelude to a heredoc and pipes the result into `node`. The prelude mirrors the bash assertion protocol (`pass`, `fail`, `assert`, `assertEqual`, `assertDeepEqual` — same `ok`/`not ok` lines, same exit-on-first-failure) and provides `root` (from the exported `ROOT`), `path`, and `requireFromRoot(relativePath)`:
 
 ```bash
 run_node_test <<'JS'
@@ -148,20 +74,10 @@ assertEqual(parsed.length, 1, 'menu parses JSONC with trailing commas')
 JS
 ```
 
-Roughly a quarter of the shell test files use this to test parsing, merging,
-and layout logic as pure functions, reserving compositor-gated tests for what
-only a live session can prove.
+Roughly a quarter of the shell test files use this to test parsing, merging, and layout logic as pure functions, reserving compositor-gated tests for what only a live session can prove.
 
 ## Conventions worth copying
 
-- **Stub the world, run the real code.** Tests build a scratch `bin/` of stub
-  executables (`sudo`, `tmux`, `gsettings`, helper commands) that log their
-  arguments to a file, prepend it to `PATH`, and then run the real script
-  under test. Assertions grep the call log and the files the script wrote.
-- **Fake `$HOME`, real `$OMARCHY_PATH`.** Anything touching user state runs
-  with `HOME` pointed at a `mktemp -d` directory (cleaned up via
-  `trap ... EXIT`) and `OMARCHY_PATH="$ROOT"`, so tests exercise the checkout
-  without touching the developer's machine.
-- **Assert the invariant, not the snapshot.** Config tests pin the property a
-  test is named for (this widget stays adjacent to that one) rather than whole
-  structures, so unrelated churn does not fail them.
+- **Stub the world, run the real code.** Tests build a scratch `bin/` of stub executables (`sudo`, `tmux`, `gsettings`, helper commands) that log their arguments to a file, prepend it to `PATH`, and then run the real script under test. Assertions grep the call log and the files the script wrote.
+- **Fake `$HOME`, real `$OMARCHY_PATH`.** Anything touching user state runs with `HOME` pointed at a `mktemp -d` directory (cleaned up via `trap ... EXIT`) and `OMARCHY_PATH="$ROOT"`, so tests exercise the checkout without touching the developer's machine.
+- **Assert the invariant, not the snapshot.** Config tests pin the property a test is named for (this widget stays adjacent to that one) rather than whole structures, so unrelated churn does not fail them.

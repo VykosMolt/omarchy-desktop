@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "services"
 
 ShellRoot {
@@ -32,10 +33,6 @@ ShellRoot {
     if (actualJson !== expectedJson) fail(message + " expected=" + expectedJson + " actual=" + actualJson)
   }
 
-  function shellQuote(value) {
-    return "'" + String(value).replace(/'/g, "'\\''") + "'"
-  }
-
   function writeResult() {
     var payload = JSON.stringify({
       ok: failures.length === 0,
@@ -46,7 +43,7 @@ ShellRoot {
     })
 
     if (resultPath) {
-      Quickshell.execDetached(["bash", "-lc", "printf '%s' " + shellQuote(payload) + " > " + shellQuote(resultPath)])
+      resultFile.setText(payload)
     }
   }
 
@@ -185,6 +182,13 @@ ShellRoot {
     root.assertEqual(registry.moveBarWidget("third.widget", { section: "right" }), "", "registry moves widgets")
     root.assertDeepEqual(root.config.bar.layout.right, [{ id: "third.widget", size: 3 }], "registry move preserves widget settings")
     root.assertEqual(registry.setBarWidget("third.widget", "size", 7, {}), "", "registry sets widget options")
+    var beforeInvalid = JSON.stringify(root.config)
+    root.assertTrue(registry.setBarWidget("third.widget", "size", 99, { section: "right", index: "invalid" }) !== "", "non-numeric widget indexes are rejected")
+    root.assertEqual(JSON.stringify(root.config), beforeInvalid, "an invalid widget option update does not persist config")
+    root.assertTrue(registry.moveBarWidget("third.widget", { fromSection: "right", fromIndex: "invalid", section: "left" }) !== "", "non-numeric move source indexes are rejected")
+    root.assertEqual(JSON.stringify(root.config), beforeInvalid, "an invalid source leaves the layout untouched")
+    root.assertTrue(registry.moveBarWidget("third.widget", { section: "left", index: "invalid" }) !== "", "non-numeric move destination indexes are rejected")
+    root.assertEqual(JSON.stringify(root.config), beforeInvalid, "an invalid destination leaves the layout untouched")
     root.assertEqual(root.config.bar.layout.right[0].size, 7, "registry persists widget options")
 
     root.config = { version: 1, bar: { layout: { left: [], center: [], right: [] } }, plugins: [] }
@@ -305,10 +309,16 @@ ShellRoot {
     shellConfigProvider: function() { return root.config }
     shellConfigMutator: function(mutator) {
       var next = JSON.parse(JSON.stringify(root.config || {}))
-      mutator(next)
-      root.config = next
+      if (mutator(next) !== false) root.config = next
     }
     onPluginsChanged: root.changeCount++
+  }
+
+  FileView {
+    id: resultFile
+    path: root.resultPath
+    printErrors: false
+    atomicWrites: true
   }
 
   Timer {

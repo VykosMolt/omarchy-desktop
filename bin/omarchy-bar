@@ -157,29 +157,7 @@ cmd_use() {
 cmd_defaults() {
   (( $# == 0 )) || fail "defaults does not take arguments"
 
-  local optional_widgets="[]"
-
-  # This remains one file mutation so it also works during the headless
-  # Quattro upgrade and cannot race the shell's in-memory config.
-  commit "$NORMALIZE
-    | .bar = \$defaults[0].bar
-    | def entry_id: if type == \"object\" then (.id // \"\" | tostring) else tostring end;
-      def anchor_for(\$section): { left: \"omarchy.workspaces\", center: \"omarchy.weather\", right: \"omarchy.sensors\" }[\$section];
-      reduce \$widgets[] as \$widget (.;
-        .bar.layout.left = (.bar.layout.left | map(select(entry_id != \$widget.id)))
-        | .bar.layout.center = (.bar.layout.center | map(select(entry_id != \$widget.id)))
-        | .bar.layout.right = (.bar.layout.right | map(select(entry_id != \$widget.id)))
-        | (.bar.layout[\$widget.section] | map(entry_id) | index(anchor_for(\$widget.section))) as \$anchor
-        | (\$anchor | if . == null then (.bar.layout[\$widget.section] | length) else . + 1 end) as \$index
-        | .bar.layout[\$widget.section] = (
-            .bar.layout[\$widget.section][0:\$index]
-            + [{id: \$widget.id}]
-            + .bar.layout[\$widget.section][\$index:]
-          )
-      )
-  " \
-    --slurpfile defaults "$DEFAULTS_FILE" \
-    --argjson widgets "$optional_widgets"
+  commit "$NORMALIZE | .bar = \$defaults[0].bar" --slurpfile defaults "$DEFAULTS_FILE"
   echo "Restored the default Omarchy bar"
 }
 

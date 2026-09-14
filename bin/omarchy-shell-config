@@ -56,9 +56,13 @@ commit() {
   local program="$1"
   shift
   mkdir -p "$(dirname "$CONFIG_FILE")"
-  _SHELL_CONFIG_TMP=$(mktemp)
+  local config_lock_fd
+  exec {config_lock_fd}>"$CONFIG_FILE.lock"
+  flock "$config_lock_fd" || fail "could not lock shell config"
+  _SHELL_CONFIG_TMP=$(mktemp "$CONFIG_FILE.XXXXXX")
   jq -S -e "$@" "$program" "$(source_file)" >"$_SHELL_CONFIG_TMP" || fail "could not update shell config"
   mv "$_SHELL_CONFIG_TMP" "$CONFIG_FILE"
   _SHELL_CONFIG_TMP=""
+  exec {config_lock_fd}>&-
   refresh_shell_config
 }

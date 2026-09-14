@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 
 ShellRoot {
@@ -17,10 +18,6 @@ ShellRoot {
     if (!condition) fail(message)
   }
 
-  function shellQuote(value) {
-    return "'" + String(value).replace(/'/g, "'\\''") + "'"
-  }
-
   function writeResult() {
     var payload = JSON.stringify({
       ok: failures.length === 0,
@@ -28,9 +25,11 @@ ShellRoot {
     })
 
     if (resultPath) {
-      Quickshell.execDetached(["bash", "-lc", "printf '%s' " + shellQuote(payload) + " > " + shellQuote(resultPath)])
+      resultFile.setText(payload)
     }
   }
+
+  FileView { id: resultFile; path: root.resultPath; printErrors: false; atomicWrites: true }
 
   Item { id: host; width: 800; height: 600 }
 
@@ -70,7 +69,8 @@ ShellRoot {
 
         probe.font.pixelSize = Math.max(1, Math.floor(view.passwordDotFontSize * longerScale))
         probe.font.letterSpacing = view.passwordDotLetterSpacing * longerScale
-        probe.text = "●".repeat(80)
+        probe.font.family = view.fontFamily
+        probe.text = "─".repeat(80)
         root.assertTrue(probe.advanceWidth <= view.fieldWidth, "all 80 dots fit inside the field, need " + probe.advanceWidth + "px of " + view.fieldWidth)
 
         view.destroy()

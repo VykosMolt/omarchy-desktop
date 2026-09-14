@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # omarchy:summary=Show, set, or adjust focused Hyprland monitor scaling
-# omarchy:args=[up|down|SCALE]
+# omarchy:args=[--monitor NAME] [up|down|SCALE]
 # omarchy:examples=omarchy hyprland monitor scaling | omarchy hyprland monitor scaling 1.6 | omarchy hyprland monitor scaling up | omarchy hyprland monitor scaling down
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
@@ -11,11 +11,31 @@ STATE_DIR="$OMARCHY_STATE_HOME"
 SCALE_LOG="$STATE_DIR/monitor-scaling.log"
 
 usage() {
-  echo "Usage: omarchy-hyprland-monitor-scaling [up|down|SCALE]"
+  echo "Usage: omarchy-hyprland-monitor-scaling [--monitor NAME] [up|down|SCALE]"
+}
+
+requested_monitor=""
+if [[ ${1:-} == --monitor ]]; then
+  if [[ $# -lt 2 || ! $2 =~ ^[A-Za-z0-9._-]+$ ]]; then
+    usage >&2
+    exit 1
+  fi
+  requested_monitor=$2
+  shift 2
+fi
+if [[ $# -gt 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+selected_monitor_info() {
+  hyprctl monitors -j | jq -e -c --arg name "$requested_monitor" '
+    [.[] | select(if $name == "" then .focused == true else .name == $name end)]
+    | select(length == 1) | .[0]'
 }
 
 focused_monitor_scale() {
-  hyprctl monitors -j | jq -er '.[] | select(.focused == true) | .scale'
+  selected_monitor_info | jq -er '.scale'
 }
 
 cmdline_for_pid() {
@@ -76,12 +96,19 @@ normalize_scale() {
 set_scale() {
   local requested_scale="$1"
   local requested="${2:-$requested_scale}"
-  local monitor_info="$(hyprctl monitors -j | jq -e -c '.[] | select(.focused == true)')"
+  local monitor_info
+  monitor_info=$(selected_monitor_info) || return 1
   local active_monitor="$(echo "$monitor_info" | jq -r '.name')"
   local current_scale="$(echo "$monitor_info" | jq -r '.scale')"
   local width="$(echo "$monitor_info" | jq -r '.width')"
   local height="$(echo "$monitor_info" | jq -r '.height')"
   local refresh_rate="$(echo "$monitor_info" | jq -r '.refreshRate')"
+
+  if [[ ! $width =~ ^[1-9][0-9]*$ || ! $height =~ ^[1-9][0-9]*$ ||
+        ! $refresh_rate =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "The focused monitor does not have a usable mode." >&2
+    return 1
+  fi
 
   # active_monitor is written into the Lua string eval'd below, so only a plain
   # connector name may pass; a hostile output name could execute otherwise.
@@ -96,7 +123,7 @@ set_scale() {
   local new_gdk_scale="$(awk -v scale="$new_scale" 'BEGIN { printf "%d", int(scale + 0.5) }')"
   local monitor_lua="$OMARCHY_SESSION_CONFIG_HOME/hypr/monitors.lua"
 
-  hyprctl eval "hl.monitor({ output = \"$active_monitor\", mode = \"${width}x${height}@${refresh_rate}\", position = \"auto\", scale = $new_scale })" >/dev/null
+  hyprctl eval "hl.monitor({ output = \"$active_monitor\", mode = \"${width}x${height}@${refresh_rate}\", position = \"auto\", scale = $new_scale })" >/dev/null || return 1
   audit_scale_change "$requested" "$active_monitor" "$current_scale" "$new_scale"
 
   # Persist to monitors.lua if the user still has Omarchy's generic catch-all
@@ -181,12 +208,12 @@ case "${1:-}" in
   usage
   ;;
 up)
-  monitor_info=$(hyprctl monitors -j | jq -e -c '.[] | select(.focused == true)')
+  monitor_info=$(selected_monitor_info) || exit 1
   set_scale "$(echo "$monitor_info" | jq -r '.scale' | scale_from_current next \
     "$(echo "$monitor_info" | jq -r '.width')" "$(echo "$monitor_info" | jq -r '.height')")" "up"
   ;;
 down)
-  monitor_info=$(hyprctl monitors -j | jq -e -c '.[] | select(.focused == true)')
+  monitor_info=$(selected_monitor_info) || exit 1
   set_scale "$(echo "$monitor_info" | jq -r '.scale' | scale_from_current previous \
     "$(echo "$monitor_info" | jq -r '.width')" "$(echo "$monitor_info" | jq -r '.height')")" "down"
   ;;

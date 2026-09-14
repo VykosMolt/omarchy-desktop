@@ -10,8 +10,8 @@ local function env_or(name, fallback)
   return value
 end
 
-local config_home = env_or("OMARCHY_SESSION_CONFIG_HOME", home .. "/.config")
-local state_home = env_or("OMARCHY_SESSION_STATE_HOME", home .. "/.local/state")
+local config_home = env_or("OMARCHY_SESSION_CONFIG_HOME", env_or("XDG_CONFIG_HOME", home .. "/.config"))
+local state_home = env_or("OMARCHY_SESSION_STATE_HOME", env_or("XDG_STATE_HOME", home .. "/.local/state"))
 
 local reload_prefixes = {
   "default.hypr",
@@ -40,6 +40,10 @@ for _, module in ipairs(modules_to_reload) do
   package.loaded[module] = nil
 end
 
+-- Hyprland reloads this file in the same Lua VM. Keep the original search
+-- path once, so repeated reloads do not accumulate duplicate session paths.
+_G.omarchy_base_package_path = _G.omarchy_base_package_path or package.path
+
 -- Load generated state and user modules from the active Omarchy session
 -- roots, then Omarchy defaults from $OMARCHY_PATH.
 package.path = state_home
@@ -48,4 +52,4 @@ package.path = state_home
   .. "/?.lua;"
   .. assert(os.getenv("OMARCHY_PATH"), "OMARCHY_PATH is unset")
   .. "/?.lua;"
-  .. package.path
+  .. _G.omarchy_base_package_path

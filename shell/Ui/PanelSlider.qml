@@ -130,6 +130,7 @@ Item {
     acceptedButtons: Qt.LeftButton | Qt.RightButton
 
     function valueFromX(x) {
+      if (track.width <= 0) return root.minimum
       var clamped = Math.max(0, Math.min(track.width, x))
       var raw = root.minimum + (clamped / track.width) * root.range
       if (root.integer) raw = Math.round(raw)
@@ -158,7 +159,12 @@ Item {
       root.released(root.liveValue)
       root.liveValue = root.value
     }
+    onCanceled: {
+      root.dragging = false
+      root.liveValue = root.value
+    }
     onWheel: function(wheel) {
+      if (wheel.angleDelta.y === 0) return
       var delta = wheel.angleDelta.y > 0 ? root.step : -root.step
       var next = Math.max(root.minimum, Math.min(root.maximum, root.liveValue + delta))
       if (root.integer) next = Math.round(next)

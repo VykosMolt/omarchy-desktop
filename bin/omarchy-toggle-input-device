@@ -30,7 +30,11 @@ esac
 # reads back exactly what was written however the XDG variables are set.
 NAME_FILE="$OMARCHY_STATE_HOME/toggles/hypr/$KIND-disabled-name"
 
-device="$("omarchy-hw-$KIND")"
+if [[ $KIND == "touchscreen" ]]; then
+  device=$(hyprctl devices -j | jq -r '[.touch[]? | .name] | first // empty')
+else
+  device=$(omarchy-hw-touchpad)
+fi
 
 require_device() {
   if [[ -z $device ]]; then
@@ -56,13 +60,13 @@ enable() {
   # that stops reporting a valid name can never wedge the disable in place.
   rm -f "$NAME_FILE"
   require_device
-  apply_device true
+  apply_device true || return 1
   omarchy-osd -i "$ICON" -m "$LABEL enabled"
 }
 
 disable() {
   require_device
-  apply_device false
+  apply_device false || return 1
   mkdir -p "$(dirname "$NAME_FILE")"
   printf '%s\n' "$device" >"$NAME_FILE"
   omarchy-osd -i "$ICON" -m "$LABEL disabled"

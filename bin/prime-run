@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# omarchy:summary=Run a program on the discrete NVIDIA GPU (PRIME render offload)
+# omarchy:examples=prime-run glxinfo -B
+
+# The session pins EGL and GLX to Mesa (runtime/env.sh) so the compositor and
+# the desktop never hold the discrete card open. An application that should use
+# it needs that pin lifted before the NVIDIA vendor can claim it; otherwise this
+# is /usr/bin/prime-run.
+exec env -u __EGL_VENDOR_LIBRARY_FILENAMES \
+  __NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia "$@"

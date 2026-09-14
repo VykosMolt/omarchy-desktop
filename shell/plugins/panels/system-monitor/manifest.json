@@ -4,7 +4,7 @@
   "name": "System monitor",
   "version": "1.0.0",
   "author": "Omarchy",
-  "description": "CPU and memory in the bar, with a task manager of open apps and the processes behind them",
+  "description": "CPU and memory in the bar, with a task manager of running apps and the processes behind them",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
   },
   "barWidget": {
     "displayName": "System monitor",
-    "description": "CPU and memory in the bar, with a task manager of open apps and the processes behind them",
+    "description": "CPU and memory in the bar, with a task manager of running apps and the processes behind them",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",

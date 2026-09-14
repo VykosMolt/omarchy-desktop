@@ -21,6 +21,7 @@ export ROOT
 # Every OMARCHY_* variable goes, not a fixed list: a session exports the unit
 # names and OMARCHY_PATH too, and a test that forgets to set one should fail
 # loudly rather than quietly pick up the live session's.
+__omarchy_test_graphical=${OMARCHY_TEST_GRAPHICAL:-0}
 mapfile -t __inherited < <(compgen -e | grep '^OMARCHY_' || true)
 (( ${#__inherited[@]} == 0 )) || unset "${__inherited[@]}"
 unset __inherited
@@ -52,7 +53,7 @@ omarchy_test_is_omarchy_bin() {
   # commands on PATH for every test meant to hide one. That failure is silent:
   # the suite still passes, it just stops testing what it says it tests. A
   # stray file should not be able to switch off the isolation.
-  for entry in "$dir"/*; do
+  for entry in "${dir:-.}"/*; do
     [[ -f $entry && -x $entry ]] || continue
     [[ ${entry##*/} == omarchy* ]] || return 1
     found=0
@@ -66,7 +67,7 @@ while IFS= read -r __path_entry; do
   if ! omarchy_test_is_omarchy_bin "$__path_entry"; then
     __kept_path+=("$__path_entry")
   fi
-done < <(printf '%s' "$PATH" | tr ':' '\n')
+done < <(printf '%s\n' "$PATH" | tr ':' '\n')
 PATH=$(IFS=:; printf '%s' "${__kept_path[*]}")
 export PATH
 unset __kept_path __path_entry
@@ -82,6 +83,17 @@ OMARCHY_TEST_SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/omarchy-test.XXXXXX")
 export OMARCHY_TEST_SANDBOX
 export HOME="$OMARCHY_TEST_SANDBOX/home"
 mkdir -p "$HOME"
+
+# A fake HOME does not isolate IPC or processes. Default model/helper tests
+# must not reach the real desktop or user bus. Graphical fixtures require an
+# explicit opt-in and a dedicated test compositor supplied by their caller.
+if [[ $__omarchy_test_graphical != 1 ]]; then
+  export XDG_RUNTIME_DIR="$OMARCHY_TEST_SANDBOX/runtime"
+  mkdir -m 700 "$XDG_RUNTIME_DIR"
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  unset WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE DISPLAY
+fi
+unset __omarchy_test_graphical
 
 omarchy_test_sandbox_cleanup() {
   [[ -n ${OMARCHY_TEST_SANDBOX:-} && -d $OMARCHY_TEST_SANDBOX ]] || return 0
@@ -151,7 +163,7 @@ compositor_reachable() {
   # far, so the waiting is rare.
   local attempt
   for attempt in 1 2 3; do
-    hyprctl -j monitors >/dev/null 2>&1 && return 0
+    timeout --kill-after=1s 2s hyprctl -j monitors >/dev/null 2>&1 && return 0
     (( attempt < 3 )) && sleep 0.5
   done
 

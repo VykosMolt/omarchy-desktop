@@ -24,7 +24,6 @@
   // provider can only reference row sources the shell already defines (the
   // providers map in Menu.qml). Static submenus only need dotted ids.
   //
-  // Example: replace the default About action by reusing the same id. Existing
-  // fields are kept unless overridden.
+  // Example: add a personal system-information action.
   // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
 }

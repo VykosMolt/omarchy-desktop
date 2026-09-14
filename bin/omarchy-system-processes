@@ -49,180 +49,119 @@ done
 [[ $limit =~ ^[0-9]+$ ]] || { echo "omarchy-system-processes: --limit takes a whole number" >&2; exit 1; }
 [[ $interval =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "omarchy-system-processes: --interval takes seconds" >&2; exit 1; }
 
-# One awk over every stat file, not one per process: at four hundred processes
-# the fork cost was longer than the sampling window itself, which made every
-# reading several times too high.
-#
-# A process that exits between the two samples has no second reading and drops
-# out; one that starts between them has no first and counts from zero.
-sample() {
-  awk '
-    FNR == 1 {
-      split(FILENAME, parts, "/")
-      # comm sits in parentheses and may contain spaces and parentheses of its
-      # own, so index from the last closing one rather than counting fields.
-      close_paren = match($0, /\)[^)]*$/)
-      split(substr($0, close_paren + 1), f, " ")
-      # After the closing parenthesis, utime is the 12th field and stime the
-      # 13th, being fields 14 and 15 of the line.
-      print parts[3] "\t" (f[12] + f[13])
-    }
-  ' /proc/[0-9]*/stat 2>/dev/null || true
-}
+# One Python process reads complete procfs records and emits JSON directly.
+# Each row is tied to its kernel start time; a recycled PID cannot inherit the
+# old process's CPU delta or become a different target in the system monitor.
+exec python3 - "$limit" "$interval" <<'PYTHON'
+import json
+import os
+import sys
+import time
 
-# A process that exits between the glob expanding and awk opening its stat file
-# leaves awk with an argument it cannot read, and awk answers that with exit 2
-# even though it processed every other file. Under set -e that took the whole
-# command down and printed nothing at all -- roughly one run in forty on a busy
-# machine. The rows awk did produce are still complete, so the missing process
-# is simply one that is no longer running, which is the honest answer.
+limit = int(sys.argv[1])
+interval = float(sys.argv[2])
+ticks = os.sysconf("SC_CLK_TCK")
+page_kb = os.sysconf("SC_PAGE_SIZE") // 1024
+cpu_count = os.cpu_count() or 1
 
-# Whatever the requested interval, what the arithmetic needs is how much time
-# actually passed between the two readings. Assuming the nominal interval made
-# every figure wrong by however long the scan took. EPOCHREALTIME renders with
-# the locale's decimal separator, so strip everything that is not a digit and
-# work in microseconds.
-first_started=${EPOCHREALTIME//[!0-9]/}
-first=$(sample)
-first_finished=${EPOCHREALTIME//[!0-9]/}
-sleep "$interval"
-second_started=${EPOCHREALTIME//[!0-9]/}
-second=$(sample)
-second_finished=${EPOCHREALTIME//[!0-9]/}
 
-# A sample is not an instant: each scan takes time, and a given process is read
-# somewhere inside it. Timing from the start of the first scan to the end of the
-# second counts both scans as elapsed while the tick delta spans only the middle
-# of one to the middle of the other, so every reading came out low by about one
-# scan. Use the midpoints.
-elapsed=$(LC_ALL=C awk -v a="$first_started" -v b="$first_finished" \
-  -v c="$second_started" -v d="$second_finished" \
-  'BEGIN { printf "%.6f", (((c + d) / 2) - ((a + b) / 2)) / 1000000 }')
+def read_at(directory, name):
+    fd = os.open(name, os.O_RDONLY, dir_fd=directory)
+    with os.fdopen(fd, "rb") as source:
+        return source.read().decode("utf-8", errors="replace")
 
-# A clock that went backwards, or a sample pair with no time between them, has
-# nothing to divide by.
-# e is compared as a string unless it is forced to a number, so "0,5" from a
-# comma-decimal locale passed this guard and then divided by zero further down.
-# LC_ALL=C on every awk keeps the separator a period in the first place.
-LC_ALL=C awk -v e="$elapsed" 'BEGIN { exit (e + 0 > 0) ? 0 : 1 }' || {
-  echo "[]"
-  exit 0
-}
 
-# One vanished process is expected and tolerated by sample(). A first sample
-# that produced nothing at all is not: every process would then be seeded from
-# the second sample and reported at exactly 0%, which is a plausible-looking
-# table of lies rather than a visible failure.
-if [[ -z $first ]]; then
-  echo "omarchy-system-processes: could not read any process" >&2
-  exit 1
-fi
-
-ticks_per_second=$(getconf CLK_TCK)
-# --all, because plain nproc reports this process's CPU affinity: under a
-# taskset or a cpuset the clamp below would cut real readings down to it.
-cpu_count=$(nproc --all)
-page_kb=$(( $(getconf PAGESIZE) / 1024 ))
-mem_total_kb=$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo)
-
-{
-  printf '%s\n' "$first"
-  printf -- '--\n'
-  printf '%s\n' "$second"
-} | LC_ALL=C awk -v ticks="$ticks_per_second" -v elapsed="$elapsed" -v cpus="$cpu_count" \
-        -v page_kb="$page_kb" -v mem_total="$mem_total_kb" -v limit="$limit" '
-  BEGIN { phase = 0 }
-  /^--$/ { phase = 1; next }
-  phase == 0 { before[$1] = $2; next }
-  {
-    pid = $1
-    if (!(pid in before)) before[pid] = $2
-
-    # Ticks burned between the samples over the time that actually passed, as
-    # a share of one core: 100% is one core busy, and a threaded process can
-    # legitimately read higher, up to 100% per core.
-    used = ($2 - before[pid]) / ticks
-    cpu = (used / elapsed) * 100
-    if (cpu < 0) cpu = 0
-    if (cpu > 100 * cpus) cpu = 100 * cpus
-
-    # awk variables are global, so every one of these has to be cleared per
-    # row: a process that exits mid-scan has no files left to read, and would
-    # otherwise be reported carrying values from the row before it.
-    comm = ""
-    cmdline = ""
-    rss_kb = 0
-    uid = -1
-
-    stat_path = "/proc/" pid "/stat"
-    if ((getline line < stat_path) > 0) {
-      open_paren = index(line, "(")
-      close_paren = match(line, /\)[^)]*$/)
-      comm = substr(line, open_paren + 1, close_paren - open_paren - 1)
-      # The kernel does not escape control characters in /proc/<pid>/stat, and
-      # a command line is whatever argv held. A tab shifts every field of the
-      # row below, and a newline splits it in two, so jq reads a name where a
-      # number should be and the whole command dies -- which any unprivileged
-      # process could cause just by having a tab in its arguments.
-      gsub(/[\t\n\r]/, " ", comm)
-      rest = substr(line, close_paren + 1)
-      split(rest, f, " ")
-      rss_kb = f[22] * page_kb
-    }
-    close(stat_path)
-
-    cmd_path = "/proc/" pid "/cmdline"
-    if ((getline raw < cmd_path) > 0) {
-      gsub(/\0/, " ", raw)
-      gsub(/[\t\n\r]/, " ", raw)
-      sub(/[[:space:]]+$/, "", raw)
-      cmdline = raw
-    }
-    close(cmd_path)
-    if (cmdline == "") cmdline = comm
-
-    status_path = "/proc/" pid "/status"
-    while ((getline sline < status_path) > 0) {
-      if (sline ~ /^Uid:/) { split(sline, u, /[[:space:]]+/); uid = u[2]; break }
-    }
-    close(status_path)
-
-    mem = (mem_total > 0) ? (rss_kb / mem_total) * 100 : 0
-
-    rows[++n] = sprintf("%.4f\t%s\t%s\t%s\t%.4f\t%d\t%s", cpu, pid, comm, cmdline, mem, rss_kb, uid)
-  }
-  END {
-    # Sort by CPU descending. n is small enough that an insertion sort costs
-    # nothing and avoids depending on gawk-only asort.
-    for (i = 2; i <= n; i++) {
-      key = rows[i]
-      split(key, k, "\t")
-      j = i - 1
-      while (j >= 1) {
-        split(rows[j], p, "\t")
-        if (p[1] + 0 >= k[1] + 0) break
-        rows[j + 1] = rows[j]
-        j--
-      }
-      rows[j + 1] = key
+def parse_stat(raw):
+    closing = raw.rfind(")")
+    opening = raw.find("(")
+    if opening < 0 or closing <= opening:
+        raise ValueError("invalid process stat")
+    fields = raw[closing + 1:].split()
+    return {
+        "name": raw[opening + 1:closing],
+        "ppid": int(fields[1]),
+        "ticks": int(fields[11]) + int(fields[12]),
+        "startTime": fields[19],
+        "rssKb": max(0, int(fields[21])) * page_kb,
+        "sampled": time.monotonic(),
     }
 
-    printed = 0
-    for (i = 1; i <= n; i++) {
-      if (limit > 0 && printed >= limit) break
-      print rows[i]
-      printed++
-    }
-  }
-' | jq -R -s '
-  split("\n")
-  | map(select(length > 0) | split("\t") | {
-      cpu: (.[0] | tonumber),
-      pid: (.[1] | tonumber),
-      name: .[2],
-      command: .[3],
-      memory: (.[4] | tonumber),
-      rssKb: (.[5] | tonumber),
-      uid: (.[6] | tonumber)
-    })
-'
+
+def sample():
+    records = {}
+    with os.scandir("/proc") as entries:
+        for entry in entries:
+            if not entry.name.isdecimal():
+                continue
+            try:
+                with open(entry.path + "/stat", encoding="utf-8", errors="replace") as source:
+                    records[int(entry.name)] = parse_stat(source.read())
+            except (OSError, ValueError, IndexError):
+                continue
+    return records
+
+
+first = sample()
+if not first:
+    sys.exit("omarchy-system-processes: could not read any process")
+time.sleep(interval)
+second = sample()
+with open("/proc/meminfo") as source:
+    mem_total = next(int(line.split()[1]) for line in source if line.startswith("MemTotal:"))
+
+rows = []
+for pid, current in second.items():
+    before = first.get(pid)
+    if before and before["startTime"] != current["startTime"]:
+        continue
+    elapsed = current["sampled"] - before["sampled"] if before else 0
+    used = (current["ticks"] - before["ticks"]) / ticks if before else 0
+    cpu = max(0, min(100 * cpu_count, used / elapsed * 100)) if elapsed > 0 else 0
+    directory = None
+    try:
+        # An open proc directory keeps subsequent reads attached to this process
+        # even if the PID is reused while its metadata is being collected.
+        directory = os.open(f"/proc/{pid}", os.O_RDONLY | os.O_DIRECTORY)
+        final = parse_stat(read_at(directory, "stat"))
+        if final["startTime"] != current["startTime"]:
+            continue
+        try:
+            command = read_at(directory, "cmdline").replace("\0", " ").rstrip()
+        except OSError:
+            command = ""
+        uid = -1
+        try:
+            for line in read_at(directory, "status").splitlines():
+                if line.startswith("Uid:"):
+                    uid = int(line.split()[1])
+                    break
+        except OSError:
+            pass
+        unit, app_unit = "", False
+        try:
+            for line in read_at(directory, "cgroup").splitlines():
+                if line.startswith("0::"):
+                    group = line[3:]
+                    app_unit = "/app.slice/" in group
+                    unit = group.rsplit("/", 1)[-1]
+                    break
+        except OSError:
+            pass
+        if parse_stat(read_at(directory, "stat"))["startTime"] != current["startTime"]:
+            continue
+        rows.append({
+            "pid": pid, "startTime": current["startTime"], "cpu": round(cpu, 4),
+            "name": final["name"], "command": command or final["name"],
+            "memory": round(final["rssKb"] / mem_total * 100, 4),
+            "rssKb": final["rssKb"], "uid": uid, "ppid": final["ppid"],
+            "unit": unit, "appUnit": app_unit,
+        })
+    except (OSError, ValueError, IndexError):
+        continue
+    finally:
+        if directory is not None:
+            os.close(directory)
+
+rows.sort(key=lambda row: (-row["cpu"], row["pid"]))
+print(json.dumps(rows[:limit] if limit else rows, ensure_ascii=True, separators=(",", ":")))
+PYTHON

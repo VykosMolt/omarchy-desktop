@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# omarchy:summary=Send SIGTERM or SIGKILL to processes the system monitor named
+# omarchy:group=system
+# omarchy:name=signal
+# omarchy:args=--signal TERM|KILL <pid[:start-time]>...
+# omarchy:examples=omarchy system signal --signal TERM 4242
+
+# Identity tokens from the monitor carry the process start time. pidfds bind
+# the signal to the opened process, so PID reuse between confirmation, identity
+# validation and delivery cannot terminate a different process.
+exec python3 - "$@" <<'PYTHON'
+import errno
+import os
+import re
+import signal
+import sys
+
+
+def usage():
+    print("Usage: omarchy-system-signal --signal TERM|KILL <pid[:start-time]>...", file=sys.stderr)
+
+
+args = sys.argv[1:]
+chosen = ""
+targets = []
+while args:
+    value = args.pop(0)
+    if value in ("-h", "--help"):
+        usage()
+        sys.exit(0)
+    if value == "--signal" and args:
+        chosen = args.pop(0)
+    else:
+        targets.append(value)
+if chosen not in ("TERM", "KILL") or not targets:
+    usage()
+    sys.exit(1)
+
+parsed = []
+for target in targets:
+    if not re.fullmatch(r"[0-9]+(?::[0-9]+)?", target):
+        sys.exit(f"omarchy-system-signal: refusing to signal {target}")
+    number, separator, start = target.partition(":")
+    pid = int(number)
+    if not 1 < pid <= 2147483647:
+        sys.exit(f"omarchy-system-signal: refusing to signal {target}")
+    parsed.append((pid, str(int(start)) if separator else None))
+
+if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+    sys.exit("omarchy-system-signal: this system does not support safe process signalling")
+
+# Resolve the complete vector before delivering any signal. Refused opens must
+# not leave the requested group partly terminated.
+opened = []
+refused = []
+try:
+    for pid, expected in parsed:
+        descriptor = None
+        try:
+            descriptor = os.pidfd_open(pid)
+            if expected is not None:
+                with open(f"/proc/{pid}/stat") as source:
+                    raw = source.read()
+                actual = raw[raw.rfind(")") + 1:].split()[19]
+                if actual != expected:
+                    os.close(descriptor)
+                    continue
+            opened.append((pid, descriptor))
+        except (ProcessLookupError, FileNotFoundError):
+            if descriptor is not None:
+                os.close(descriptor)
+        except (OSError, ValueError, IndexError):
+            if descriptor is not None:
+                os.close(descriptor)
+            refused.append(pid)
+    if not refused:
+        for pid, descriptor in opened:
+            try:
+                signal.pidfd_send_signal(descriptor, getattr(signal, "SIG" + chosen))
+            except ProcessLookupError:
+                pass
+            except OSError:
+                refused.append(pid)
+finally:
+    for _, descriptor in opened:
+        os.close(descriptor)
+
+if refused:
+    sys.exit("omarchy-system-signal: could not signal " + " ".join(map(str, refused)))
+PYTHON

@@ -446,6 +446,57 @@ function historyRows(raw, liveRows, normalUrgency, limit) {
   return out.slice(0, max)
 }
 
+// Deadlines use elapsed time supplied by the service, never wall-clock time.
+// One toast can have a card on every output; any hovered copy pauses it.
+function createPopupSchedule() {
+  var entries = Object.create(null)
+  return {
+    reset: function(key, duration, now) {
+      var previous = entries[key]
+      var owners = previous ? previous.owners : []
+      entries[key] = {
+        owners: owners,
+        expiring: duration > 0,
+        remaining: duration,
+        deadline: duration > 0 && owners.length === 0 ? now + duration : null
+      }
+    },
+    remove: function(key) { delete entries[key] },
+    hover: function(key, owner, hovered, now) {
+      var entry = entries[key]
+      if (!entry) return
+      var index = entry.owners.indexOf(owner)
+      if (hovered) {
+        if (index !== -1) return
+        if (entry.deadline !== null) {
+          entry.remaining = Math.max(0, entry.deadline - now)
+          entry.deadline = null
+        }
+        entry.owners.push(owner)
+      } else {
+        if (index === -1) return
+        entry.owners.splice(index, 1)
+        if (entry.owners.length === 0 && entry.expiring)
+          entry.deadline = now + entry.remaining
+      }
+    },
+    next: function(now) {
+      var delay = null
+      Object.keys(entries).forEach(function(key) {
+        var deadline = entries[key].deadline
+        if (deadline !== null) delay = delay === null ? deadline - now : Math.min(delay, deadline - now)
+      })
+      return delay === null ? null : Math.max(0, delay)
+    },
+    due: function(now) {
+      return Object.keys(entries).filter(function(key) {
+        var deadline = entries[key].deadline
+        return deadline !== null && deadline <= now
+      })
+    }
+  }
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     isChromiumDerived: isChromiumDerived,
@@ -474,6 +525,7 @@ if (typeof module !== "undefined") {
     serializePopup: serializePopup,
     parsePopupFiles: parsePopupFiles,
     popupExpired: popupExpired,
-    popupPlacement: popupPlacement
+    popupPlacement: popupPlacement,
+    createPopupSchedule: createPopupSchedule
   }
 }

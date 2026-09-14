@@ -138,7 +138,7 @@ BarWidget {
       if (tab <= 0) continue
       next[line.substring(0, tab)] = line.substring(tab + 1)
     }
-    root.readings = next
+    if (JSON.stringify(root.readings) !== JSON.stringify(next)) root.readings = next
   }
 
   function refresh() {

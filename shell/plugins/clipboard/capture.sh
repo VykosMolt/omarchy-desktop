@@ -6,9 +6,8 @@
 
 set -o pipefail
 
-STATE_DIR="${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}"
-IMAGE_DIR="$STATE_DIR/clipboard-images"
-mkdir -p "$IMAGE_DIR"
+source "$OMARCHY_PATH/lib/omarchy-paths.sh" || exit 1
+IMAGE_DIR="$OMARCHY_STATE_HOME/clipboard-images"
 
 types=$(wl-paste --list-types 2>/dev/null || true)
 
@@ -20,6 +19,7 @@ emit_image() {
   local mime="$1"
   local ext tmp hash file
 
+  mkdir -p "$IMAGE_DIR" || return 1
   ext=${mime#image/}
   [[ $ext == jpeg ]] && ext=jpg
 

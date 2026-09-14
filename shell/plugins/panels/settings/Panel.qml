@@ -68,14 +68,22 @@ Item {
 
   // Host-initiated close (`omarchy-shell shell hide`). The host already knows.
   function close() {
+    root.closeDropdowns()
     panelController.hide()
   }
 
   // User-initiated close. Tell the shell so its openPanelIds map stays
   // consistent and the next toggle opens rather than closes.
   function dismiss() {
+    root.closeDropdowns()
     panelController.hide()
     if (root.shell && typeof root.shell.hide === "function") root.shell.hide(root.pluginId)
+  }
+
+  function closeDropdowns() {
+    var dropdowns = [themeDropdown, iconThemeDropdown, fontDropdown, textSizeDropdown,
+      monitorScaleDropdown, screenOffDropdown, lockDropdown, suspendDropdown]
+    for (var i = 0; i < dropdowns.length; i++) dropdowns[i].close()
   }
 
   function toggle() {
@@ -135,7 +143,7 @@ Item {
 
   function errorFor(rowId) {
     var key = String(rowId)
-    return String(root.errors[key] || root.errors[key + ".options"] || "")
+    return String(root.errors[key + ".write"] || root.errors[key] || root.errors[key + ".options"] || "")
   }
 
   function setError(key, message) {
@@ -249,8 +257,7 @@ Item {
   function refreshRow(rowId) {
     var reader = readerFor(rowId)
     if (!reader) return
-    if (reader.running) reader.rerun = true
-    else reader.running = true
+    reader.request()
   }
 
   function refreshAll() {
@@ -258,9 +265,9 @@ Item {
     for (var i = 0; i < ids.length; i++) {
       if (Model.ownerOf(ids[i]) === "system") refreshRow(ids[i])
     }
-    if (!themeOptionsReader.running) themeOptionsReader.running = true
-    if (!iconThemeOptionsReader.running) iconThemeOptionsReader.running = true
-    if (!fontOptionsReader.running) fontOptionsReader.running = true
+    themeOptionsReader.request()
+    iconThemeOptionsReader.request()
+    fontOptionsReader.request()
   }
 
   function finishRead(reader) {
@@ -328,6 +335,12 @@ Item {
     var next = root.writeQueue[0]
     root.writeQueue = root.writeQueue.slice(1)
     root.writeRow = next.rowId
+    writeProcess.pendingResult = true
+    writeProcess.startConfirmed = false
+    writeProcess.resultExited = false
+    writeProcess.errDone = false
+    writeProcess.code = 0
+    writeProcess.errorText = ""
     writeProcess.command = next.command
     writeProcess.running = true
   }
@@ -335,8 +348,8 @@ Item {
   function finishWrite() {
     var rowId = root.writeRow
     root.writeRow = ""
-    if (writeProcess.code === 0) root.clearError(rowId)
-    else root.setError(rowId, Model.commandError(writeProcess.command, writeProcess.code, writeProcess.errorText))
+    if (writeProcess.code === 0) root.clearError(rowId + ".write")
+    else root.setError(rowId + ".write", Model.commandError(writeProcess.command, writeProcess.code, writeProcess.errorText))
     // Honest either way: ask the setting what it is now rather than assuming
     // the write took. A shell-owned row has no reader -- its value comes back
     // through shellConfig when the command reloads the shell's config.
@@ -358,28 +371,49 @@ Item {
     property string outputText: ""
     property string errorText: ""
     property int code: 0
-    property bool exited: false
+    property bool resultExited: false
+    property bool pendingResult: false
+    property bool startConfirmed: false
     property bool outDone: false
     property bool errDone: false
 
-    function settle() {
-      if (!reader.exited || !reader.outDone || !reader.errDone) return
-      root.finishRead(reader)
+    function request() {
+      reader.rerun = true
+      reader.pump()
     }
 
-    onRunningChanged: {
-      if (running) {
-        reader.outputText = ""
-        reader.errorText = ""
-        reader.code = 0
-        reader.exited = false
-        reader.outDone = false
-        reader.errDone = false
-      } else if (reader.rerun) {
-        reader.rerun = false
-        Qt.callLater(function() { if (!reader.running) reader.running = true })
-      }
+    function pump() {
+      if (!reader.rerun || reader.running || reader.pendingResult) return
+      reader.rerun = false
+      reader.pendingResult = true
+      reader.startConfirmed = false
+      reader.outputText = ""
+      reader.errorText = ""
+      reader.code = 0
+      reader.resultExited = false
+      reader.outDone = false
+      reader.errDone = false
+      reader.running = true
     }
+
+    function settle() {
+      if (!reader.pendingResult || !reader.resultExited || !reader.outDone || !reader.errDone) return
+      reader.pendingResult = false
+      if (!reader.rerun) root.finishRead(reader)
+      Qt.callLater(reader.pump)
+    }
+
+    onStarted: reader.startConfirmed = true
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (reader.pendingResult && !reader.startConfirmed && !reader.running) {
+        reader.code = 127
+        reader.resultExited = true
+        reader.outDone = true
+        reader.errDone = true
+        reader.settle()
+      }
+      reader.pump()
+    })
 
     stdout: StdioCollector {
       waitForEnd: true
@@ -389,7 +423,7 @@ Item {
       waitForEnd: true
       onStreamFinished: { reader.errorText = text; reader.errDone = true; reader.settle() }
     }
-    onExited: function(exitCode) { reader.code = exitCode; reader.exited = true; reader.settle() }
+    onExited: function(exitCode) { reader.code = exitCode; reader.resultExited = true; reader.settle() }
   }
 
   Reader {
@@ -493,30 +527,33 @@ Item {
 
     property string errorText: ""
     property int code: 0
-    property bool exited: false
+    property bool resultExited: false
+    property bool pendingResult: false
+    property bool startConfirmed: false
     property bool errDone: false
 
     function settle() {
-      if (!writeProcess.exited || !writeProcess.errDone) return
+      if (!writeProcess.pendingResult || !writeProcess.resultExited || !writeProcess.errDone) return
+      writeProcess.pendingResult = false
       root.finishWrite()
     }
 
-    onRunningChanged: {
-      if (running) {
-        writeProcess.errorText = ""
-        writeProcess.code = 0
-        writeProcess.exited = false
-        writeProcess.errDone = false
-      } else {
-        Qt.callLater(root.pumpWrites)
+    onStarted: writeProcess.startConfirmed = true
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (writeProcess.pendingResult && !writeProcess.startConfirmed && !writeProcess.running) {
+        writeProcess.code = 127
+        writeProcess.resultExited = true
+        writeProcess.errDone = true
+        writeProcess.settle()
       }
-    }
+      root.pumpWrites()
+    })
 
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: { writeProcess.errorText = text; writeProcess.errDone = true; writeProcess.settle() }
     }
-    onExited: function(exitCode) { writeProcess.code = exitCode; writeProcess.exited = true; writeProcess.settle() }
+    onExited: function(exitCode) { writeProcess.code = exitCode; writeProcess.resultExited = true; writeProcess.settle() }
   }
 
   // ---- window -------------------------------------------------------------

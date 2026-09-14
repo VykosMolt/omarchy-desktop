@@ -42,3 +42,31 @@ for f in shell/plugins/background/Background.qml shell/plugins/lock/Service.qml;
     fail "$(basename "$(dirname "$f")")/$(basename "$f") resolves its background through Paths"
 done
 pass "the wallpaper and the lock screen both resolve their background through Paths"
+
+runtime_tmp=$(mktemp -d)
+trap 'rm -rf "$runtime_tmp"' EXIT
+source "$ROOT/lib/omarchy-paths.sh"
+OMARCHY_CACHE_HOME="$runtime_tmp/cache"
+unset XDG_RUNTIME_DIR
+runtime=$(omarchy_runtime_dir)
+[[ $runtime == "$OMARCHY_CACHE_HOME/runtime" && -d $runtime ]] || fail "runtime fallback is scoped to the session cache"
+[[ $(stat -c %a "$runtime") == 700 ]] || fail "runtime fallback is private"
+[[ $(omarchy_runtime_dir) == "$runtime" ]] || fail "runtime fallback is stable across calls"
+pass "runtime fallback is private and stable"
+
+mkdir "$runtime_tmp/session"
+[[ $(XDG_RUNTIME_DIR="$runtime_tmp/session" omarchy_runtime_dir) == "$runtime_tmp/session" ]] || fail "runtime helper honors the session directory"
+chmod 777 "$runtime_tmp/session"
+if XDG_RUNTIME_DIR="$runtime_tmp/session" omarchy_runtime_dir >/dev/null 2>&1; then
+  fail "runtime helper refuses a directory writable by other users"
+fi
+chmod 700 "$runtime_tmp/session"
+if XDG_RUNTIME_DIR="$runtime_tmp/missing" omarchy_runtime_dir >/dev/null 2>&1; then
+  fail "runtime helper refuses an invalid explicit directory"
+fi
+mkdir "$runtime_tmp/other-cache"
+ln -s "$runtime_tmp/session" "$runtime_tmp/other-cache/runtime"
+if OMARCHY_CACHE_HOME="$runtime_tmp/other-cache" omarchy_runtime_dir >/dev/null 2>&1; then
+  fail "runtime fallback refuses symlinks"
+fi
+pass "runtime helper rejects invalid and redirected directories"

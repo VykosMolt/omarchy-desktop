@@ -51,13 +51,6 @@ ln -s "$ROOT/config" "$test_root/config"
 ln -s "$ROOT/bin" "$test_root/bin"
 
 
-cat >"$stub_bin/omarchy-update-available" <<'SH'
-#!/bin/bash
-echo "Omarchy update available (test)"
-exit 0
-SH
-chmod +x "$stub_bin/omarchy-update-available"
-
 cat >"$stub_bin/curl" <<'SH'
 #!/bin/bash
 
@@ -168,7 +161,6 @@ shell_ipc_quiet image-selector cancel "$selector_done_file" >/dev/null
 rm -f "$selector_selection_file" "$selector_done_file"
 pass "image selector IPC survives plugin rescan"
 
-shell_ipc_quiet omarchy.system-update refresh >/dev/null 2>&1 || true
 sleep 0.8
 
 default_ids=$(jq -c '(.bar.layout.left + .bar.layout.center + .bar.layout.right) | map(.id // .)' "$ROOT/config/omarchy/shell.json")
@@ -177,7 +169,6 @@ visible_default_ids='[
   "omarchy.workspaces",
   "omarchy.clock",
   "omarchy.weather",
-  "omarchy.system-update",
   "omarchy.network",
   "omarchy.audio",
   "omarchy.monitor"
@@ -230,20 +221,16 @@ if [[ -n $stray ]]; then
 fi
 pass "a click inside a slot reaches only that slot's own button"
 
-jq -e '
-  map(select(.section == "center")) | map(.id) as $center |
-  ($center | index("omarchy.weather")) != null and
-  ($center | index("omarchy.system-update")) != null and
-  ($center | index("omarchy.indicators")) != null and
-  (($center | index("omarchy.weather")) < ($center | index("omarchy.system-update"))) and
-  (($center | index("omarchy.system-update")) < ($center | index("omarchy.indicators")))
+center_defaults=$(jq -c '[.bar.layout.center[] | .id // .]' "$ROOT/config/omarchy/shell.json")
+jq -e --argjson expected "$center_defaults" '
+  map(select(.section == "center")) | map(.id) == $expected
 ' <<<"$geometry" >/dev/null || {
   printf 'Geometry:\n' >&2
   jq . <<<"$geometry" >&2
-  fail_with_log "runtime geometry keeps update before indicators"
+  fail_with_log "runtime geometry keeps the configured center widget order"
 }
 
-pass "runtime geometry keeps update before indicators"
+pass "runtime geometry keeps the configured center widget order"
 
 for panel_id in omarchy.audio omarchy.bluetooth omarchy.monitor omarchy.network omarchy.power; do
   shell_ipc "$panel_id" open >/dev/null || fail_with_log "direct panel IPC opens $panel_id"
@@ -269,7 +256,7 @@ if (( worst > screens - 1 )); then
 fi
 pass "each widget registers its IPC handler once per screen"
 
-HOME="$test_home" OMARCHY_PATH="$test_root" PATH="$ROOT/bin:$PATH" "$ROOT/bin/omarchy-plugin-disable" omarchy.audio
+HOME="$test_home" OMARCHY_PATH="$test_root" PATH="$ROOT/bin:$PATH" "$ROOT/bin/omarchy-bar" remove omarchy.audio
 
 for _ in {1..80}; do
   shell_config=$(shell_ipc shell listShellConfig 2>/dev/null || true)
@@ -286,7 +273,7 @@ done
 
 jq -e 'all(.bar.layout.right[]; (.id // .) != "omarchy.audio")' <<<"$shell_config" >/dev/null || {
   printf 'Shell config after reload:\n%s\n' "$shell_config" | jq . >&2
-  fail_with_log "plugin disable reloads shell config"
+  fail_with_log "bar remove reloads shell config"
 }
 
 jq -e 'all(.[]; .id != "omarchy.audio")' <<<"$geometry" >/dev/null || {
@@ -297,9 +284,7 @@ jq -e 'all(.[]; .id != "omarchy.audio")' <<<"$geometry" >/dev/null || {
 
 pass "bar remove reloads shell config and updates bar layout"
 
-# 'bar put' is what migrations use to place a newly shipped widget, so it has
-# to place one that is missing and leave one that is already there alone,
-# however often it runs.
+# 'bar put' places a missing widget and leaves an existing one in place.
 bar_put() {
   HOME="$test_home" OMARCHY_PATH="$test_root" PATH="$ROOT/bin:$PATH" "$ROOT/bin/omarchy-bar" put "$@"
 }
@@ -308,9 +293,9 @@ center_ids() {
   jq -c '[.bar.layout.center[] | .id // .]' <<<"$(shell_ipc shell listShellConfig)"
 }
 
-bar_put omarchy.keyboard-layout --after omarchy.clock >/dev/null
+bar_put omarchy.microphone --after omarchy.clock >/dev/null
 for _ in {1..80}; do
-  [[ $(center_ids) == *omarchy.keyboard-layout* ]] && break
+  [[ $(center_ids) == *omarchy.microphone* ]] && break
   kill -0 "$QS_PID" 2>/dev/null || fail_with_log "test shell exited while putting a bar widget"
   sleep 0.1
 done
@@ -318,18 +303,18 @@ done
 jq -e '
   [.bar.layout.center[] | .id // .] as $ids
   | ($ids | index("omarchy.clock")) as $clock
-  | ($ids | index("omarchy.keyboard-layout")) as $widget
+  | ($ids | index("omarchy.microphone")) as $widget
   | $clock != null and $widget == $clock + 1
 ' <<<"$(shell_ipc shell listShellConfig)" >/dev/null ||
   fail_with_log "bar put places a widget after the one it names ($(center_ids))"
 pass "bar put places a widget after the one it names"
 
 placed=$(center_ids)
-bar_put omarchy.keyboard-layout --section right >/dev/null
+bar_put omarchy.microphone --section right >/dev/null
 sleep 0.5
 [[ $(center_ids) == "$placed" ]] ||
   fail_with_log "bar put left a widget already on the bar alone (was $placed, now $(center_ids))"
-jq -e 'all(.bar.layout.right[]; (.id // .) != "omarchy.keyboard-layout")' \
+jq -e 'all(.bar.layout.right[]; (.id // .) != "omarchy.microphone")' \
   <<<"$(shell_ipc shell listShellConfig)" >/dev/null ||
   fail_with_log "bar put added a second copy of a widget already on the bar"
 pass "bar put leaves a widget already on the bar alone"

@@ -40,3 +40,14 @@ pass "system lock resets the keyboard layout before the password prompt"
 ! grep -qE '^(pkill|killall) ' "$call_log" ||
   fail "system lock kills processes by pattern" "calls: $(<"$call_log")"
 pass "system lock kills nothing by pattern"
+
+cat >"$mock_bin/omarchy-shell" <<'SH'
+#!/bin/bash
+printf 'missing-pam\n'
+SH
+: >"$call_log"
+if PATH="$mock_bin:$PATH" CALL_LOG="$call_log" "$ROOT/bin/omarchy-system-lock" 2>/dev/null; then
+  fail "system lock reports a shell refusal"
+fi
+[[ ! -s $call_log ]] || fail "a refused lock does not reset keyboard layout"
+pass "system lock reports refused locking before subsequent actions"

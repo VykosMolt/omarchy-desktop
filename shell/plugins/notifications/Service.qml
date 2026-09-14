@@ -99,6 +99,54 @@ Item {
   readonly property int normalPopupDuration: 8000
   readonly property int maxPopupDuration: 30000
 
+  property var popupSchedule: NotificationLogic.createPopupSchedule()
+  property bool popupClockStarted: false
+  ElapsedTimer { id: popupClock }
+
+  function popupNow() {
+    if (!popupClockStarted) {
+      popupClock.restartMs()
+      popupClockStarted = true
+    }
+    return popupClock.elapsedMs()
+  }
+
+  function schedulePopupExpiry() {
+    popupExpiryTimer.stop()
+    var delay = popupSchedule.next(popupNow())
+    if (delay === null) return
+    popupExpiryTimer.interval = Math.max(1, Math.ceil(delay))
+    popupExpiryTimer.start()
+  }
+
+  function resetPopupLifetime(row) {
+    popupSchedule.reset(NotificationLogic.popupFileName(row), durationFor(row.urgency, row.expireTimeout), popupNow())
+    schedulePopupExpiry()
+  }
+
+  function addPopup(row, front) {
+    resetPopupLifetime(row)
+    if (front) popupModel.insert(0, row)
+    else popupModel.append(row)
+  }
+
+  function setPopupHovered(key, owner, hovered) {
+    popupSchedule.hover(key, owner, hovered, popupNow())
+    schedulePopupExpiry()
+  }
+
+  Timer {
+    id: popupExpiryTimer
+    onTriggered: {
+      var due = service.popupSchedule.due(service.popupNow())
+      for (var i = popupModel.count - 1; i >= 0; i--) {
+        if (due.indexOf(NotificationLogic.popupFileName(popupModel.get(i))) !== -1)
+          service.expirePopup(i)
+      }
+      service.schedulePopupExpiry()
+    }
+  }
+
   function durationFor(urgency, expireTimeout) {
     switch (urgency) {
     case NotificationUrgency.Critical:
@@ -160,11 +208,13 @@ Item {
     notification.tracked = true
     var snapshot = snapshotOf(notification)
     liveRefs[snapshot.originalId] = notification
+    var shown = false
     // Guard the delete: a newer notification may have reused this originalId
     // (freedesktop replaces_id) and taken over the map slot.
     notification.closed.connect(function() {
-      if (service.liveRefs[snapshot.originalId] === notification)
-        delete service.liveRefs[snapshot.originalId]
+      if (service.liveRefs[snapshot.originalId] !== notification) return
+      delete service.liveRefs[snapshot.originalId]
+      if (shown) service.withdrawPopup(snapshot)
     })
 
     // DND bypass rules: chat apps abuse urgency=critical to force
@@ -183,13 +233,15 @@ Item {
       return
     }
 
+    shown = true
     persistPopupFile(snapshot)
     watchForUpdates(notification, snapshot)
     // Qt.callLater avoids "QV4::Object::insertMember" crashes when a
     // Repeater is mid-incubation while we mutate its model.
     Qt.callLater(function() {
+      if (service.liveRefs[snapshot.originalId] !== notification) return
       removePopupsByOriginalId(snapshot.originalId, NotificationLogic.popupFileName(snapshot))
-      popupModel.insert(0, snapshot)
+      service.addPopup(snapshot, true)
       // An update that arrived while the insert was deferred found no row to
       // write to, and a property that already changed will not change again.
       // Reading the object once the row exists catches up on it.
@@ -272,6 +324,7 @@ Item {
       if (!row || row.originalId !== originalId || row.timestamp !== timestamp) continue
       if (!NotificationLogic.popupRowChanged(row, updated)) return
       for (var r = 0; r < roles.length; r++) popupModel.setProperty(i, roles[r], updated[roles[r]])
+      resetPopupLifetime(updated)
       // The file name is the timestamp and id this popup was persisted under,
       // so the rewrite lands on the same file: a restart restores the version
       // last shown, and so does the copy that ends up in history.
@@ -306,12 +359,26 @@ Item {
       // would silently kill a restored critical alert on an unrelated ping.
       if (isRestoredRow(row)) continue
       if (NotificationLogic.popupFileName(row) !== keepFileName) deletePopupFileFor(row)
+      popupSchedule.remove(NotificationLogic.popupFileName(row))
       popupModel.remove(i)
     }
+    schedulePopupExpiry()
   }
 
   function dismissPopup(index) {
     removePopup(index, "dismiss")
+  }
+
+  function withdrawPopup(snapshot) {
+    var key = NotificationLogic.popupFileName(snapshot)
+    for (var i = popupModel.count - 1; i >= 0; i--) {
+      if (NotificationLogic.popupFileName(popupModel.get(i)) !== key) continue
+      removePopup(i, "dismiss")
+      return
+    }
+    // The sender can close before the deferred insertion. Its queued file
+    // write still needs to leave the popup directory, in queue order.
+    archivePopupFileFor(snapshot)
   }
 
   function expirePopup(index) {
@@ -332,11 +399,14 @@ Item {
     // instead. Rows that never had a file (a history replay, the empty-history
     // placeholder) archive to nothing, which the move tolerates.
     if (entry) {
+      popupSchedule.remove(NotificationLogic.popupFileName(entry))
       archivePopupFileFor(entry)
       if (restored) delete restoredPopups[NotificationLogic.popupFileName(entry)]
     }
     popupModel.remove(index)
+    schedulePopupExpiry()
     if (ref) {
+      if (liveRefs[originalId] === ref) delete liveRefs[originalId]
       try {
         if (ref.tracked) {
           if (reason === "expire" && typeof ref.expire === "function") ref.expire()
@@ -681,7 +751,7 @@ Item {
 
     // Replaying nothing at all looks like a dead keybinding, so say so.
     if (rows.length === 0) {
-      popupModel.insert(0, {
+      addPopup({
         id: -1,
         originalId: -1,
         app: "omarchy-action",
@@ -694,7 +764,7 @@ Item {
         urgency: NotificationUrgency.Low,
         expireTimeout: 0,
         timestamp: Date.now()
-      })
+      }, true)
       return
     }
 
@@ -705,7 +775,7 @@ Item {
       // sender long ago, so they must never resolve to a live server object
       // that has since been handed their old id.
       service.restoredPopups[NotificationLogic.popupFileName(rows[i])] = true
-      popupModel.append(rows[i])
+      addPopup(rows[i], false)
     }
   }
 
@@ -771,7 +841,7 @@ Item {
         // popups have no liveRefs entry — the server object died with the
         // old shell — so dismissal and action fallbacks degrade gracefully.
         service.restoredPopups[NotificationLogic.popupFileName(restored)] = true
-        popupModel.append(restored)
+        service.addPopup(restored, false)
       }
     })
   }
@@ -988,12 +1058,11 @@ Item {
         Repeater {
           model: popupModel
 
-          // The delegate is a slot Item that owns lifetime timer state. The
-          // actual visuals live in NotificationCard, which the history panel
-          // also reuses.
+          // Each output contributes one hover owner to the shared lifetime.
           delegate: Item {
             id: cardSlot
             required property int index
+            required property int originalId
             required property string app
             required property string appIcon
             required property string summary
@@ -1010,33 +1079,8 @@ Item {
             Layout.alignment: Qt.AlignRight
             implicitHeight: card.implicitHeight
 
-            readonly property real lifetime: service.durationFor(cardSlot.urgency, cardSlot.expireTimeout)
-            property real remainingLifetime: 1.0
-            readonly property bool ticking: cardSlot.lifetime > 0 && !card.hovered
-
-            // A client updating this notification in place rewrites the row
-            // under the card (see refreshPopup). New text deserves a full look,
-            // so the countdown starts over instead of running out the clock the
-            // superseded text was already most of the way through. Delegates
-            // keep their own row as the model changes around them, so only a
-            // real content change lands here.
-            onSummaryChanged: cardSlot.remainingLifetime = 1.0
-            onBodyChanged: cardSlot.remainingLifetime = 1.0
-            onImageChanged: cardSlot.remainingLifetime = 1.0
-
-            Timer {
-              interval: 50
-              repeat: true
-              running: cardSlot.ticking
-              onTriggered: {
-                if (cardSlot.lifetime <= 0) return
-                cardSlot.remainingLifetime -= 50.0 / cardSlot.lifetime
-                if (cardSlot.remainingLifetime <= 0) {
-                  cardSlot.remainingLifetime = 0
-                  service.expirePopup(cardSlot.index)
-                }
-              }
-            }
+            readonly property string expiryKey: NotificationLogic.popupFileName(cardSlot)
+            Component.onDestruction: service.setPopupHovered(expiryKey, cardSlot, false)
 
             NotificationCard {
               id: card
@@ -1051,6 +1095,8 @@ Item {
               cornerRadius: service.cornerRadius
               fontFamily: service.shell && service.shell.bar ? service.shell.bar.fontFamily : ""
               glyph: cardSlot.glyph
+
+              onHoveredChanged: service.setPopupHovered(cardSlot.expiryKey, cardSlot, hovered)
 
               onCloseRequested: service.dismissPopup(cardSlot.index)
               onCardClicked: service.invokePopupDefault(cardSlot.index)

@@ -8,7 +8,7 @@ function labelForPath(path) {
 
 function loadRows(rows) {
   var images = []
-  var seen = {}
+  var seen = Object.create(null)
   var paths = String(rows || "").split("\n")
 
   for (var i = 0; i < paths.length; i++) {

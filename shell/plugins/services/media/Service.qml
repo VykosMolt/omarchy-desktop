@@ -255,14 +255,14 @@ Item {
       pendingTrackOsd = {
         actionLabel: actionLabel,
         iconName: iconName,
-        player: player,
         playerKey: playerKey(player),
         before: beforeTrackSignature,
         attempts: 0
       }
       trackOsdTimer.restart()
     } else {
-      Qt.callLater(function() { root.showOsd(actionLabel, iconName, player) })
+      var key = playerKey(player)
+      Qt.callLater(function() { root.showOsd(actionLabel, iconName, root.playerForKey(key)) })
     }
   }
 
@@ -270,8 +270,8 @@ Item {
     var pending = pendingTrackOsd
     if (!pending) return
 
-    var player = playerForKey(pending.playerKey) || pending.player
-    if (force || MediaModel.trackChanged(pending.before, player) || pending.attempts >= 10) {
+    var player = playerForKey(pending.playerKey)
+    if (!player || force || MediaModel.trackChanged(pending.before, player) || pending.attempts >= 10) {
       pendingTrackOsd = null
       trackOsdTimer.stop()
       root.showOsd(pending.actionLabel, pending.iconName, player)
@@ -341,15 +341,14 @@ Item {
     }
 
     if (showFeedback !== false) Qt.callLater(function() {
-      root.showOsd("Source", "media-source", next)
+      root.showOsd("Source", "media-source", root.playerForKey(nextKey))
     })
 
     return true
   }
 
   function playerForAction(action, targetKey) {
-    var targeted = playerForKey(targetKey)
-    if (targeted) return targeted
+    if (targetKey) return playerForKey(targetKey)
 
     if (action === "pause" || action === "playPause") {
       var oldest = oldestPlayingPlayer(true) || oldestPlayingPlayer(false)

@@ -51,3 +51,11 @@ assert_layer_on_screen "visible-negative-offset" "visible layer is found on a ne
 assert_layer_off_screen "parked-negative-offset" "left-parked layer stays off a negatively offset monitor"
 assert_layer_on_screen "visible-rotated" "visible layer uses the transformed monitor height"
 assert_layer_off_screen "parked-rotated" "parked layer uses the transformed monitor width"
+
+hyprctl() { return 1; }
+for probe in window_absent layer_absent layer_off_screen; do
+  if "$probe" fixture; then
+    fail "a failed compositor read cannot prove absence: $probe"
+  fi
+done
+pass "failed compositor reads cannot turn disappearance checks into false passes"

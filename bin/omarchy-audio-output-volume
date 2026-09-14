@@ -5,6 +5,7 @@
 # omarchy:examples=omarchy audio output volume raise | omarchy audio output volume lower | omarchy audio output volume mute-toggle | omarchy audio output volume +1
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
 
 action="${1:-}"
 
@@ -12,6 +13,10 @@ if [[ -z $action ]]; then
   echo "Usage: omarchy-audio-output-volume <raise|lower|mute-toggle|+N|-N>"
   exit 1
 fi
+
+# Preserve each key event's read/modify/write update and debounce atomically.
+exec {volume_lock_fd}>"$runtime_dir/omarchy-audio-output-volume.lock"
+flock -w 2 "$volume_lock_fd" || exit 1
 
 # Resolve through any DSP sink to the physical one, so the keys always move real
 # loudness and the processing always sees full-scale input. Shared with the audio
@@ -67,26 +72,33 @@ case "$action" in
 esac
 
 if [[ $action == "mute-toggle" ]]; then
-  runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
   debounce_file="$runtime_dir/omarchy-audio-output-volume-mute-toggle.last"
   now=$(date +%s%3N)
   last=0
   [[ -r $debounce_file ]] && read -r last <"$debounce_file" || true
-  if ((now - last < 250)); then
+  [[ $last =~ ^[0-9]{1,16}$ ]] || last=0
+  last=$((10#$last))
+  if ((now >= last && now - last < 250)); then
     exit 0
   fi
   printf '%s\n' "$now" >"$debounce_file"
 
-  pactl set-sink-mute "$sink" toggle
+  pactl set-sink-mute "$sink" toggle || exit 1
 elif [[ $action =~ ^([+-])([0-9]+)$ ]]; then
   direction="${BASH_REMATCH[1]}"
   step="${BASH_REMATCH[2]}"
+  if (( ${#step} > 9 )); then
+    step=2147483647
+  else
+    step=$((10#$step))
+  fi
 
   current="$(volume_percent)"
-  if [[ -z $current ]]; then
+  if [[ ! $current =~ ^[0-9]{1,9}$ ]]; then
     echo "Could not read volume for $sink." >&2
     exit 1
   fi
+  current=$((10#$current))
 
   maximum=$(maximum_percent)
   if [[ $direction == "+" ]]; then
@@ -97,18 +109,21 @@ elif [[ $action =~ ^([+-])([0-9]+)$ ]]; then
     ((next >= 0)) || next=0
   fi
 
-  pactl set-sink-mute "$sink" 0
-  pactl set-sink-volume "$sink" "${next}%"
+  pactl set-sink-mute "$sink" 0 || exit 1
+  pactl set-sink-volume "$sink" "${next}%" || exit 1
 else
   echo "Unknown volume action: $action"
   exit 1
 fi
 
 percent=$(volume_percent)
+[[ $percent =~ ^[0-9]{1,9}$ ]] || exit 1
+percent=$((10#$percent))
 if volume_muted || ((${percent:-0} == 0)); then
   icon="volume-muted"
 else
   icon="volume-high"
 fi
 
+flock -u "$volume_lock_fd"
 omarchy-osd -i "$icon" -p "${percent:-0}" -x "$(maximum_percent)"

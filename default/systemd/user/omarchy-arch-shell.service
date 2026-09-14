@@ -6,6 +6,6 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 EnvironmentFile=%t/omarchy-arch-session.env
-ExecCondition=/usr/bin/bash -c '! /usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true'
+ExecCondition=/usr/bin/bash -c '/usr/bin/flock -n -E 75 "%t/omarchy-arch-session.lock" /usr/bin/true; [[ $$? == 75 ]]'
 Type=simple
 ExecStart=/usr/bin/env omarchy-launch-shell

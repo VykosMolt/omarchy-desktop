@@ -54,7 +54,7 @@ attempts() {
 # The guard exits the shell it runs in, so run it in a child and report back what
 # it did: the skip line, or the core limit it left behind for Quickshell.
 run_guard() {
-  env "$@" PATH="$stub_bin:$PATH" bash -c '
+  env "$@" OMARCHY_TEST_GRAPHICAL=1 PATH="$stub_bin:$PATH" bash -c '
     source "$1/base-test.sh"
     ulimit -c unlimited 2>/dev/null || true
     require_compositor "sample runtime test"

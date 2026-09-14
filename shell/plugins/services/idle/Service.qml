@@ -11,7 +11,6 @@ Item {
   // Injected by omarchy-shell (the first-party service loader).
   property var shell: null
 
-  readonly property string home: Quickshell.env("HOME")
   readonly property string stayAwakeStateDir: Paths.omarchyState + "/indicators"
   readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
   readonly property int defaultScreenOffSeconds: 0
@@ -40,6 +39,15 @@ Item {
   property bool pendingStayAwakePersist: false
   property bool idledThisCycle: false
   property bool screenOffThisCycle: false
+  property bool lockedThisCycle: false
+  property bool suspendedThisCycle: false
+  property real idleStartedAt: 0
+  property bool displayDesiredOff: false
+  property bool displayOff: false
+  property bool displayPowerActive: false
+  property bool stayAwakeWriteActive: false
+  property int stayAwakeGeneration: 0
+  property bool stayAwakeProbeQueued: false
   property string lastEvent: "starting"
   property string lastEventAt: ""
 
@@ -63,8 +71,9 @@ Item {
       logEvent("process-skip", label + " already running")
       return false
     }
-    logEvent("process-start", label + " " + command)
-    process.command = ["bash", "-lc", command]
+    logEvent("process-start", label + " " + command.join(" "))
+    if (process === screenOffProcess || process === wakeProcess) process.startConfirmed = false
+    process.command = command
     process.running = true
     return true
   }
@@ -72,17 +81,35 @@ Item {
   function screenOff(reason) {
     logEvent("screen-off", reason || "requested")
     root.screenOffThisCycle = true
-    runProcess(screenOffProcess, "screen-off", "omarchy-brightness-display off")
+    root.displayDesiredOff = true
+    root.pumpDisplayPower()
+  }
+
+  function pumpDisplayPower() {
+    if (root.displayPowerActive || screenOffProcess.running || wakeProcess.running) return
+    if (root.displayDesiredOff === root.displayOff) return
+    var off = root.displayDesiredOff
+    var started = off
+      ? runProcess(screenOffProcess, "screen-off", ["omarchy-brightness-display", "off"])
+      : runProcess(wakeProcess, "wake", ["omarchy-system-wake"])
+    if (started) {
+      root.displayPowerActive = true
+      root.displayOff = off
+    }
   }
 
   function lockSystem(reason) {
+    if (root.lockedThisCycle) return
+    root.lockedThisCycle = true
     logEvent("lock-system", reason || "requested")
-    runProcess(lockProcess, "lock", "omarchy-system-lock")
+    runProcess(lockProcess, "lock", ["omarchy-system-lock"])
   }
 
   function suspendSystem(reason) {
+    if (root.suspendedThisCycle) return
+    root.suspendedThisCycle = true
     logEvent("suspend-system", reason || "requested")
-    runProcess(suspendProcess, "suspend", "systemctl suspend")
+    runProcess(suspendProcess, "suspend", ["systemctl", "suspend"])
   }
 
   // A stage whose timeout equals the one the idle monitor already waited out
@@ -90,10 +117,11 @@ Item {
   function scheduleStage(timer, timeoutSeconds, fire, reason) {
     if (timeoutSeconds <= 0) return
 
-    var delay = timeoutSeconds - root.firstIdleTimeoutSeconds
+    var elapsed = root.idleStartedAt > 0 ? (Date.now() - root.idleStartedAt) / 1000 : root.firstIdleTimeoutSeconds
+    var delay = timeoutSeconds - elapsed
     if (delay <= 0) fire(reason + "-immediate")
     else {
-      timer.interval = delay * 1000
+      timer.interval = Math.ceil(delay * 1000)
       timer.restart()
     }
   }
@@ -108,6 +136,9 @@ Item {
       + " lock=" + root.lockTimeoutSeconds + " suspend=" + root.suspendTimeoutSeconds)
     root.idledThisCycle = true
     root.screenOffThisCycle = false
+    root.lockedThisCycle = false
+    root.suspendedThisCycle = false
+    root.idleStartedAt = Date.now() - root.firstIdleTimeoutSeconds * 1000
 
     scheduleStage(screenOffTimer, root.screenOffTimeoutSeconds, root.screenOff, "screen-off-timeout")
     scheduleStage(lockTimer, root.lockTimeoutSeconds, root.lockSystem, "lock-timeout")
@@ -124,12 +155,28 @@ Item {
     // Waking restores the display and the keyboard backlight, so it is only
     // worth running when this cycle actually turned something off.
     if (root.idledThisCycle && root.screenOffThisCycle) {
-      runProcess(wakeProcess, "wake", "omarchy-system-wake")
+      root.displayDesiredOff = false
+      root.pumpDisplayPower()
     }
 
     root.idledThisCycle = false
     root.screenOffThisCycle = false
+    root.idleStartedAt = 0
   }
+
+  function reconfigureStages() {
+    if (!root.idledThisCycle) return
+    screenOffTimer.stop()
+    lockTimer.stop()
+    suspendTimer.stop()
+    if (!root.idleEnabled) { root.cancelIdleCycle("configuration"); return }
+    if (!root.screenOffThisCycle) scheduleStage(screenOffTimer, root.screenOffTimeoutSeconds, root.screenOff, "screen-off-timeout")
+    if (!root.lockedThisCycle) scheduleStage(lockTimer, root.lockTimeoutSeconds, root.lockSystem, "lock-timeout")
+    if (!root.suspendedThisCycle) scheduleStage(suspendTimer, root.suspendTimeoutSeconds, root.suspendSystem, "suspend-timeout")
+  }
+
+  onIdleConfigChanged: Qt.callLater(root.reconfigureStages)
+  onIdleEnabledChanged: if (!idleEnabled && idledThisCycle) root.cancelIdleCycle("disabled")
 
   function handleActiveSignal() {
     if (!root.idledThisCycle) return
@@ -174,22 +221,50 @@ Item {
   }
 
   function persistStayAwake(value) {
-    var command = value
-      ? "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; mkdir -p \"$STATE/indicators\" && touch \"$STATE/indicators/stay-awake\""
-      : "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; rm -f \"$STATE/indicators/stay-awake\""
+    root.stayAwakeGeneration++
+    root.pendingStayAwakePersist = !!value
+    root.hasPendingStayAwakePersist = true
+    root.pumpStayAwakeWrites()
+  }
 
-    if (stayAwakeStateWriter.running) {
-      root.pendingStayAwakePersist = !!value
-      root.hasPendingStayAwakePersist = true
-      return
-    }
-
-    stayAwakeStateWriter.command = ["bash", "-lc", command]
+  function pumpStayAwakeWrites() {
+    if (root.stayAwakeWriteActive || stayAwakeStateWriter.running || !root.hasPendingStayAwakePersist) return
+    var enabled = root.pendingStayAwakePersist
+    root.hasPendingStayAwakePersist = false
+    root.stayAwakeWriteActive = true
+    stayAwakeStateWriter.startConfirmed = false
+    stayAwakeStateWriter.command = ["bash", "-c", enabled
+      ? 'mkdir -p -- "$1" && touch -- "$2"' : 'rm -f -- "$2"',
+      "omarchy-idle-state", root.stayAwakeStateDir, root.stayAwakeStatePath]
     stayAwakeStateWriter.running = true
   }
 
   function refreshStayAwakeState() {
-    if (!stayAwakeStateProbe.running) stayAwakeStateProbe.running = true
+    root.stayAwakeProbeQueued = true
+    root.pumpStayAwakeProbe()
+  }
+
+  function pumpStayAwakeProbe() {
+    if (!root.stayAwakeProbeQueued || root.stayAwakeWriteActive || root.hasPendingStayAwakePersist
+        || stayAwakeStateProbe.running || stayAwakeStateProbe.pendingResult) return
+    root.stayAwakeProbeQueued = false
+    stayAwakeStateProbe.startConfirmed = false
+    stayAwakeStateProbe.serial = root.stayAwakeGeneration
+    stayAwakeStateProbe.pendingResult = true
+    stayAwakeStateProbe.outDone = false
+    stayAwakeStateProbe.resultExited = false
+    stayAwakeStateProbe.output = ""
+    stayAwakeStateProbe.running = true
+  }
+
+  function finishStayAwakeProbe() {
+    if (!stayAwakeStateProbe.pendingResult || !stayAwakeStateProbe.outDone || !stayAwakeStateProbe.resultExited) return
+    stayAwakeStateProbe.pendingResult = false
+    if (stayAwakeStateProbe.serial === root.stayAwakeGeneration && !root.stayAwakeWriteActive && !root.hasPendingStayAwakePersist
+        && stayAwakeStateProbe.code === 0)
+      root.applyStayAwake(stayAwakeStateProbe.output.trim() === "yes", false, "state-file")
+    stayAwakeStateDirWatcher.reload()
+    Qt.callLater(root.pumpStayAwakeProbe)
   }
 
   function applyStayAwake(value, persist, reason) {
@@ -242,7 +317,17 @@ Item {
 
   Process {
     id: screenOffProcess
-    onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "screen-off exitCode=" + exitCode + " status=" + exitStatus) }
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onExited: function(exitCode, exitStatus) {
+      root.logEvent("process-exit", "screen-off exitCode=" + exitCode + " status=" + exitStatus)
+      root.displayPowerActive = false
+      Qt.callLater(root.pumpDisplayPower)
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!screenOffProcess.startConfirmed && !screenOffProcess.running) root.displayPowerActive = false
+      root.pumpDisplayPower()
+    })
   }
 
   Process {
@@ -256,30 +341,71 @@ Item {
   }
   Process {
     id: wakeProcess
-    onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "wake exitCode=" + exitCode + " status=" + exitStatus) }
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onExited: function(exitCode, exitStatus) {
+      root.logEvent("process-exit", "wake exitCode=" + exitCode + " status=" + exitStatus)
+      root.displayPowerActive = false
+      Qt.callLater(root.pumpDisplayPower)
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!wakeProcess.startConfirmed && !wakeProcess.running) root.displayPowerActive = false
+      root.pumpDisplayPower()
+    })
   }
 
   Process {
     id: stayAwakeStateProbe
-    command: ["bash", "-c", "STATE=\"${OMARCHY_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy}\"; mkdir -p \"$STATE/indicators\"; if [[ -f \"$STATE/indicators/stay-awake\" ]]; then echo yes; else echo no; fi"]
-    stdout: SplitParser {
-      onRead: function(line) { root.applyStayAwake(String(line).trim() === "yes", false, "state-file") }
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    property int serial: -1
+    property bool pendingResult: false
+    property bool outDone: false
+    property bool resultExited: false
+    property string output: ""
+    property int code: 0
+    command: ["bash", "-c", 'mkdir -p -- "$1" && { if [[ -f "$2" ]]; then echo yes; else echo no; fi; }',
+      "omarchy-idle-state", root.stayAwakeStateDir, root.stayAwakeStatePath]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        stayAwakeStateProbe.output = text
+        stayAwakeStateProbe.outDone = true
+        root.finishStayAwakeProbe()
+      }
     }
-    onExited: function() { stayAwakeStateDirWatcher.reload() }
+    onExited: function(exitCode) {
+      stayAwakeStateProbe.code = exitCode
+      stayAwakeStateProbe.resultExited = true
+      root.finishStayAwakeProbe()
+    }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (stayAwakeStateProbe.pendingResult && !stayAwakeStateProbe.startConfirmed && !stayAwakeStateProbe.running) {
+        stayAwakeStateProbe.code = 127
+        stayAwakeStateProbe.resultExited = true
+        stayAwakeStateProbe.outDone = true
+        root.finishStayAwakeProbe()
+      }
+      root.pumpStayAwakeProbe()
+    })
   }
 
   Process {
     id: stayAwakeStateWriter
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
     onExited: function() {
-      if (root.hasPendingStayAwakePersist) {
-        var pending = root.pendingStayAwakePersist
-        root.hasPendingStayAwakePersist = false
-        root.persistStayAwake(pending)
-        return
-      }
-
+      root.stayAwakeWriteActive = false
       root.refreshStayAwakeState()
+      Qt.callLater(root.pumpStayAwakeWrites)
     }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!stayAwakeStateWriter.startConfirmed && !stayAwakeStateWriter.running) {
+        root.stayAwakeWriteActive = false
+        root.refreshStayAwakeState()
+      }
+      root.pumpStayAwakeWrites()
+    })
   }
 
   FileView {

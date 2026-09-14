@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# omarchy:summary=Enable or disable one display while preserving an active output
+# omarchy:args=NAME enable|disable
+
+set -euo pipefail
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+if [[ $# != 2 || ! $1 =~ ^[A-Za-z0-9._-]+$ || ! $2 =~ ^(enable|disable)$ ]]; then
+  echo "Usage: omarchy-monitor-toggle NAME enable|disable" >&2
+  exit 1
+fi
+
+# Two independent panel requests must not both observe two active outputs and
+# each disable one. Query after acquiring the lock, immediately before writing.
+mkdir -p "$OMARCHY_STATE_HOME"
+exec 9>"$OMARCHY_STATE_HOME/monitor-toggle.lock"
+flock -x 9
+
+monitors=$(hyprctl monitors all -j)
+jq -e 'type == "array" and all(.[]; type == "object" and (.name | type == "string"))' \
+  <<<"$monitors" >/dev/null || exit 1
+
+target=$(jq -ce --arg name "$1" '[.[] | select(.name == $name)] | select(length == 1) | .[0]' <<<"$monitors") || {
+  echo "Display is no longer connected: $1" >&2
+  exit 1
+}
+
+if [[ $2 == disable ]]; then
+  [[ $(jq -r '.disabled == true' <<<"$target") == true ]] && exit 0
+  # A mirrored output depends on its source, so it cannot be the only output
+  # left when that source is disabled.
+  if [[ $(jq -r '(.mirrorOf // "none") == "none"' <<<"$target") == true ]] &&
+    [[ $(jq '[.[] | select(.disabled != true and ((.mirrorOf // "none") == "none"))] | length' <<<"$monitors") -le 1 ]]; then
+    echo "Cannot disable the last active display" >&2
+    exit 1
+  fi
+  hyprctl keyword monitor "$1,disable"
+else
+  [[ $(jq -r '.disabled == true' <<<"$target") == false ]] && exit 0
+  hyprctl keyword monitor "$1,preferred,auto,auto"
+fi

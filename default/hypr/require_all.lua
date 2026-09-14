@@ -3,7 +3,7 @@
 -- default/hypr/bindings, and the active Omarchy state toggles directory.
 -- Pass a module prefix for normal package.path modules, e.g.
 --   require_all.files(paths.omarchy_path .. "/default/hypr/apps", "default.hypr.apps")
--- Pass nil as the prefix when the directory itself has been added to package.path.
+-- Pass nil to execute files directly from the directory on each call.
 -- Pass options.exclude as a set of base names (without ".lua") to skip; a legacy
 -- file that must never be loaded as code stays on disk for a migration to remove.
 
@@ -20,16 +20,15 @@ function M.files(dir, module_prefix, options)
     for filename in handle:lines() do
       local name = filename:gsub("%.lua$", "")
       if not exclude[name] then
-        local module = name
         if module_prefix then
-          module = module_prefix .. "." .. module
+          local module = module_prefix .. "." .. name
+          if options and options.reload then
+            package.loaded[module] = nil
+          end
+          require(module)
+        else
+          dofile(dir .. "/" .. filename)
         end
-
-        if options and options.reload then
-          package.loaded[module] = nil
-        end
-
-        require(module)
       end
     end
     handle:close()

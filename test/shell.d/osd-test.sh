@@ -7,6 +7,12 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 run_node_test <<'JS'
 const osd = requireFromRoot('shell/plugins/osd/OsdModel.js')
 
+for (const invalid of ['bad', 'Infinity']) {
+  const state = osd.stateForShow('volume', '', '75', invalid, '', '')
+  assertEqual(state.maxValue, 100, 'osd uses a finite default maximum for ' + invalid)
+  assertEqual(state.value, 75, 'osd keeps the progress value with malformed maximum ' + invalid)
+}
+
 assertEqual(osd.iconFor('', 0), osd.iconFor('muted', 50), 'osd falls back to muted icon at zero percent')
 assertEqual(osd.iconFor('volume-high', 1), osd.iconFor('', 100), 'osd maps high volume aliases')
 assertEqual(osd.iconFor('logout', 50), '󰍃', 'osd maps logout icon')

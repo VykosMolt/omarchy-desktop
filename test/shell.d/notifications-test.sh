@@ -8,6 +8,43 @@ run_node_test <<'JS'
 const fs = require('fs')
 const notifications = requireFromRoot('shell/plugins/notifications/NotificationLogic.js')
 
+const schedule = notifications.createPopupSchedule()
+const outputA = {}, outputB = {}, replacementOwner = {}
+schedule.reset('first', 8000, 100)
+schedule.reset('critical', 0, 100)
+schedule.reset('second', 5000, 100)
+assertEqual(schedule.next(1100), 4000, 'popup scheduler selects the earliest deadline')
+schedule.hover('first', outputA, true, 2100)
+schedule.hover('first', outputA, true, 2200)
+schedule.hover('first', outputB, true, 2300)
+schedule.remove('second')
+assertEqual(schedule.next(9000), null, 'hovering either output pauses the shared toast and critical alerts have no timer')
+schedule.hover('first', outputA, false, 9000)
+assertEqual(schedule.next(10000), null, 'leaving one output keeps another output hover active')
+schedule.hover('first', outputB, false, 10000)
+assertEqual(schedule.next(10000), 6000, 'destroying the final hovered card resumes the unspent lifetime')
+assertDeepEqual(schedule.due(15999), [], 'toast never expires before its resumed deadline')
+assertDeepEqual(schedule.due(16000), ['first'], 'toast expires at its monotonic deadline')
+schedule.reset('first', 8000, 16000)
+assertDeepEqual(schedule.due(16000), [], 'content replacement invalidates a stale timeout')
+schedule.hover('first', outputA, true, 17000)
+schedule.reset('first', 5000, 18000)
+assertEqual(schedule.next(19000), null, 'content replacement preserves current hover owners')
+schedule.hover('first', outputA, false, 19000)
+assertEqual(schedule.next(19000), 5000, 'updated content receives a full lifetime after hover')
+schedule.remove('first')
+schedule.reset('first', 5000, 20000)
+schedule.hover('first', replacementOwner, true, 20000)
+schedule.hover('first', outputA, false, 21000)
+assertEqual(schedule.next(21000), null, 'destroyed copies of a replaced toast cannot release its new hover owner')
+schedule.hover('first', replacementOwner, false, 22000)
+schedule.hover('first', replacementOwner, true, 28000)
+schedule.hover('first', replacementOwner, false, 29000)
+assertDeepEqual(schedule.due(29000), ['first'], 'hover arriving after a deadline cannot make an expired toast permanent')
+schedule.remove('first')
+assertEqual(schedule.next(30000), null, 'removing the last expiring toast stops all expiry work')
+assertEqual(notifications.createPopupSchedule().next(0), null, 'a reloaded service starts with no stale deadline or hover owner')
+
 assert(notifications.isChromiumDerived('Brave Browser', ''), 'notifications detect chromium-derived apps by name')
 assert(notifications.isChromiumDerived('', 'microsoft-edge'), 'notifications detect chromium-derived apps by icon')
 assert(!notifications.isChromiumDerived('Slack', ''), 'notifications do not treat unrelated apps as chromium-derived')
@@ -571,6 +608,67 @@ assert(!('exec' in legacyRestored), 'a restored legacy popup drops the old exec 
 assertEqual(notifications.parseExecArgv(legacyRestored.execArgv || ''), null, 'a restored legacy popup has no runnable click action')
 
 const serviceQml = fs.readFileSync(path.join(root, 'shell/plugins/notifications/Service.qml'), 'utf8')
+
+{
+const vm = require('vm')
+const pendingCalls = []
+const popupRows = []
+const archived = []
+const service = {
+  liveRefs: {}, restoredPopups: {}, doNotDisturb: false,
+  NotificationLogic: notifications,
+  popupSchedule: notifications.createPopupSchedule(),
+  popupModel: {
+    get count() { return popupRows.length },
+    get(index) { return popupRows[index] },
+    insert(index, row) { popupRows.splice(index, 0, row) },
+    append(row) { popupRows.push(row) },
+    remove(index) { popupRows.splice(index, 1) }
+  },
+  Qt: { callLater(fn) { pendingCalls.push(fn) } },
+  snapshotOf(n) { return { ...n.snapshot } },
+  watchForUpdates() {}, refreshPopup() {}, persistPopupFile() {}, deletePopupFileFor() {},
+  archivePopupFileFor(row) { archived.push(notifications.popupFileName(row)) },
+  popupNow() { return 0 }, durationFor() { return 100 }, schedulePopupExpiry() {}
+}
+service.service = service
+vm.createContext(service)
+for (const name of ['handleNotification', 'withdrawPopup', 'removePopup', 'isRestoredRow', 'removePopupsByOriginalId', 'addPopup', 'resetPopupLifetime']) {
+  vm.runInContext(serviceQml.match(new RegExp('^  function ' + name + '\\([^]*?^  }', 'm'))[0], service)
+}
+function liveNotification(id, timestamp) {
+  const closed = []
+  return {
+    snapshot: { originalId: id, timestamp, urgency: 1, expireTimeout: 100 }, tracked: false, dismissals: 0,
+    closed: { connect(fn) { closed.push(fn) } },
+    close() { closed.forEach(fn => fn()) },
+    dismiss() { this.dismissals++; this.close() }
+  }
+}
+function flushPopups() { while (pendingCalls.length) pendingCalls.shift()() }
+const withdrawnEarly = liveNotification(7, 100)
+service.handleNotification(withdrawnEarly)
+withdrawnEarly.close()
+flushPopups()
+assertEqual(popupRows.length, 0, 'sender close before deferred insertion cannot resurrect a popup')
+assertEqual(archived.length, 1, 'sender close archives the queued popup file before insertion')
+const shown = liveNotification(7, 101)
+service.handleNotification(shown)
+flushPopups()
+assertEqual(popupRows.length, 1, 'an open notification is inserted after the deferred callback')
+withdrawnEarly.close()
+assertEqual(popupRows.length, 1, 'an old notification close cannot remove a new notification reusing its id')
+shown.close()
+assertEqual(popupRows.length, 0, 'sender close removes its visible popup')
+assertEqual(shown.dismissals, 0, 'sender close does not send a redundant dismissal to its destroyed object')
+const dismissed = liveNotification(8, 102)
+service.handleNotification(dismissed)
+flushPopups()
+service.removePopup(0, 'dismiss')
+assertEqual(dismissed.dismissals, 1, 'user dismissal reaches the live notification once')
+assertEqual(archived.length, 3, 'a dismissal-induced closed signal does not archive the same popup twice')
+}
+
 assert(
   /readonly property int historyLimit: 10/.test(serviceQml),
   'notifications service keeps the last ten notifications in history'
@@ -588,7 +686,7 @@ assert(
   'notifications service keeps history in a subdirectory of the popup state dir'
 )
 assert(
-  /if \(entry\) \{\s*\n\s*archivePopupFileFor\(entry\)[\s\S]{0,200}?popupModel\.remove\(index\)/.test(serviceQml),
+  /if \(entry\) \{[\s\S]{0,120}?archivePopupFileFor\(entry\)[\s\S]{0,200}?popupModel\.remove\(index\)/.test(serviceQml),
   'notifications service archives the popup file when a popup leaves the screen'
 )
 assert(
@@ -660,7 +758,7 @@ assert(
   'notifications service leaves the row and its file alone when a refresh finds nothing changed'
 )
 assert(
-  /popupModel\.insert\(0, snapshot\)[\s\S]{0,300}?service\.refreshPopup\(notification, snapshot\.originalId, snapshot\.timestamp\)/.test(serviceQml),
+  /service\.addPopup\(snapshot, true\)[\s\S]{0,400}?service\.refreshPopup\(notification, snapshot\.originalId, snapshot\.timestamp\)/.test(serviceQml),
   'notifications service catches up on an update that beat the deferred row insert'
 )
 assert(
@@ -680,7 +778,7 @@ assert(
   'notifications service releases the file queue even when a history read comes back empty'
 )
 assert(
-  /onSummaryChanged: cardSlot\.remainingLifetime = 1\.0/.test(serviceQml),
+  /resetPopupLifetime\(updated\)/.test(serviceQml),
   'notifications service restarts the countdown when a toast is updated under it'
 )
 assert(
@@ -724,3 +822,122 @@ assert(
   'notifications service keeps no in-memory history models'
 )
 JS
+
+if ! command -v quickshell >/dev/null 2>&1; then
+  pass "quickshell not installed; skipping notification timer integration"
+  exit 0
+fi
+
+notification_fixture=$(mktemp -d)
+trap 'rm -rf "$notification_fixture"' EXIT
+python3 - "$ROOT" "$notification_fixture" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+root, fixture = map(Path, sys.argv[1:])
+source = (root / 'shell/plugins/notifications/Service.qml').read_text()
+start = source.index('  property var popupSchedule:')
+end = source.index('  function durationFor(', start)
+scheduler = source[start:end]
+functions = []
+for name in ['isRestoredRow', 'removePopup', 'dismissPopup', 'expirePopup', 'clearPopups', 'withdrawPopup']:
+  functions.append(re.search(r'^  function ' + name + r'\([\s\S]*?^  }', source, re.M).group(0))
+(fixture / 'NotificationLogic.js').symlink_to(root / 'shell/plugins/notifications/NotificationLogic.js')
+(fixture / 'Probe.qml').write_text('import QtQuick\nQtObject { property int value: 41; function increment() { value++ } }\n')
+template = '''import QtQuick
+import Quickshell
+import Quickshell.Io
+import "NotificationLogic.js" as NotificationLogic
+ShellRoot {
+  Item {
+    id: service
+    property var liveRefs: ({})
+    property var restoredPopups: ({})
+    property var archives: []
+    property var failures: []
+    property var ownerA: null
+    property var ownerB: null
+    property var probe: null
+    property int phase: 0
+    ListModel { id: popupModel }
+    function durationFor(urgency, expireTimeout) { return expireTimeout }
+    function archivePopupFileFor(row) { archives.push(NotificationLogic.popupFileName(row)) }
+    function check(value, message) { if (!value) failures.push(message) }
+    function key() { return NotificationLogic.popupFileName({ timestamp: 2, originalId: 2 }) }
+    Component {
+      id: hoverOwner
+      Item {
+        property string expiryKey
+        Component.onDestruction: service.setPopupHovered(expiryKey, this, false)
+      }
+    }
+    FileView { id: result; path: Quickshell.env("OMARCHY_QML_TEST_RESULT"); printErrors: false; atomicWrites: true }
+    Component.onCompleted: {
+      var component = Qt.createComponent("Probe.qml")
+      check(component.status === Component.Ready, "probe component loads")
+      probe = component.createObject(service)
+      component.destroy()
+      addPopup({ timestamp: 1, originalId: 1, urgency: 2, expireTimeout: 0 }, true)
+      addPopup({ timestamp: 2, originalId: 2, urgency: 1, expireTimeout: 80 }, true)
+      ownerA = hoverOwner.createObject(service, { expiryKey: key() })
+      ownerB = hoverOwner.createObject(service, { expiryKey: key() })
+      setPopupHovered(key(), ownerA, true)
+      setPopupHovered(key(), ownerB, true)
+      addPopup({ timestamp: 3, originalId: 3, urgency: 0, expireTimeout: 15 }, true)
+      phaseTimer.start()
+    }
+    Timer {
+      id: refreshTimer
+      interval: 30
+      onTriggered: service.resetPopupLifetime({ timestamp: 2, originalId: 2, urgency: 1, expireTimeout: 120 })
+    }
+    Timer {
+      id: phaseTimer
+      interval: 100
+      onTriggered: {
+        if (service.phase === 0) {
+          service.check(service.popupNow() >= 50, "ElapsedTimer measures elapsed milliseconds")
+          service.check(popupModel.count === 2, "nearest expiry removes only its identity after index shifts")
+          service.resetPopupLifetime({ timestamp: 2, originalId: 2, urgency: 1, expireTimeout: 80 })
+          service.ownerA.destroy()
+        } else if (service.phase === 1) {
+          service.check(popupModel.count === 2, "destroying one hovered output leaves the other pause active")
+          service.ownerB.destroy()
+          refreshTimer.start()
+        } else if (service.phase === 2) {
+          service.check(popupModel.count === 2, "replacement restarts the timer and invalidates the original deadline")
+        } else {
+          service.check(popupModel.count === 1 && popupModel.get(0).originalId === 1, "destroying the last hover owner resumes expiry while critical alerts remain")
+          service.check(!popupExpiryTimer.running, "no timer runs when only a critical popup remains")
+          service.check(service.archives.length === 2, "each expired row is archived exactly once")
+          service.probe.increment()
+          service.check(service.probe.value === 42, "destroying a Component preserves its instantiated object")
+          service.clearPopups()
+          service.check(popupModel.count === 0 && service.popupSchedule.next(service.popupNow()) === null, "clear removes every timer identity")
+          result.setText(JSON.stringify({ ok: service.failures.length === 0, failures: service.failures }))
+          Qt.callLater(function() { Qt.quit() })
+          return
+        }
+        service.phase++
+        phaseTimer.start()
+      }
+    }
+__SCHEDULER__
+__FUNCTIONS__
+  }
+}
+'''
+(fixture / 'shell.qml').write_text(template.replace('__SCHEDULER__', scheduler).replace('__FUNCTIONS__', '\n'.join(functions)))
+PY
+
+if ! QT_QPA_PLATFORM=offscreen OMARCHY_QML_TEST_RESULT="$notification_fixture/result.json" \
+    timeout 10 quickshell -p "$notification_fixture" --no-color > "$notification_fixture/quickshell.log" 2>&1; then
+  cat "$notification_fixture/quickshell.log" >&2
+  fail "notification timer integration runs"
+fi
+if ! jq -e '.ok == true' "$notification_fixture/result.json" >/dev/null; then
+  cat "$notification_fixture/result.json" "$notification_fixture/quickshell.log" >&2
+  fail "notification timer integration checks pass"
+fi
+pass "notification timer integration checks pass with real ElapsedTimer, ListModel, output destruction and timer callbacks"

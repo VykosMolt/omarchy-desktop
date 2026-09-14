@@ -25,7 +25,6 @@ Panel {
   function cancelPasswordPrompt() {
     passwordSsid = ""
     passwordText = ""
-    identityText = ""
   }
 
   // Live connection details from `ip` / /sys / iw.
@@ -69,6 +68,15 @@ Panel {
   readonly property var networkDevices: Networking.devices ? Networking.devices.values : []
   readonly property var wifiDevice: findDevice(DeviceType.Wifi)
   readonly property var wifiNetworkObjects: wifiDevice && wifiDevice.networks ? wifiDevice.networks.values : []
+  readonly property var wifiRowsSnapshot: {
+    var rows = []
+    var networks = wifiNetworkObjects || []
+    for (var i = 0; i < networks.length; i++) {
+      var row = Model.wifiRow(networks[i])
+      if (row) rows.push(row)
+    }
+    return Model.sortWifiRows(rows)
+  }
   readonly property var connectedWifiNetwork: findConnectedWifiNetwork()
   property var wifiNetworks: []
   property bool scanning: false
@@ -96,7 +104,6 @@ Panel {
   property string failureReason: ""
   property string passwordSsid: ""
   property string passwordText: ""
-  property string identityText: ""
 
   // ConnectionFailReason values as a plain object, so Model.js helpers stay
   // pure JS and Node-testable.
@@ -111,7 +118,7 @@ Panel {
   // True while any wifi action is mid-flight. Rows
   // disable themselves on this so clicks on the other rows don't silently
   // no-op against runNetworkAction's serialized guard.
-  readonly property bool busy: actionKind !== ""
+  readonly property bool busy: actionKind !== "" || enterpriseEditor.pendingResult
 
   // Index into `wifiNetworks` for keyboard navigation. -1 = no selection.
   property int selectedIndex: -1
@@ -121,7 +128,7 @@ Panel {
   // Keyboard focus zone for the panel. j/k crosses row boundaries:
   // header actions ⇄ band ⇄ DNS row ⇄ Wi-Fi networks. h/l move
   // within header actions, band pills, or DNS providers.
-  property string focusSection: "dns"  // "header" | "band" | "dns" | "wifi"
+  property string focusSection: "dns"  // "header" | "band" | "vpn" | "dns" | "wifi"
   property int headerIndex: 0
   readonly property bool canDisconnect: !!connectedWifiNetwork
   readonly property bool headerHasDisconnect: false
@@ -169,6 +176,16 @@ Panel {
   // header line, then the pills. Same shape as wifiActionFocused.
   property bool bandAutoFocused: true
 
+  // Polled while the panel is open, like the details header: the tunnel belongs
+  // to its own daemon, which NetworkManager can watch but not switch.
+  property var vpn: ({})
+  // Held from the click until the daemon reports moving, so the switch does not
+  // snap back for a tick.
+  property bool vpnPending: false
+  readonly property bool vpnAvailable: vpn.backend === "mullvad"
+  readonly property bool vpnActive: vpn.active === true
+  readonly property bool vpnBusy: vpn.busy === true || vpnPending
+
   onHeaderActionCountChanged: clampHeaderIndex()
 
   // Availability shifts as scans land, so the option list can shrink out from
@@ -185,6 +202,11 @@ Panel {
     }
   }
 
+  // Evacuate the cursor before the row collapses, as the band section does.
+  onVpnAvailableChanged: {
+    if (!vpnAvailable && focusSection === "vpn") focusSection = "dns"
+  }
+
   // Collapsing the pills out from under the cursor would leave it pointing at
   // nothing, so send it up to the switch that is still on screen.
   onBandPillsVisibleChanged: {
@@ -195,6 +217,31 @@ Panel {
     var max = Math.max(0, headerActionCount - 1)
     if (headerIndex > max) headerIndex = max
     if (headerIndex < 0) headerIndex = 0
+  }
+
+  // The vertical chain is header ⇄ band ⇄ VPN ⇄ DNS ⇄ wifi, and every section
+  // but DNS drops out of it when it has nothing on screen. Deriving the live
+  // order once keeps the move handlers from each carrying their own copy of
+  // which sections currently exist. Entering one parks its cursor where the
+  // movement came from: the band section at its nearest row, wifi at its first.
+  function moveSection(dy) {
+    var order = []
+    if (headerActionCount > 0) order.push("header")
+    if (canSelectBand) order.push("band")
+    if (vpnAvailable) order.push("vpn")
+    order.push("dns")
+    if (wifiNetworks.length > 0) order.push("wifi")
+
+    // A section that has since collapsed is no longer in the order, which would
+    // otherwise strand the cursor there. DNS is always on screen.
+    var index = order.indexOf(focusSection)
+    var next = index === -1 ? "dns" : order[index + (dy > 0 ? 1 : -1)]
+    if (next === undefined || next === focusSection) return
+
+    focusSection = next
+    if (next === "header") headerIndex = 0
+    else if (next === "band") bandAutoFocused = dy > 0 ? true : !bandPillsVisible
+    else if (next === "wifi" && selectedIndex < 0) selectedIndex = 0
   }
 
   function selectHeaderByDelta(delta) {
@@ -362,7 +409,8 @@ Panel {
   // If the list empties (station gone, e.g. wifi off), bounce the cursor
   // back to the DNS row so the panel doesn't end up with no cursor at all.
   onWifiNetworksChanged: {
-    if (wifiNetworks.length === 0) {
+    var rows = wifiNetworks || []
+    if (rows.length === 0) {
       selectedIndex = -1
       wifiActionFocused = false
       if (focusSection === "wifi") focusSection = "dns"
@@ -372,13 +420,13 @@ Panel {
         selectedIndex = passwordIndex
         focusSection = "wifi"
       }
-    } else if (selectedIndex >= wifiNetworks.length) {
-      selectedIndex = wifiNetworks.length - 1
+    } else if (selectedIndex >= rows.length) {
+      selectedIndex = rows.length - 1
     } else if (selectedIndex < 0 && opened) {
       selectedIndex = 0
     }
 
-    if (selectedIndex < 0 || selectedIndex >= wifiNetworks.length || !canForgetNetwork(wifiNetworks[selectedIndex])) {
+    if (selectedIndex < 0 || selectedIndex >= rows.length || !canForgetNetwork(rows[selectedIndex])) {
       wifiActionFocused = false
     }
   }
@@ -388,7 +436,9 @@ Panel {
     syncWifiNetworks()
   }
 
-  onWifiNetworkObjectsChanged: syncWifiNetworks()
+  // Read each backend field in a binding: a scan can change strength or
+  // known/connected state without adding/removing a WifiNetwork object.
+  onWifiRowsSnapshotChanged: syncWifiNetworks()
 
   function selectByDelta(delta) {
     if (wifiNetworks.length === 0) { selectedIndex = -1; return }
@@ -403,7 +453,7 @@ Panel {
 
   function canShareNetwork(net) {
     if (!net || !net.connected) return false
-    return net.security !== WifiSecurityType.Wpa2Eap && net.security !== WifiSecurityType.WpaEap
+    return !isEnterpriseSecurity(net.security)
   }
 
   function selectWifiActionByDelta(delta) {
@@ -479,6 +529,7 @@ Panel {
       bandProc.command = ["omarchy-network-band"]
       bandProc.running = true
     }
+    if (!vpnProc.running) vpnProc.running = true
     // A closed panel has no nearby-network list to fill, and bare refresh()
     // reaches here from action completion, timeouts and construction.
     if (opened && wifiDevice) {
@@ -593,17 +644,26 @@ Panel {
   }
 
   function syncWifiNetworks() {
-    var nets = []
+    // Device/snapshot change signals also fire during construction, before
+    // every var initializer has run. Never publish an uninitialized snapshot
+    // or let a prior early event prevent the next refresh from recovering.
+    var rows = wifiNetworks || []
+    var selected = rows[selectedIndex]
+    var selectedSsid = selected ? selected.ssid : null
     var networks = wifiNetworkObjects || []
 
     for (var i = 0; i < networks.length; i++) {
       var network = networks[i]
       if (!network) continue
       checkActionCompletion(network)
-      var row = Model.wifiRow(network)
-      if (row) nets.push(row)
     }
-    wifiNetworks = Model.sortWifiRows(nets)
+    wifiNetworks = wifiRowsSnapshot || []
+    // Signal changes can reorder the list underneath a keyboard selection.
+    // Keep its SSID so Enter still acts on the network the user selected.
+    if (passwordSsid === "" && selectedSsid !== null) {
+      var selectedRow = wifiIndexForSsid(selectedSsid)
+      if (selectedRow >= 0) selectedIndex = selectedRow
+    }
     wifiStationAvailable = !!wifiDevice
     scanning = false
   }
@@ -632,6 +692,24 @@ Panel {
     bandCurrent = status.band
     bandSelected = status.selected
     bandAvailable = status.available
+  }
+
+  function updateVpn(raw) {
+    var status = Model.parseVpnStatus(raw)
+
+    // Not before the request itself has returned: a poll landing between the
+    // click and the daemon accepting it still reports the old state, and
+    // releasing on that would flip the switch back for a tick.
+    if (vpnPending && !vpnActionProc.running && !status.busy) vpnPending = false
+
+    vpn = status
+  }
+
+  function toggleVpn() {
+    if (!vpnAvailable || vpnBusy) return
+    vpnPending = true
+    vpnActionProc.command = ["omarchy-network-vpn-toggle", vpnActive ? "off" : "on"]
+    vpnActionProc.running = true
   }
 
   // Pinning a band reassociates, but the panel deliberately stays open: the
@@ -684,11 +762,20 @@ Panel {
     return Model.requiresCredentials(security, WifiSecurityType.Open, WifiSecurityType.Owe)
   }
 
+  function isEnterpriseSecurity(security) {
+    return security === WifiSecurityType.Wpa3SuiteB192
+      || security === WifiSecurityType.Wpa2Eap || security === WifiSecurityType.WpaEap
+      || security === WifiSecurityType.DynamicWep || security === WifiSecurityType.Leap
+  }
+
   function openPasswordPrompt(ssid) {
-    if (passwordSsid !== ssid) {
-      passwordText = ""
-      identityText = ""
+    var network = networkForSsid(ssid)
+    if (!network) return
+    if (isEnterpriseSecurity(network.security)) {
+      openEnterpriseEditor(network)
+      return
     }
+    if (passwordSsid !== ssid) passwordText = ""
     passwordSsid = ssid
   }
 
@@ -701,14 +788,15 @@ Panel {
   }
 
   function wifiIndexForSsid(ssid) {
-    for (var i = 0; i < wifiNetworks.length; i++) {
-      if (wifiNetworks[i] && wifiNetworks[i].ssid === ssid) return i
+    var rows = wifiNetworks || []
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].ssid === ssid) return i
     }
     return -1
   }
 
   function runNetworkAction(kind, network, callback) {
-    if (actionKind !== "" || !network) return
+    if (busy || !network) return
     var ssid = network.name || ""
     actionSsid = ssid
     actionKind = kind
@@ -741,6 +829,22 @@ Panel {
     refresh()
   }
 
+  Connections {
+    target: root.busy ? root.networkForSsid(root.actionSsid) : null
+    function onConnectionFailed(reason) {
+      var network = root.networkForSsid(root.actionSsid)
+      if (!network) return
+      var ssid = network.name || ""
+      var reprompt = root.actionKind === "connect"
+        && root.shouldRepromptPassphrase(reason, root.requiresCredentials(network.security))
+      root.failNetworkAction(network, reason)
+      if (reprompt && root.opened) root.openPasswordPrompt(ssid)
+    }
+    function onConnectedChanged() { root.checkActionCompletion(root.networkForSsid(root.actionSsid)) }
+    function onKnownChanged() { root.checkActionCompletion(root.networkForSsid(root.actionSsid)) }
+    function onStateChangingChanged() { root.checkActionCompletion(root.networkForSsid(root.actionSsid)) }
+  }
+
   function networkFailureReason(reason, needsCredentials) {
     return Model.networkFailureReason(reason, needsCredentials, connectionFailReasons)
   }
@@ -757,31 +861,66 @@ Panel {
   }
 
   function connectDirectly(ssid) {
-    runNetworkAction("connect", networkForSsid(ssid), function(network) { network.connect() })
+    var network = networkForSsid(ssid)
+    if (!network) return
+    if (!network.known && isEnterpriseSecurity(network.security)) {
+      openEnterpriseEditor(network)
+      return
+    }
+    runNetworkAction("connect", network, function(net) { net.connect() })
   }
 
   function connectWithPassphrase(ssid, passphrase) {
-    runNetworkAction("connect", networkForSsid(ssid), function(network) { network.connectWithPsk(passphrase) })
-  }
-
-  function connectEnterprise(ssid, identity, passphrase) {
-    runNetworkAction("connect", networkForSsid(ssid), function(network) {
-      enterpriseConnect.secret = passphrase
-      enterpriseConnect.command = ["bash", "-c", Model.enterpriseConnectScript, "nmcli-eap", ssid, identity]
-      enterpriseConnect.running = true
-    })
-  }
-
-  // Creates and activates the 802.1X profile (see Model.enterpriseConnectScript).
-  // The password goes over stdin, never argv.
-  Process {
-    id: enterpriseConnect
-    property string secret: ""
-    stdinEnabled: true
-    onStarted: {
-      write(secret + "\n")
-      secret = ""
+    var network = networkForSsid(ssid)
+    if (!network) return
+    if (isEnterpriseSecurity(network.security)) {
+      openEnterpriseEditor(network)
+      return
     }
+    runNetworkAction("connect", network, function(net) { net.connectWithPsk(passphrase) })
+  }
+
+  function openEnterpriseEditor(network) {
+    if (busy || !network || !isEnterpriseSecurity(network.security)) return
+    cancelPasswordPrompt()
+    failureSsid = ""
+    failureReason = ""
+    enterpriseEditor.ssid = network.name || ""
+    enterpriseEditor.startConfirmed = false
+    enterpriseEditor.pendingResult = true
+    enterpriseEditor.command = Model.enterpriseEditorCommand(network.known)
+    enterpriseEditor.running = true
+  }
+
+  function finishEnterpriseEditor(exitCode) {
+    if (!enterpriseEditor.pendingResult) return
+    var ssid = enterpriseEditor.ssid
+    enterpriseEditor.pendingResult = false
+    if (exitCode !== 0) {
+      failureSsid = ssid
+      failureReason = exitCode === 127 ? "Install nm-connection-editor" : "Could not open nm-connection-editor"
+    }
+    refresh()
+  }
+
+  function enterpriseEditorPending(ssid) {
+    return enterpriseEditor.pendingResult && enterpriseEditor.ssid === ssid
+  }
+
+  Process {
+    id: enterpriseEditor
+    property string ssid: ""
+    property bool startConfirmed: false
+    property bool pendingResult: false
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (enterpriseEditor.pendingResult && !enterpriseEditor.startConfirmed && !enterpriseEditor.running)
+        root.finishEnterpriseEditor(127)
+    })
+    onStarted: {
+      startConfirmed = true
+      root.close()
+    }
+    onExited: function(exitCode) { root.finishEnterpriseEditor(exitCode) }
   }
 
   function disconnect(network) {
@@ -849,6 +988,30 @@ Panel {
       waitForEnd: true
       onStreamFinished: root.updateBand(text)
     }
+  }
+
+  Process {
+    id: vpnProc
+    command: ["omarchy-network-vpn-status"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateVpn(text)
+    }
+  }
+
+  Timer {
+    id: vpnPoll
+    interval: 1500
+    repeat: true
+    running: root.opened
+    onTriggered: if (!vpnProc.running) vpnProc.running = true
+  }
+
+  // The toggle is not waited on; this only pulls the new state in sooner than
+  // the next poll tick would.
+  Process {
+    id: vpnActionProc
+    onExited: if (!vpnProc.running) vpnProc.running = true
   }
 
   // Slower than detailsPoll on purpose: this shells out to nmcli several times,
@@ -1001,56 +1164,29 @@ Panel {
           if (dy >= 0) return
         }
         if (dy !== 0) {
-          // Vertical order is header ⇄ band ⇄ DNS ⇄ wifi, with the band section
-          // dropping out of the chain entirely when it isn't on screen.
-          if (root.focusSection === "header") {
-            if (dy > 0) {
-              if (root.canSelectBand) {
-                root.focusSection = "band"
-                root.bandAutoFocused = true
-              } else {
-                root.focusSection = "dns"
-              }
-            }
-          } else if (root.focusSection === "band") {
+          // Sections that own more than one cursor row walk their own rows
+          // first and hand off to moveSection only at their edges.
+          if (root.focusSection === "band") {
             // Automatic on the header line, then the pills -- which collapse
             // away under Automatic, leaving a single row to walk.
-            if (dy < 0) {
-              if (!root.bandAutoFocused) {
-                root.bandAutoFocused = true
-              } else if (root.headerActionCount > 0) {
-                root.focusSection = "header"
-                root.headerIndex = 0
-              }
-            } else if (root.bandAutoFocused && root.bandPillsVisible) {
+            if (dy < 0 && !root.bandAutoFocused) {
+              root.bandAutoFocused = true
+            } else if (dy > 0 && root.bandAutoFocused && root.bandPillsVisible) {
               root.bandAutoFocused = false
             } else {
-              root.focusSection = "dns"
+              root.moveSection(dy)
             }
-          } else if (root.focusSection === "dns") {
-            // k from DNS moves up into the band section when it's on screen,
-            // then the disconnect button; otherwise stays put. j drops into the
-            // wifi list if there's anywhere to land.
-            if (dy < 0) {
-              if (root.canSelectBand) {
-                root.focusSection = "band"
-                root.bandAutoFocused = !root.bandPillsVisible
-              } else if (root.headerActionCount > 0) {
-                root.focusSection = "header"
-                root.headerIndex = 0
-              }
-            } else if (root.wifiNetworks.length > 0) {
-              root.focusSection = "wifi"
-              if (root.selectedIndex < 0) root.selectedIndex = 0
-            }
-          } else {  // wifi
-            // k from the top row escapes back up to the DNS row rather than
-            // wrapping around to the bottom of the list.
+          } else if (root.focusSection === "wifi") {
+            // k from the top row escapes back up rather than wrapping around
+            // to the bottom of the list.
             if (dy < 0 && root.selectedIndex <= 0) {
-              root.focusSection = "dns"
+              root.moveSection(dy)
               root.wifiActionFocused = false
+            } else {
+              root.selectByDelta(dy)
             }
-            else root.selectByDelta(dy)
+          } else {
+            root.moveSection(dy)
           }
         }
         if (dx !== 0) {
@@ -1064,6 +1200,7 @@ Panel {
         if (root.cursorActive) {
           if (root.focusSection === "header") root.activateHeader()
           else if (root.focusSection === "band") root.activateBand()
+          else if (root.focusSection === "vpn") root.toggleVpn()
           else if (root.focusSection === "dns") root.activateDns()
           else root.activateSelected()
         }
@@ -1398,6 +1535,72 @@ Panel {
 
       }
 
+      // VPN, between the link itself and the DNS that resolves over it. The
+      // whole section unmounts when there is no VPN, so a machine without one
+      // is unchanged.
+      PanelSeparator {
+        visible: root.vpnAvailable
+        foreground: root.bar.foreground
+      }
+
+      Item {
+        width: parent.width
+        visible: root.vpnAvailable
+        implicitHeight: Math.max(vpnHeader.implicitHeight, vpnStateRow.implicitHeight)
+
+        PanelSectionHeader {
+          id: vpnHeader
+          text: "VPN"
+          foreground: root.bar.foreground
+          fontFamily: root.bar.fontFamily
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+        }
+
+        Row {
+          id: vpnStateRow
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(6)
+
+          PanelSectionHeader {
+            id: vpnStateLabel
+            text: Model.vpnStatusLabel(root.vpn)
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            anchors.verticalCenter: parent.verticalCenter
+          }
+
+          // Centred on the label's glyphs rather than its box, for the same
+          // reason the band switch is: PanelSectionHeader carries topPadding to
+          // protect Nerd Font overshoot, which sits its text below its centre.
+          ToggleSwitch {
+            id: vpnSwitch
+            trackHeight: Math.round(vpnStateLabel.font.pixelSize * 1.2)
+            cursorPad: Style.space(3)
+            anchors.verticalCenter: vpnStateLabel.verticalCenter
+            anchors.verticalCenterOffset: Math.round(vpnStateLabel.topPadding / 2)
+            checked: root.vpnActive
+            busy: root.vpnBusy
+            hasCursor: root.cursorActive && root.focusSection === "vpn"
+            foreground: root.bar.foreground
+            onToggled: root.toggleVpn()
+
+            onHovered: function(isHovered) {
+              if (!isHovered) return
+              root.cursorActive = true
+              root.focusSection = "vpn"
+            }
+
+            PanelToolTip {
+              visible: vpnSwitch.containsMouse
+              text: Model.vpnTooltip(root.vpn)
+              fontFamily: root.bar.fontFamily
+            }
+          }
+        }
+      }
+
       // DNS provider selection.
       PanelSeparator {
         foreground: root.bar.foreground
@@ -1601,9 +1804,6 @@ Panel {
     readonly property bool isConnected: net && net.connected
     readonly property bool isKnown: !!(net && net.known)
     readonly property bool requiresCredentials: net ? root.requiresCredentials(net.security) : false
-    readonly property bool isEnterprise: net
-      ? (net.security === WifiSecurityType.Wpa2Eap || net.security === WifiSecurityType.WpaEap)
-      : false
     readonly property bool canForget: root.canForgetNetwork(net)
     readonly property bool isSelected: root.focusSection === "wifi" && root.selectedIndex === index
     readonly property bool forgetFocused: isSelected && root.wifiActionFocused && canForget
@@ -1622,34 +1822,13 @@ Panel {
 
     function submitCredentials() {
       if (!net || root.busy || root.passwordText.length === 0) return
-      if (!isEnterprise) return root.connectWithPassphrase(net.ssid, root.passwordText)
-      if (root.identityText.length > 0) root.connectEnterprise(net.ssid, root.identityText, root.passwordText)
-    }
-
-    Connections {
-      target: row.net ? root.networkForSsid(row.net.ssid) : null
-      function onConnectionFailed(reason) {
-        // Background auto-connect retries fire this too; only reprompt for
-        // the connect started from this panel. Checked before
-        // failNetworkAction, which clears the action state.
-        var ours = root.actionKind === "connect" && root.actionSsid === (row.net.ssid || "")
-        root.failNetworkAction(root.networkForSsid(row.net.ssid), reason)
-        if (ours && root.shouldRepromptPassphrase(reason, row.requiresCredentials)) root.openPasswordPrompt(row.net.ssid)
-      }
-      function onConnectedChanged() {
-        if (row.net) root.checkActionCompletion(root.networkForSsid(row.net.ssid))
-      }
-      function onKnownChanged() {
-        if (row.net) root.checkActionCompletion(root.networkForSsid(row.net.ssid))
-      }
-      function onStateChangingChanged() {
-        if (row.net) root.checkActionCompletion(root.networkForSsid(row.net.ssid))
-      }
+      root.connectWithPassphrase(net.ssid, root.passwordText)
     }
 
     readonly property string statusText: {
       if (!net) return ""
       if (isPasswordOpen) return ""
+      if (root.enterpriseEditorPending(net.ssid)) return "Configuring…"
       if (isBusy && root.actionKind === "connect") return "Connecting…"
       if (isBusy && root.actionKind === "disconnect") return "Disconnecting…"
       if (isBusy && root.actionKind === "forget") return "Forgetting…"
@@ -1835,32 +2014,8 @@ Panel {
       anchors.leftMargin: Style.space(10)
       anchors.rightMargin: Style.space(10)
       anchors.topMargin: Style.space(4)
-      implicitHeight: (idField.visible ? idField.implicitHeight + Style.space(4) : 0) + pwField.implicitHeight + Style.spacing.rowGap
+      implicitHeight: pwField.implicitHeight + Style.spacing.rowGap
       height: implicitHeight
-
-      TextField {
-        id: idField
-        visible: row.isEnterprise && !row.isBusy && !row.isFailed
-        anchors.left: parent.left
-        anchors.right: connectPwBtn.left
-        anchors.top: parent.top
-        anchors.rightMargin: Style.space(6)
-        placeholderText: "Identity (user@domain)"
-        font.family: Style.font.family
-        font.pixelSize: Style.font.body
-        foreground: root.bar.foreground
-        horizontalPadding: Style.spacing.controlGap
-        verticalPadding: Style.spacing.controlPaddingY
-        enabled: !row.isBusy
-        text: row.isPasswordOpen ? root.identityText : ""
-
-        onAccepted: pwField.forceActiveFocus()
-        onTextChanged: if (row.isPasswordOpen && text !== root.identityText) root.identityText = text
-        Keys.onEscapePressed: root.cancelPasswordPrompt()
-
-        onVisibleChanged: if (visible) Qt.callLater(forceActiveFocus)
-        Component.onCompleted: if (visible) Qt.callLater(forceActiveFocus)
-      }
 
       TextField {
         id: pwField
@@ -1884,8 +2039,8 @@ Panel {
         onTextChanged: if (row.isPasswordOpen && text !== root.passwordText) root.passwordText = text
         Keys.onEscapePressed: root.cancelPasswordPrompt()
 
-        onVisibleChanged: if (visible && !row.isEnterprise) Qt.callLater(forceActiveFocus)
-        Component.onCompleted: if (visible && !row.isEnterprise) Qt.callLater(forceActiveFocus)
+        onVisibleChanged: if (visible) Qt.callLater(forceActiveFocus)
+        Component.onCompleted: if (visible) Qt.callLater(forceActiveFocus)
       }
 
       BorderSurface {
@@ -1904,7 +2059,7 @@ Panel {
           anchors.fill: parent
           horizontalAlignment: Text.AlignHCenter
           verticalAlignment: Text.AlignVCenter
-          text: row.isFailed ? "Wrong password" : "Connecting..."
+          text: row.isFailed ? root.failureReason : "Connecting..."
           color: row.isFailed ? root.bar.urgent : root.bar.foreground
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.bodySmall

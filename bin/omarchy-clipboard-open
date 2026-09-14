@@ -13,6 +13,7 @@ history_path="$OMARCHY_STATE_HOME/clipboard-history.json"
 while (( $# > 0 )); do
   case "$1" in
     --history-index)
+      (( $# >= 2 )) || { echo "--history-index requires an index" >&2; exit 1; }
       history_index="${2:-}"
       shift 2
       ;;
@@ -41,7 +42,7 @@ open_text() {
   local open_dir=""
   local open_file=""
 
-  url=$(grep -Eom1 'https?://[^[:space:]"'\''<>]+' <<<"$text" || true)
+  url=$(grep -Eo 'https?://[^[:space:]"'\''<>]+' <<<"$text" | head -n 1 || true)
   if [[ -z $url && $text =~ ^[[:space:]]*([[:alnum:]][[:alnum:].-]+\.[[:alpha:]]{2,})(/[^[:space:]]*)?[[:space:]]*$ ]]; then
     url="https://${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
   fi

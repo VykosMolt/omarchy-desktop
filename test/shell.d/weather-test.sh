@@ -50,6 +50,49 @@ assertDeepEqual(
 assertDeepEqual(weather.parseGeocodingResults('{}'), [], 'weather handles empty geocoding responses')
 assertDeepEqual(weather.parseGeocodingResults('{'), [], 'weather handles invalid geocoding JSON')
 
+for (const coords of [[Infinity, 0], [91, 0], [0, -181], ['', 3], ['12oops', 3], [null, 0]]) {
+  assertEqual(weather.validCoordinates(...coords), false, 'invalid coordinates are rejected: ' + JSON.stringify(coords))
+  assertEqual(weather.wttrLocationQuery('Fallback', ...coords), 'Fallback', 'invalid coordinates fall back to the location name')
+}
+assertDeepEqual(weather.parseGeocodingResults('{"results":[{"name":"invalid","latitude":91,"longitude":0}]}'), [], 'out-of-range geocoding rows are not selectable')
+
+// Execute the shared request state machine to prove old collectors cannot
+// publish under a replacement request's identity or start two children.
+const vm = require('vm')
+const fetchBlock = panelSource.slice(panelSource.indexOf('  component Fetch: Process {'), panelSource.indexOf('  Fetch {'))
+const deferred = []
+const completed = []
+const fetch = { running: true, pendingResult: true, requestSerial: 1, resultExited: false, outDone: false, output: 'old city', code: 0, queuedCommand: null, queuedSerial: -1,
+  resultReady: (raw, code, serial) => completed.push({ raw, code, serial }), Qt: { callLater: fn => deferred.push(fn) } }
+fetch.fetch = fetch
+vm.createContext(fetch)
+for (const name of ['start', 'pump', 'settle']) {
+  const fn = fetchBlock.match(new RegExp('    function ' + name + '\\([^]*?\\n    }'))
+  vm.runInContext(fn[0], fetch)
+}
+fetch.start(['curl', 'city2'], 2)
+fetch.start(['curl', 'city3'], 3)
+fetch.running = false
+fetch.resultExited = true
+fetch.settle()
+fetch.pump()
+assertEqual(fetch.requestSerial, 1, 'replacement waits for predecessor stdout after exit')
+fetch.outDone = true
+fetch.settle()
+deferred.splice(0).forEach(fn => fn())
+assertDeepEqual(completed, [{ raw: 'old city', code: 0, serial: 1 }], 'old data retains the old request identity')
+assertEqual(fetch.requestSerial, 3, 'only the latest requested city starts after draining')
+assertDeepEqual(fetch.command, ['curl', 'city3'], 'the queued request retains its complete argument vector')
+assertEqual(fetch.output, '', 'replacement request starts without predecessor output')
+const edit = { opened: true, editingLocation: true, savingLocation: false, geocodeSerial: 1, geocodePendingQuery: 'Paris', locationField: { text: 'x' }, locationSuggestions: [{ name: 'Paris' }], geocodeProc: { queuedCommand: ['curl'] }, geocodeDebounce: { restart: () => {} }, suggestionIndex: 0 }
+edit.root = edit
+vm.createContext(edit)
+vm.runInContext(panelSource.match(/  function locationTextChanged\([^]*?\n  }/)[0], edit)
+edit.locationTextChanged()
+assertEqual(edit.locationSuggestions.length, 0, 'editing clears stale suggestions before debounce')
+assertEqual(edit.geocodePendingQuery, 'x', 'short queries replace the queued geocoding query')
+assertEqual(edit.geocodeSerial, 2, 'editing invalidates in-flight geocoding results')
+
 assertEqual(weather.roundedTemp('21.6'), '22', 'weather rounds temperatures')
 assertEqual(weather.roundedTemp('nope'), '', 'weather ignores invalid temperatures')
 assertEqual(weather.formatTemp(72, true), '72°F', 'weather formats imperial temperatures')

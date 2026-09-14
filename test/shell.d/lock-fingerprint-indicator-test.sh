@@ -18,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-require_compositor "lock fingerprint indicator test"
+export QT_QPA_PLATFORM=offscreen
 
 if ! command -v quickshell >/dev/null 2>&1; then
   pass "quickshell not installed; skipping lock fingerprint indicator test"

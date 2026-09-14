@@ -164,7 +164,7 @@ QtObject {
   function focusBorderFor(foreground, accent, urgent) { return Util.alpha(focusStateColor(foreground, accent, urgent), focusBorderAlpha) }
 
   // Composite helpers for the focus > hover > normal priority chain used by
-  // every form control surface (TextField, NumberField, Dropdown, Toggle,
+  // every form control surface (TextField, Dropdown, Toggle,
   // etc.). Saves callers from re-writing the three-line ternary ladder for
   // fill / border / border-width on every Rectangle background.
   function controlFill(focused, hot, foreground, accent) {
@@ -250,7 +250,6 @@ QtObject {
     readonly property int popupRowHeight: root.spacingToken("popup-row-height", 28)
     readonly property int dropdownWidth: root.spacingToken("dropdown-width", 240)
     readonly property int searchableDropdownWidth: root.spacingToken("searchable-dropdown-width", 260)
-    readonly property int numberFieldWidth: root.spacingToken("number-field-width", 120)
     readonly property int searchablePopupMinHeight: root.spacingToken("searchable-popup-min-height", 220)
     readonly property int rowGap: root.spacingToken("row-gap", 8)
     readonly property int rowPaddingX: root.spacingToken("row-padding-x", 12)

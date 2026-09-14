@@ -788,6 +788,7 @@ Item {
 
   function moduleTargetClickable(target) {
     return target
+      && target.enabled !== false
       && target.visible !== false
       && target.opacity !== 0
       && target.interactive !== false
@@ -1003,7 +1004,7 @@ Item {
   Process {
     id: barHiddenProbe
     running: true
-    command: ["bash", "-c", "[[ -f ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/bar-off ]] && echo yes || echo no"]
+    command: ["bash", "-c", "if [[ -f $1 ]]; then echo yes; else echo no; fi", "--", Paths.omarchyState + "/toggles/bar-off"]
     stdout: SplitParser { onRead: function(line) { root.barHidden = String(line).trim() === "yes" } }
   }
   FileView {
@@ -1815,7 +1816,7 @@ Item {
 
     function injectProps() {
       var target = activeItem
-      if (!target) return
+      if (!target || commandCustom) return
       if ("bar" in target) target.bar = root
       if ("moduleName" in target) target.moduleName = moduleName
       if ("settings" in target) target.settings = moduleSettings

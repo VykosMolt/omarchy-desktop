@@ -43,10 +43,10 @@ service="$ROOT/shell/plugins/services/idle/Service.qml"
 # Each stage runs the command that actually performs it, and turning the screen
 # back on is what a wake is for -- so a cycle that never turned it off has
 # nothing to undo.
-grep -Fq 'omarchy-brightness-display off' "$service" ||
+grep -Fq '["omarchy-brightness-display", "off"]' "$service" ||
   fail "the screen off stage turns the display off"
 grep -Fq 'omarchy-system-lock' "$service" || fail "the lock stage locks"
-grep -Fq 'systemctl suspend' "$service" || fail "the suspend stage suspends"
+grep -Fq '["systemctl", "suspend"]' "$service" || fail "the suspend stage suspends"
 grep -Fq 'root.idledThisCycle && root.screenOffThisCycle' "$service" ||
   fail "a cycle that never turned the screen off still runs a wake"
 pass "each idle stage runs the command that performs it"
@@ -56,3 +56,43 @@ grep -Fq 'timeout: root.firstIdleTimeoutSeconds' "$service" ||
 grep -Fq 'firstIdleTimeoutSeconds > 0' "$service" ||
   fail "idle is off entirely when every stage is off"
 pass "the idle monitor follows the stages that are on"
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/services/idle/Service.qml', 'utf8')
+const timer = () => ({ running: true, interval: 0, stop() { this.running = false }, restart() { this.running = true } })
+const state = { logEvent: () => {}, screenOffTimer: timer(), lockTimer: timer(), suspendTimer: timer(), idledThisCycle: true, screenOffThisCycle: true, displayDesiredOff: true, displayOff: true, displayPowerActive: true, screenOffProcess: { running: true }, wakeProcess: { running: false }, idleStartedAt: 0, Qt: { callLater: () => {} } }
+state.root = state
+vm.createContext(state)
+for (const name of ['runProcess', 'pumpDisplayPower', 'cancelIdleCycle', 'scheduleStage', 'reconfigureStages', 'finishStayAwakeProbe']) {
+  vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], state)
+}
+state.cancelIdleCycle('activity')
+assertEqual(state.wakeProcess.running, false, 'activity waits for an in-flight screen-off command')
+state.screenOffProcess.running = state.displayPowerActive = false
+state.pumpDisplayPower()
+assertDeepEqual(state.wakeProcess.command, ['omarchy-system-wake'], 'wake starts after screen-off settles')
+assertEqual(state.displayOff, false, 'serialized display power converges on the latest active state')
+state.idledThisCycle = true
+state.idleEnabled = true
+state.screenOffThisCycle = state.lockedThisCycle = state.suspendedThisCycle = false
+state.screenOffTimeoutSeconds = 0
+state.lockTimeoutSeconds = 30
+state.suspendTimeoutSeconds = 0
+state.firstIdleTimeoutSeconds = 5
+state.idleStartedAt = Date.now() - 10000
+state.lockSystem = () => {}
+state.reconfigureStages()
+assertEqual(state.screenOffTimer.running, false, 'live configuration cancels a disabled pending screen-off stage')
+assert(state.lockTimer.interval >= 19000 && state.lockTimer.interval <= 20000, 'rescheduling accounts for inactivity already elapsed')
+let applied = false
+state.applyStayAwake = () => { applied = true }
+state.stayAwakeGeneration = 2
+state.stayAwakeWriteActive = false
+state.hasPendingStayAwakePersist = false
+state.stayAwakeStateDirWatcher = { reload: () => {} }
+state.stayAwakeStateProbe = { pendingResult: true, outDone: true, resultExited: true, serial: 1, code: 0, output: 'no' }
+state.finishStayAwakeProbe()
+assertEqual(applied, false, 'an earlier file probe cannot undo a newer Stay Awake toggle')
+JS

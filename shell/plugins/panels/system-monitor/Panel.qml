@@ -18,8 +18,10 @@ import "Model.js" as Model
 //
 // The panel has two views over the same machine. Apps is one row per window,
 // which is what "kill that app" means to a user: close it the way its own
-// close button would, or end its process. Processes is the full ranking with
-// a filter, for the thing that has no window. Both share one keyboard model:
+// close button would, or end its process -- then one row per app running with
+// no window at all, so Steam still holding a pile of services after its window
+// closed is something to end here. Processes is the full ranking with a filter,
+// for everything underneath. Both share one keyboard model:
 // j/k walk rows, h/l switch views, `/` or just typing filters, `x` ends, `c`
 // closes a window, Enter focuses one.
 //
@@ -87,12 +89,13 @@ Panel {
   readonly property bool appsView: view === "apps"
   readonly property var visibleProcesses: Model.limitProcesses(
     Model.filterProcesses(Model.sortProcesses(processes, sortKey), filterText), processLimit, filterText)
-  readonly property var visibleWindows: Model.filterWindows(
-    Model.attachUsage(Model.sortWindows(windows), processes), filterText)
-  readonly property var visibleRows: appsView ? visibleWindows : visibleProcesses
+  readonly property var visibleApps: Model.filterApps(
+    Model.attachUsage(Model.sortWindows(windows), processes)
+      .concat(Model.backgroundApps(processes, windows, root.lookupApp)), filterText)
+  readonly property var visibleRows: appsView ? visibleApps : visibleProcesses
 
   // ---- signals ------------------------------------------------------------
-  // `terminatedPids` is the set of pids this panel has sent SIGTERM to, pruned
+  // `terminatedPids` holds pid:startTime identities sent SIGTERM, pruned
   // to the ones still running on every process sample: a row whose pid is in
   // it offers Force kill instead of End. `confirmRow` non-null means the
   // dialog is up; `signalingRow` is the row a signal is in flight for.
@@ -175,6 +178,16 @@ Panel {
       if (entry) return entry
     }
     return null
+  }
+
+  // The desktop entry behind a name, as a plain object: Model.js has to run
+  // under Node, so the QML singleton is handed in rather than imported there.
+  function lookupApp(name) {
+    var key = String(name || "")
+    if (key === "") return null
+    var entry = DesktopEntries.heuristicLookup(key)
+    if (!entry) return null
+    return { name: String(entry.name || key), icon: String(entry.icon || "") }
   }
 
   function iconSource(row) {
@@ -395,17 +408,13 @@ Panel {
   }
 
   function requestSignal(row) {
-    if (!row || signalProc.running) return
-    if (!(row.pid > 1)) {
-      root.terminateError = "No process is known for " + Model.rowName(row, root.appsView) + " yet"
-      return
-    }
+    if (!row || signalProc.running || root.signalingRow !== null) return
     root.terminateError = ""
     // Cancel is the landing point: this is the one destructive thing here, so
     // a stray Enter must not end a process.
     confirmDialog.selectedIndex = 0
     root.confirmSignal = Model.signalFor(row, root.terminatedPids)
-    root.confirmRow = row
+    root.confirmRow = Model.signalSnapshot(row, root.confirmSignal, root.terminatedPids)
   }
 
   function requestSignalSelected() {
@@ -421,13 +430,11 @@ Panel {
     var row = root.confirmRow
     var name = root.confirmSignal
     root.confirmRow = null
-    if (!row || signalProc.running) return
+    if (!row || signalProc.running || root.signalingRow !== null) return
 
-    // Re-derived at the moment of sending, not taken from the dialog: KILL is
-    // only sent to a pid this panel has already sent TERM to.
-    if (name === Model.KILL && !Model.canForceKill(row, root.terminatedPids)) name = Model.TERM
-
-    var argv = Model.signalCommand(row.pid, name)
+    // Recheck the captured identities; a stale KILL request cannot broaden
+    // its recipients or silently change into a fresh TERM request.
+    var argv = Model.rowSignalCommand(row, name, root.terminatedPids)
     if (!argv) {
       root.terminateError = "Refusing to signal " + Model.rowName(row, root.appsView)
       return
@@ -436,6 +443,7 @@ Panel {
     root.signalingRow = row
     root.signalingSignal = name
     root.terminateError = ""
+    signalProc.startConfirmed = false
     signalProc.command = argv
     signalProc.running = true
   }
@@ -527,6 +535,14 @@ Panel {
 
   Process {
     id: signalProc
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!signalProc.startConfirmed && !signalProc.running && root.signalingRow) {
+        root.terminateError = Model.signalFailure(127, "Could not start the signal helper", root.signalingRow, root.signalingSignal, root.appsView)
+        root.signalingRow = null
+      }
+    })
     stderr: StdioCollector {
       id: signalStderr
       waitForEnd: true
@@ -537,8 +553,8 @@ Panel {
       root.terminateError = Model.signalFailure(exitCode, signalStderr.text, row, name, root.appsView)
       // Delivered TERM is what earns the Force kill offer; one that was
       // refused earns nothing, since KILL would be refused the same way.
-      if (exitCode === 0 && name === Model.TERM && row) {
-        root.terminatedPids = Model.markTerminated(root.terminatedPids, row.pid)
+      if (exitCode === 0 && name === Model.TERM && row && root.opened) {
+        root.terminatedPids = Model.markTerminatedRow(root.terminatedPids, row)
       }
       root.signalingRow = null
       // Give the process a beat to go away before re-listing, so a successful
@@ -996,12 +1012,19 @@ Panel {
     // while the pointer is on one rather than stacking two tooltips on a row.
     property bool actionHovered: false
     readonly property bool signaling: root.signalingRow !== null
-      && root.signalingRow.pid === taskRowItem.row.pid
-      && taskRowItem.row.pid > 0
+      && Model.rowTargets(root.signalingRow).some(function(target) {
+        return Model.rowTargets(taskRowItem.row).some(function(current) {
+          return Model.processIdentity(target) === Model.processIdentity(current)
+        })
+      })
     readonly property string pendingSignal: Model.signalFor(taskRowItem.row, root.terminatedPids)
     readonly property bool escalated: pendingSignal === Model.KILL
-    readonly property bool hasPid: taskRowItem.row.pid > 1
-    readonly property string workspaceLabel: isWindow ? Model.windowWorkspaceLabel(taskRowItem.row) : ""
+    readonly property bool canSignal: Model.rowTargets(taskRowItem.row).length > 0
+    // An app with no window is in the Apps view too, but there is no window to
+    // close, focus or name a workspace for.
+    readonly property bool isBackground: Model.isBackgroundApp(taskRowItem.row)
+    readonly property bool isWindowRow: isWindow && !isBackground
+    readonly property string workspaceLabel: isWindowRow ? Model.windowWorkspaceLabel(taskRowItem.row) : ""
     readonly property string iconUrl: isWindow ? root.iconSource(taskRowItem.row) : ""
 
     hasCursor: rowSelected
@@ -1015,14 +1038,15 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       acceptedButtons: Qt.LeftButton
-      cursorShape: taskRowItem.isWindow ? Qt.PointingHandCursor : Qt.ArrowCursor
+      cursorShape: taskRowItem.isWindowRow ? Qt.PointingHandCursor : Qt.ArrowCursor
       onContainsMouseChanged: if (containsMouse) root.focusRow(taskRowItem.rowIndex)
-      onClicked: if (taskRowItem.isWindow) root.focusWindow(taskRowItem.row)
+      onClicked: if (taskRowItem.isWindowRow) root.focusWindow(taskRowItem.row)
     }
 
     PanelToolTip {
-      visible: rowMouse.containsMouse && !taskRowItem.actionHovered
-      text: taskRowItem.isWindow ? Model.windowTooltip(taskRowItem.row) : Model.processTooltip(taskRowItem.row)
+      // A row with nothing to add shows no tooltip rather than an empty one.
+      visible: rowMouse.containsMouse && !taskRowItem.actionHovered && text !== ""
+      text: Model.rowTooltip(taskRowItem.row, taskRowItem.isWindow)
       fontFamily: root.fontFamily
     }
 
@@ -1081,7 +1105,7 @@ Panel {
             id: nameText
             textFormat: Text.PlainText
             width: Math.min(implicitWidth, parent.width - (workspaceTag.visible ? workspaceTag.width + parent.spacing : 0))
-            text: taskRowItem.isWindow ? Model.windowName(taskRowItem.row) : Model.processName(taskRowItem.row)
+            text: Model.rowName(taskRowItem.row, taskRowItem.isWindow)
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -1092,9 +1116,9 @@ Panel {
           Text {
             id: workspaceTag
             textFormat: Text.PlainText
-            visible: taskRowItem.workspaceLabel !== ""
+            visible: taskRowItem.workspaceLabel !== "" || taskRowItem.isBackground
             anchors.verticalCenter: parent.verticalCenter
-            text: "ws " + taskRowItem.workspaceLabel
+            text: taskRowItem.isBackground ? "background" : "ws " + taskRowItem.workspaceLabel
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -1108,7 +1132,7 @@ Panel {
             ? (root.signalingSignal === Model.KILL ? "Killing…" : "Ending…")
             : (taskRowItem.escalated
               ? "Still running after SIGTERM — force kill is available"
-              : (taskRowItem.isWindow ? Model.windowDetail(taskRowItem.row) : Model.processDetail(taskRowItem.row)))
+              : Model.rowDetail(taskRowItem.row, taskRowItem.isWindow))
           color: taskRowItem.escalated ? root.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -1153,14 +1177,14 @@ Panel {
         // figures do not jump when the pointer arrives. An Item rather than a
         // Row: a Row sizes itself to its visible children, which is exactly
         // the jump this avoids.
-        implicitWidth: signalButton.size + (taskRowItem.isWindow ? signalButton.size + gap : 0)
+        implicitWidth: signalButton.size + (taskRowItem.isWindowRow ? signalButton.size + gap : 0)
         implicitHeight: signalButton.size
         width: implicitWidth
         height: implicitHeight
 
         PanelActionButton {
           id: closeButton
-          visible: taskRowItem.isWindow && taskRowItem.showActions
+          visible: taskRowItem.isWindowRow && taskRowItem.showActions
           anchors.right: signalButton.left
           anchors.rightMargin: actions.gap
           anchors.verticalCenter: parent.verticalCenter
@@ -1181,9 +1205,9 @@ Panel {
           visible: taskRowItem.showActions
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          enabled: taskRowItem.hasPid
+          enabled: taskRowItem.canSignal
           iconText: Model.signalIcon(taskRowItem.pendingSignal)
-          tooltipText: taskRowItem.hasPid ? Model.signalTooltip(taskRowItem.pendingSignal) : "No process known for this window yet"
+          tooltipText: taskRowItem.canSignal ? Model.signalTooltip(taskRowItem.pendingSignal) : "This process cannot be signalled"
           foreground: taskRowItem.escalated ? root.urgent : root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily

@@ -299,3 +299,91 @@ grep -F 'move = { "(monitor_w-monitor_h*2/9-40)", "(monitor_h-monitor_h/4-40)" }
 grep -F 'move = { "(monitor_w-monitor_h*3/10-40)", "(monitor_h-monitor_h*27/80-40)" }' "$webcam_rules" >/dev/null || \
   fail "large webcam starts at its final corner position"
 pass "webcam size rules place the initial window in its final corner"
+
+# Exercise the real recording lifecycle with an owned stand-in recorder. Every
+# compositor and media command is stubbed before lifting the headless guard.
+cat >"$stub_bin/gpu-screen-recorder" <<'PYTHON'
+#!/usr/bin/python3
+import os, signal, sys, time
+from pathlib import Path
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+Path(os.environ["OMARCHY_TEST_GPU_PID"]).write_text(str(os.getpid()))
+filename = sys.argv[sys.argv.index("-o") + 1]
+Path(filename).write_bytes(b"fixture recording")
+while True:
+    time.sleep(0.1)
+PYTHON
+cat >"$stub_bin/omarchy-hyprland-monitor-focused" <<'SH'
+#!/bin/bash
+printf 'DP-1\n'
+SH
+cat >"$stub_bin/omarchy-shell" <<'SH'
+#!/bin/bash
+exit 1 # A unavailable shell cannot turn a successful start into a failure.
+SH
+cat >"$stub_bin/ffprobe" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cat >"$stub_bin/ffmpeg" <<'SH'
+#!/bin/bash
+exit 1 # Preserve the original capture if processing/thumbnail generation fails.
+SH
+chmod +x "$stub_bin"/*
+export OMARCHY_TEST_GPU_PID="$tmp_dir/gpu-pid"
+export OMARCHY_SCREENRECORD_DIR="$tmp_dir/recordings"
+recorder="$ROOT/bin/omarchy-capture-screenrecording"
+process_record="$tmp_dir/omarchy-screenrecord-process.json"
+recording_path="$tmp_dir/omarchy-screenrecord-filename"
+cleanup_recording_test() {
+  if [[ -f $process_record ]]; then
+    local token
+    token=$(jq -r '"\(.pid):\(.startTime)"' "$process_record" 2>/dev/null) || true
+    [[ -z $token ]] || "$ROOT/bin/omarchy-system-signal" --signal KILL "$token" 2>/dev/null || true
+  fi
+  rm -rf "$tmp_dir"
+}
+trap cleanup_recording_test EXIT
+
+if "$recorder" --status; then
+  fail "no owned process means recording is inactive"
+fi
+OMARCHY_NO_UI=0 "$recorder" --fullscreen --resolution=0x0 ||
+  fail "recording starts even when indicator IPC fails"
+"$recorder" --status || fail "the recorded process identity reports active"
+[[ -f $recording_path ]] || fail "the recording output is registered"
+output=$(<"$recording_path")
+[[ -s $output ]] || fail "the recorder produced its output"
+pass "recording starts and publishes its owned process identity"
+
+# A stale identity must neither report active nor signal the current process.
+cp "$process_record" "$tmp_dir/saved-process.json"
+python3 - "$process_record" <<'PYTHON'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+record = json.loads(path.read_text())
+record["startTime"] = str(int(record["startTime"]) + 1)
+path.write_text(json.dumps(record))
+PYTHON
+if "$recorder" --status; then
+  fail "a stale recording identity cannot report active"
+fi
+if "$recorder" --stop-recording; then
+  fail "a stale recording identity cannot stop another process"
+fi
+kill -0 "$(<"$OMARCHY_TEST_GPU_PID")" || fail "stale recording identity signalled a live process"
+mv "$tmp_dir/saved-process.json" "$process_record"
+pass "recording status and stop both refuse stale process identities"
+
+# Stopping must acquire the lock while the child lives, work headlessly, and
+# remain independent of the directory configured for the next recording.
+OMARCHY_SCREENRECORD_DIR=/proc/unwritable "$recorder" --stop-recording >"$tmp_dir/stopped" ||
+  fail "recording stops without inheriting a lock or creating an output directory"
+[[ $(<"$tmp_dir/stopped") == "$output" && -s $output ]] ||
+  fail "failed optional post-processing preserves the original recording"
+[[ ! -e $recording_path && ! -e $process_record ]] || fail "recording stop clears state"
+if "$recorder" --status; then
+  fail "stopped recording remains active"
+fi
+pass "recording stops its owned process and preserves output through media-tool failures"

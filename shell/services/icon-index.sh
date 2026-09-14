@@ -22,7 +22,7 @@ set -uo pipefail
 theme=$(omarchy-icon-theme 2>/dev/null)
 [[ -n $theme ]] || theme=hicolor
 
-roots=("$HOME/.icons" "$HOME/.local/share/icons")
+roots=("$HOME/.icons" "${XDG_DATA_HOME:-$HOME/.local/share}/icons")
 IFS=":" read -ra data_dirs <<<"${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 for d in "${data_dirs[@]}"; do roots+=("$d/icons"); done
 

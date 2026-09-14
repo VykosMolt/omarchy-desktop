@@ -31,12 +31,10 @@ launch_and_verify() {
   pass "$name window closes"
 }
 
-# Keep launch coverage to the primary daily-use paths. The system acceptance
-# test separately verifies the complete core package manifest.
-# name|command|window class regex|launch timeout
-apps='terminal|kitty|^kitty$
-browser|chromium --new-window|(?i)chromium
-neovim|xdg-terminal-exec --app-id=org.omarchy.nvim nvim|org.omarchy.nvim'
+# Kitty is the desktop's terminal. A browser/editor is a host preference;
+# resolve those defaults in system-test.sh instead of launching Chromium/nvim
+# merely because upstream installed them.
+apps='terminal|omarchy-launch-terminal|^kitty$'
 
 status=0
 while IFS='|' read -r name command class timeout; do

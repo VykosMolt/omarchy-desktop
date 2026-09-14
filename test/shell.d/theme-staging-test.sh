@@ -20,7 +20,7 @@ mkdir -p "$state" "$themes"
 marker="omarchy-theme-staging-marker"
 
 set_theme() {
-  HOME="$home" OMARCHY_PATH="$ROOT" PATH="$ROOT/bin:$PATH" \
+  HOME="$home" OMARCHY_PATH="$ROOT" PATH="${THEME_TEST_BIN:-$ROOT/bin}:$ROOT/bin:$PATH" \
     OMARCHY_THEME_HEADLESS=1 OMARCHY_THEME_SKIP_BACKGROUND=1 \
     XDG_RUNTIME_DIR="$test_tmp" \
     bash "$ROOT/bin/omarchy-theme-set" "$1" 2>"$test_tmp/stderr" || return $?
@@ -104,7 +104,8 @@ assert_not_staged .git "the clone's own git directory is never staged"
 
 # These run code, so the theme's versions must lose to Omarchy's generated ones
 # rather than merely be absent.
-for generated in hyprland.lua neovim.lua kitty.conf; do
+assert_not_staged neovim.lua "a retired editor integration is not staged"
+for generated in hyprland.lua kitty.conf; do
   assert_staged "$generated" "$generated is generated from Omarchy's template"
   assert_no_marker "$generated" "an installed theme cannot supply $generated"
 done
@@ -156,7 +157,7 @@ TOML
 set_theme legacy || fail "omarchy-theme-set applies a theme that only ships alacritty.toml"
 assert_staged colors.toml "a legacy theme's palette is recovered from its alacritty.toml"
 grep -q '#102030' "$(staged colors.toml)" || fail "the recovered palette is the theme's"
-assert_no_marker alacritty.toml "a legacy theme's alacritty.toml is not staged"
+assert_not_staged alacritty.toml "a legacy theme's alacritty.toml is not staged"
 
 pass "a theme older than colors.toml keeps its palette and loses its terminal config"
 
@@ -225,3 +226,46 @@ for tpl in "$ROOT"/default/themed/*.tpl; do
 done
 
 pass "every file Omarchy generates is classified as code or colour"
+
+# Git worktrees use a .git file, and special files must never block staging.
+worktree="$themes/worktree"
+mkdir -p "$worktree/backgrounds"
+printf 'gitdir: /fixture/worktree\n' >"$worktree/.git"
+write_colors "$worktree/colors.toml"
+printf 'os.execute("%s")\n' "$marker" >"$worktree/hyprland.lua"
+mkfifo "$worktree/pipe" "$worktree/backgrounds/pipe"
+set_theme worktree || fail "a git worktree stages only safe regular files"
+assert_no_marker hyprland.lua "a worktree cannot inject a compositor config"
+assert_not_staged pipe "a FIFO is not copied from a theme"
+assert_not_staged backgrounds/pipe "a nested FIFO is not copied from a theme"
+pass "git worktrees and nested special files obey installed-theme staging rules"
+
+# Failure before publication must leave both the previous theme and its name.
+cp -a "$state/theme" "$test_tmp/before-theme"
+cp "$state/theme.name" "$test_tmp/before-name"
+mkdir -p "$test_tmp/failing-bin"
+printf '#!/bin/bash\nexit 1\n' >"$test_tmp/failing-bin/omarchy-theme-set-templates"
+chmod +x "$test_tmp/failing-bin/omarchy-theme-set-templates"
+if THEME_TEST_BIN="$test_tmp/failing-bin" set_theme hostile; then
+  fail "template generation failure aborts theme publication"
+fi
+diff -r "$state/theme" "$test_tmp/before-theme" || fail "failed rendering changed the current theme"
+cmp -s "$state/theme.name" "$test_tmp/before-name" || fail "failed rendering changed the theme name"
+pass "failed template generation preserves the complete current theme"
+
+rm "$test_tmp/failing-bin/omarchy-theme-set-templates"
+printf '#!/bin/bash\nexit 1\n' >"$test_tmp/failing-bin/omarchy-theme-color"
+chmod +x "$test_tmp/failing-bin/omarchy-theme-color"
+if THEME_TEST_BIN="$test_tmp/failing-bin" set_theme hostile; then
+  fail "color producer failure aborts theme publication"
+fi
+diff -r "$state/theme" "$test_tmp/before-theme" || fail "failed colors changed the current theme"
+pass "failed color production propagates through template rendering"
+rm "$test_tmp/failing-bin/omarchy-theme-color"
+printf '#!/bin/bash\nexit 1\n' >"$test_tmp/failing-bin/omarchy-theme-colors-from-alacritty"
+chmod +x "$test_tmp/failing-bin/omarchy-theme-colors-from-alacritty"
+if THEME_TEST_BIN="$test_tmp/failing-bin" set_theme legacy; then
+  fail "legacy converter failure aborts theme publication"
+fi
+diff -r "$state/theme" "$test_tmp/before-theme" || fail "failed legacy conversion changed the current theme"
+pass "failed legacy conversion preserves the complete current theme"

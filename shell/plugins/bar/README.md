@@ -1,24 +1,12 @@
 # Omarchy bar
 
-This is the Quickshell implementation of the Omarchy status bar. It is
-shipped as a first-party plugin of [`omarchy-shell`](../../README.md), the
-long-running shell host. The bar is mounted at startup and lives inside
-the shell for its whole session.
+[`Bar.qml`](Bar.qml) is the built-in `omarchy.bar` plugin hosted by the [Omarchy shell](../../README.md). Its configuration comes from the `bar` object in `$OMARCHY_CONFIG_HOME/shell.json`; the initial layout is in [`config/omarchy/shell.json`](../../../config/omarchy/shell.json).
 
-- `manifest.json` declares the plugin (`id: omarchy.bar`, `kind: bar`) and points at `Bar.qml` as the entry point.
-- `Bar.qml` is Omarchy-owned bar engine code, loaded by the omarchy-shell host. Users should not edit it directly.
-- `widgets/` holds simple first-party bar widgets with sibling manifests.
-- Feature plugins such as `../panels/audio/`, `../panels/network/`, `../panels/power/`, and `../agents/` provide richer popup bar plugins.
-- The bar receives its config from the host shell as a `barConfig` property; the host loads it from `~/.config/omarchy/shell.json` (or `config/omarchy/shell.json` when the user has no file).
-- `omarchy bar position` updates only the user shell.json file.
+## Layout and controls
 
-## Customizing
+`bar.position` accepts `top`, `bottom`, `left` and `right`. `bar.layout.left`, `.center` and `.right` contain objects with a widget `id` and inline settings. `bar.centerAnchor` centers one module precisely and arranges its neighbors around it; an empty value centers the group instead. `bar.transparent` controls the background.
 
-The bar config lives under the `bar:` key of [`~/.config/omarchy/shell.json`](../../README.md#shelljson-shape). Out of the box the shell uses [`config/omarchy/shell.json`](../../../config/omarchy/shell.json). Once you customize anything via the bar gestures, `omarchy bar ...`, or by editing shell.json directly, your file is canonical — there is no deep-merge.
-
-The bar is configured directly on the bar itself: drag empty bar space (or click-and-hold) to move the bar to another screen edge, double-left-click empty center-bar space to toggle transparency, and drag widgets to reorder them. The `omarchy bar position`, `omarchy bar transparent`, `omarchy bar move`, and `omarchy bar set` commands do the same from scripts. Add or remove widgets with `omarchy bar put` and `omarchy bar remove` (widget ids come from `omarchy bar list`).
-
-Example `shell.json` (bar subtree only shown):
+Drag empty bar space, or click and hold it, to move the bar to another edge. Double-click empty center space to toggle transparency. Drag widgets to reorder them. The equivalent scripting interface is `omarchy bar position`, `transparent`, `move` and `set`; use `list`, `put` and `remove` to inspect and change membership.
 
 ```json
 {
@@ -28,153 +16,51 @@ Example `shell.json` (bar subtree only shown):
     "transparent": false,
     "centerAnchor": "omarchy.clock",
     "layout": {
-      "left": [
-        { "id": "omarchy.menu" },
-        { "id": "omarchy.spacer", "size": 12 },
-        { "id": "omarchy.workspaces" }
-      ],
-      "center": [
-        { "id": "omarchy.media" },
-        { "id": "omarchy.clock", "format": "HH:mm" }
-      ],
-      "right": [
-        { "id": "omarchy.audio" },
-        { "id": "omarchy.power" }
-      ]
+      "left": [{ "id": "omarchy.menu" }, { "id": "omarchy.workspaces" }],
+      "center": [{ "id": "omarchy.clock", "format": "HH:mm" }],
+      "right": [{ "id": "omarchy.audio" }, { "id": "omarchy.power" }]
     }
   }
 }
 ```
 
-`centerAnchor` pins one center module to the exact horizontal/vertical center and flanks others around it. Set to an empty string to disable anchoring (the center list is centered as a group).
+## Widgets
 
-## Module catalogue
+| Id | Function |
+|---|---|
+| `omarchy.menu` | Menu and app launcher |
+| `omarchy.workspaces` | Hyprland workspace switcher |
+| `omarchy.clock` | Time label, calendar and timezones |
+| `omarchy.media` | MPRIS playback and cover art |
+| `omarchy.indicators` | DND, Stay Awake and other session state |
+| `omarchy.sensors` | Hardware readings and power-profile control |
+| `omarchy.tray` | Application tray, available to add when needed |
+| `omarchy.weather` | Weather and forecast |
+| `omarchy.microphone` | Microphone mute and volume |
+| `omarchy.audio` | Output volume, devices and app mixer |
+| `omarchy.network` | Network status, Wi-Fi and connection settings |
+| `omarchy.power` | Battery, profiles and system information |
+| `omarchy.bluetooth` | Bluetooth radio and devices |
+| `omarchy.monitor` | Brightness and laptop display controls |
+| `omarchy.system-monitor` | Window and process management |
+| `omarchy.active-window` | Focused window title |
+| `omarchy.keyboard-layout` | Active keyboard layout |
+| `omarchy.spacer` | Configurable empty space |
 
-### First-party interactive widgets
+`omarchy.indicators.items` selects a subset such as `["Dnd", "StayAwake"]`; omission or an empty array uses the default order. `alwaysShow: true` keeps inactive indicators visible. Multiple indicator instances may show different subsets. Widgets adapt to horizontal and vertical bars; popups open toward the workspace.
 
-| Name | What it does | Interactions |
-|---|---|---|
-| `omarchy.menu` | Omarchy menu launcher | left = menu · right = terminal |
-| `omarchy.workspaces` | Hyprland workspace switcher | left = focus workspace |
-| `omarchy.clock` | Date/time label + popup with a month grid, ISO week numbers, and month stepping | left = popup · right = cycle label format · middle = timezone selector |
-| `omarchy.media` | MPRIS now-playing — scrolling track + artist, cover-art popup | left = play/pause · middle = next · scroll = prev/next · right = popup |
-| `omarchy.indicators` | Manual state indicators | left = indicator action |
-| `omarchy.sensors` | Discrete GPU state, power profile, CPU temperature, fan speed | hover = reveal drawer · left on profile = cycle power profile |
-| `omarchy.tray` | System tray — not in the default layout; add it if an app needs a status icon | hover = reveal drawer · right on chevron = manage |
-| `omarchy.weather` | Weather icon + popup with forecast | left = popup · right = full notification |
-| `omarchy.microphone` | Mic icon + scroll volume | left = mute toggle · middle = audio panel · scroll = source volume |
+## Local modules
 
-| `omarchy.audio` | Volume icon + popup with master slider, output-device picker, per-app mixer | left = popup · right = mute · middle = popup · scroll = volume |
-| `omarchy.network` | Wi-Fi/Ethernet icon + popup with Wi-Fi scan, signal, connect, DNS provider selection | left = popup |
-| `omarchy.tailscale` | Tailscale status, connection switcher, machine browser, and copy actions | left = popup · right = toggle · middle = refresh |
-| `omarchy.power` | Battery/AC icon + popup with battery stats, power profiles, and system info | left = popup · right = toggle percentage |
-| `omarchy.bluetooth` | Bluetooth icon + popup with device list, connect/disconnect, battery | left = popup · right = toggle radio |
-| `omarchy.monitor` | Brightness and laptop display controls | left = popup |
-| `omarchy.system-monitor` | CPU and memory readout + task manager popup: open windows (close, end, force kill, focus) and every process, filtered by typing | left = popup · `j`/`k` rows · `h`/`l` views · `x` end · `c` close window · `/` filter |
-
-The `omarchy.indicators` widget loads individual bar indicators from `indicators/`. Omit `items` (or set it to an empty array) to show all indicators in the default order, or set `items` to a subset such as `["Dnd", "StayAwake"]`. Set `alwaysShow` to `true` to keep inactive indicators visible instead of revealing them only on hover. Multiple `omarchy.indicators` instances are allowed, so different sections can show different subsets.
-
-## Orientation
-
-All widgets work in `top`, `bottom`, `left`, and `right` positions. Popups anchor on the side opposite the bar edge, sliding into the workspace. Vertical bars use 28px width; widgets that show text fall back to compact icon-only forms (e.g. `media` hides its scrolling label).
-
-## Custom user modules
-
-The schema accepts arbitrary module ids that you provide. Set `type` to `command` for shell-driven output or `qml` for a custom QML widget. Both still go under `bar.layout.<section>` in `shell.json`.
-
-Command module:
+Custom modules use `type: "command"` or `type: "qml"` in the same layout. A command module runs `exec` at its `interval` in seconds and accepts `onClick`, `onRightClick` and `onMiddleClick` commands:
 
 ```json
-{
-  "version": 1,
-  "bar": {
-    "layout": {
-      "right": [
-        { "id": "omarchy.sensors" },
-        { "id": "vpn", "type": "command", "exec": "~/.config/omarchy/bar/scripts/vpn-status", "interval": 5, "tooltip": "VPN", "onClick": "nm-connection-editor" },
-        { "id": "omarchy.audio" }
-      ]
-    }
-  }
-}
+{ "id": "custom-status", "type": "command", "exec": "my-status-command", "interval": 5, "tooltip": "Status", "onClick": "my-status-panel" }
 ```
 
-The command may print plain text or Waybar-style JSON, for example:
+Commands may print plain text or JSON such as `{"text":"Ready","tooltip":"Job finished","class":"active"}`.
 
-```json
-{"text":"󰌆","tooltip":"Work VPN","class":"active"}
-```
+A QML entry such as `{"id":"custom-status","type":"qml"}` loads `$OMARCHY_CONFIG_HOME/bar/modules/custom-status.qml`. Set `source` to use an explicit path. The module should be an `Item` with `implicitWidth` and `implicitHeight`; it may declare `bar`, `moduleName` and `settings`, which the host injects.
 
-QML module:
+Widgets can read `bar.foreground`, `bar.background`, `bar.urgent`, `bar.fontFamily`, `bar.position`, `bar.vertical` and `bar.barSize`. `bar.run(command)` executes a Bash command; quote interpolated arguments with `Util.shellQuote`. `bar.requestPopout(owner)` and `bar.releasePopout(owner)` coordinate popup ownership. Shared tooltips use `bar.showTooltip(target, text)` and `bar.hideTooltip(target)`; the target exposes `tooltipHovered` while its pointer is inside.
 
-```json
-{
-  "version": 1,
-  "bar": {
-    "layout": {
-      "right": [
-        { "id": "gpu", "type": "qml" },
-        { "id": "omarchy.audio" }
-      ]
-    }
-  }
-}
-```
-
-Then create `~/.config/omarchy/bar/modules/gpu.qml`. If you want to store it elsewhere, add a `source` path.
-
-Custom QML modules should be an `Item` with `implicitWidth` and `implicitHeight`. They may optionally define these properties, which the bar fills after loading:
-
-```qml
-import QtQuick
-
-Item {
-  property var bar
-  property string moduleName
-  property var settings
-
-  implicitWidth: 28
-  implicitHeight: bar ? bar.barSize : 26
-
-  Text {
-    anchors.centerIn: parent
-    text: "GPU"
-    color: bar ? bar.foreground : "white"
-    font.family: bar ? bar.fontFamily : "monospace"
-    font.pixelSize: 12
-  }
-
-  MouseArea {
-    anchors.fill: parent
-    onClicked: if (bar) bar.run("omarchy-launch-or-focus-tui lazygit")
-  }
-}
-```
-
-## Bar properties available to widgets
-
-Widgets receive `bar` (the shell root), `moduleName` (string), and `settings` (object) injected at load time. The bar exposes:
-
-- `bar.foreground`, `bar.background`, `bar.urgent` — theme colors (live-updated)
-- `bar.fontFamily` — current monospace family
-- `bar.position` — `"top" | "bottom" | "left" | "right"`
-- `bar.vertical` — boolean shortcut
-- `bar.barSize` — 26 horizontal / 28 vertical
-- `bar.run(command)` — fire-and-forget bash exec (quote arguments with `Util.shellQuote` from `qs.Commons`)
-- `bar.showTooltip(target, text)` / `bar.hideTooltip(target)` — shared tooltip popup
-- `bar.requestPopout(owner)` / `bar.releasePopout(owner)` — one-popup-at-a-time coordinator
-
-First-party bar widgets are manifest-backed just like third-party widgets.
-Simple widgets carry sibling manifests such as `widgets/Workspaces.manifest.json`;
-richer popup plugins live in feature directories such as `../panels/audio/`,
-`../panels/network/`, and `../agents/`; and feature plugins such as
-`omarchy.menu` and `omarchy.media` declare their bar-widget entry points in their own
-`manifest.json`. Bar layout ids are namespaced, e.g. `omarchy.audio`,
-`omarchy.network`, and `omarchy.clock`.
-
-Third-party widgets ship as separate plugins under
-`~/.config/omarchy/plugins/<plugin-id>/` with their own `manifest.json`
-declaring `kinds: ["bar-widget"]` and a `barWidget` entry point. See
-[../../README.md](../../README.md) for the manifest schema. Rescan, enable,
-and place third-party plugins with `omarchy-shell shell rescanPlugins`,
-`omarchy bar put`, and `omarchy bar move`.
+Prefer shared controls from `qs.Ui` when adding widgets so input forwarding, disabled state, tooltips and orientation follow the rest of the bar.

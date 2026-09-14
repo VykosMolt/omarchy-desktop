@@ -4,6 +4,8 @@
 # omarchy:examples=omarchy restart audio | omarchy-restart-audio
 # omarchy:requires-sudo=true
 
+SCRIPT_PATH=$(realpath -- "${BASH_SOURCE[0]}")
+SCRIPT_DIR=${SCRIPT_PATH%/*}
 services=(wireplumber.service pipewire.service pipewire-pulse.service)
 
 restart_audio_services() {
@@ -14,7 +16,6 @@ restart_audio_services() {
   fi
 
   echo -e "\nAudio services did not restart cleanly. Forcing stuck services down...\n"
-  systemctl --user cancel >/dev/null 2>&1 || true
   systemctl --user kill --kill-whom=all --signal=KILL "${services[@]}" >/dev/null 2>&1 || true
   systemctl --user reset-failed "${services[@]}" >/dev/null 2>&1 || true
 
@@ -143,6 +144,17 @@ stuck_usb_audio_devices() {
   printf '%s\n' "${devices[@]}"
 }
 
+run_usb_reset() {
+  local device=$1 bus_device=$2
+  if (( EUID == 0 )); then
+    timeout 25s usbreset "$bus_device"
+  elif [[ -t 0 ]]; then
+    timeout 25s sudo -- "$SCRIPT_PATH" --reset-usb "$device"
+  else
+    timeout 25s pkexec "$SCRIPT_PATH" --reset-usb "$device"
+  fi
+}
+
 reset_usb_audio_device() {
   local device="$1"
   local sysfs="/sys/bus/usb/devices/$device"
@@ -153,7 +165,7 @@ reset_usb_audio_device() {
 
   [[ -d $sysfs ]] || return 1
 
-  if ! omarchy-cmd-present usbreset; then
+  if ! "$SCRIPT_DIR/omarchy-cmd-present" usbreset; then
     echo "usbreset is not installed; replug or power-cycle $device to recover it."
     return 1
   fi
@@ -165,7 +177,7 @@ reset_usb_audio_device() {
 
   echo -e "\nResetting stuck USB audio device: $product ($bus_device)..."
 
-  if timeout 25s sudo usbreset "$bus_device"; then
+  if run_usb_reset "$device" "$bus_device"; then
     return 0
   fi
 
@@ -203,6 +215,17 @@ recover_stuck_usb_audio() {
 
   (( reset_count > 0 ))
 }
+
+# The privileged child only resets one verified USB audio device. It never
+# restarts root's user services or edits another user's WirePlumber state.
+if [[ ${1:-} == "--reset-usb" ]]; then
+  (( $# == 2 && EUID == 0 )) || exit 1
+  [[ $2 =~ ^[0-9]+-[0-9]+(\.[0-9]+)*$ ]] || exit 1
+  usb_audio_devices | grep -Fx -- "$2" >/dev/null || exit 1
+  reset_usb_audio_device "$2"
+  exit
+fi
+(( $# == 0 )) || { echo "Usage: omarchy-restart-audio" >&2; exit 1; }
 
 restart_audio_services || true
 

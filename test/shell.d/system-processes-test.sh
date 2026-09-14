@@ -40,6 +40,21 @@ jq -e 'all(.[]; has("pid") and has("name") and has("command") and has("cpu") and
   fail "every row carries the fields the panel renders" "$output"
 pass "every row carries the fields the panel renders"
 
+# The panel groups processes into the applications they belong to, and what
+# says which application a process belongs to is the cgroup systemd put it in.
+jq -e 'all(.[]; has("ppid") and has("unit") and has("appUnit"))' <<<"$output" >/dev/null ||
+  fail "every row carries the parent and cgroup unit the app grouping needs" "$output"
+pass "every row carries the parent and cgroup unit the app grouping needs"
+
+jq -e 'all(.[]; (.ppid | type) == "number" and (.unit | type) == "string" and (.appUnit | type) == "boolean")' <<<"$output" >/dev/null ||
+  fail "the parent is a number, the unit a string and the app flag a boolean" "$output"
+pass "the parent is a number, the unit a string and the app flag a boolean"
+
+# A row cannot claim to be in an application unit without naming one.
+jq -e 'all(.[]; .appUnit == false or (.unit | length) > 0)' <<<"$output" >/dev/null ||
+  fail "a row under app.slice names the unit it is in" "$output"
+pass "a row under app.slice names the unit it is in"
+
 jq -e 'all(.[]; (.pid | type) == "number" and (.cpu | type) == "number" and (.memory | type) == "number")' <<<"$output" >/dev/null ||
   fail "numbers are JSON numbers, not strings" "$output"
 pass "numbers are JSON numbers, not strings"
@@ -99,7 +114,7 @@ pass "a tab, a quote, a backslash or a dollar in argv cannot break the table"
 
 # Sampling twice is the whole point: a reading divided by an assumed interval
 # rather than the time that actually passed was several times too high.
-grep -F 'EPOCHREALTIME' "$processes" >/dev/null ||
+grep -F 'time.monotonic()' "$processes" >/dev/null ||
   fail "the command assumes an interval instead of measuring one"
 grep -F 'used / elapsed' "$processes" >/dev/null ||
   fail "CPU is not computed against the measured elapsed time"
@@ -131,3 +146,8 @@ pass "sampling survives processes exiting while it runs"
 (( $(grep -c "awk '" "$processes") <= 4 )) ||
   fail "sampling forks per process again" "$(grep -c "awk '" "$processes") awk invocations"
 pass "sampling walks every process in one pass"
+
+identity_output=$(run --interval 0.01)
+jq -e 'length > 0 and all(.[]; .startTime | type == "string" and test("^[0-9]+$"))' <<<"$identity_output" >/dev/null ||
+  fail "every process carries a kernel start-time identity"
+pass "every process carries a kernel start-time identity"

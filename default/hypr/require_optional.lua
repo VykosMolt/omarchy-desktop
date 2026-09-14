@@ -9,4 +9,12 @@ function M.module(module)
   end
 end
 
+function M.file(path)
+  local file = io.open(path, "r")
+  if file then
+    file:close()
+    return dofile(path)
+  end
+end
+
 return M

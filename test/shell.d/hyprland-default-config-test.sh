@@ -170,3 +170,28 @@ number_claims=$(cut -f1 <<<"$panels_output" | grep -cE '^SUPER \+ CTRL \+ code:1
 (( number_claims == 9 )) ||
   fail "only the bar panel hotkeys bind SUPER + CTRL + a number" "$number_claims"
 pass "bar panel hotkeys bind SUPER + CTRL + a number without a collision"
+
+# Descriptions alone cannot prove a shortcut works. Inspect the resolved
+# commands as well, including the monitor actions that bypass bind_toggle.
+OMARCHY_PATH="$ROOT" lua - <<'LUA' || fail "utility bindings resolve to existing commands"
+package.path = os.getenv("OMARCHY_PATH") .. "/?.lua;" .. package.path
+local commands = {}
+hl = setmetatable({
+  dsp = { exec_cmd = function(command) return command end },
+  bind = function(keys, command) commands[keys] = command end,
+}, { __index = function() return function() end end })
+require("default.hypr.helpers")
+require("default.hypr.bindings.utilities")
+assert(commands["SUPER + CTRL + Delete"] == "omarchy-hyprland-monitor-internal toggle")
+assert(commands["SUPER + CTRL + ALT + Delete"] == "omarchy-hyprland-monitor-internal-mirror toggle")
+for _, command in pairs(commands) do
+  if type(command) == "string" then
+    local binary = command:match("^(omarchy[%w-]+)")
+    if binary then
+      local file = assert(io.open(os.getenv("OMARCHY_PATH") .. "/bin/" .. binary), "missing bound helper: " .. binary)
+      file:close()
+    end
+  end
+end
+LUA
+pass "utility bindings dispatch commands that exist, including display toggles"

@@ -32,7 +32,10 @@ done
 [[ -n $empty_ws ]] || fail "an empty workspace is available to inspect the desktop on"
 
 hyprctl dispatch "hl.dsp.focus({ workspace = \"$empty_ws\" })" >/dev/null
-wait_until "the empty workspace is focused" 10 test "$(hyprctl -j activeworkspace | jq -r .id)" = "$empty_ws"
+workspace_is_focused() {
+  [[ $(hyprctl -j activeworkspace | jq -r .id) == "$empty_ws" ]]
+}
+wait_until "the empty workspace is focused" 10 workspace_is_focused
 sleep 1
 
 layer_present "omarchy-background" || fail "the background layer exists"
@@ -44,7 +47,14 @@ pass "the background layer is present and on screen"
 # misc:background_color happens to be.
 colours=()
 flat=0
-for pt in "40,120" "800,300" "1400,600" "200,850" "1200,900"; do
+# Sample inside the actual focused monitor, including scaled/rotated outputs.
+read -r origin_x origin_y width height < <(hyprctl -j monitors | jq -r '
+  [.[] | select(.focused)][0] | [.x, .y,
+    ((if (.transform // 0) % 2 == 1 then .height else .width end) / .scale | floor),
+    ((if (.transform // 0) % 2 == 1 then .width else .height end) / .scale | floor)] | @tsv')
+for fraction in "1 2" "3 4" "6 7" "2 8" "8 3"; do
+  read -r fx fy <<< "$fraction"
+  pt="$((origin_x + (width - 12) * fx / 10)),$((origin_y + (height - 12) * fy / 10))"
   read -r colour sd <<<"$(patch_stats "$pt 12x12")" || fail "the screen can be captured at $pt"
   colours+=("$colour")
   awk -v s="${sd:-0}" 'BEGIN { exit (s + 0 > 0.5) ? 1 : 0 }' && flat=$((flat + 1))

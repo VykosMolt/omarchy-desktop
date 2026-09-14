@@ -250,12 +250,16 @@ const windows = monitor.parseWindows([
   'nonsense'
 ])
 
-assertEqual(windows.length, 4, 'a window needs an address and has to be mapped and not hidden')
-assertEqual(windows.find(w => w.address === '0x4').pid, 0, 'a window without a pid keeps a zero pid rather than being dropped')
+// A toplevel the compositor cannot name a process for is not a window anyone
+// opened: XWayland's "Default IME" surfaces reach the list that way, and a
+// long-running shell accumulates the handles of every one it ever made. They
+// listed as "window" with an em dash for both figures and nothing to act on.
+assertEqual(windows.length, 3, 'a window needs an address, a pid, and to be mapped and not hidden')
+assertEqual(windows.find(w => w.address === '0x4'), undefined, 'a toplevel with no process behind it is not a window')
 assertEqual(windows.find(w => w.address === '0x2').handle.id, 'h2', 'the live toplevel handle rides along untouched')
 assertDeepEqual(
   monitor.sortWindows(windows).map(w => w.address),
-  ['0x4', '0x1', '0x3', '0x2'],
+  ['0x1', '0x3', '0x2'],
   'windows group by app name, then by workspace and title'
 )
 assertEqual(monitor.windowName(windows.find(w => w.address === '0x2')), 'Zen Browser', 'a window is named by its desktop entry when one matched')
@@ -271,23 +275,22 @@ const tooltip = monitor.windowTooltip(windows.find(w => w.address === '0x2'))
 assert(tooltip.indexOf('pid 200') >= 0 && tooltip.indexOf('workspace 2') >= 0 && tooltip.indexOf('Second tab') >= 0, 'the window tooltip names pid, workspace and title')
 
 const withUsage = monitor.attachUsage(monitor.sortWindows(windows), [
-  { pid: 200, cpu: 12.5, rssKb: 4096 },
+  { pid: 200, startTime: '7000', cpu: 12.5, rssKb: 4096 },
   { pid: 999, cpu: 1, rssKb: 1 }
 ])
 assertEqual(withUsage.find(w => w.address === '0x2').cpu, 12.5, 'a window takes the CPU of its main process')
 assertEqual(withUsage.find(w => w.address === '0x2').rssKb, 4096, 'a window takes the memory of its main process')
 assertEqual(withUsage.find(w => w.address === '0x1').cpu, null, 'a window whose pid was not sampled reads unknown, not zero')
-assertEqual(withUsage.find(w => w.address === '0x4').cpu, null, 'a window without a pid reads unknown')
 assertEqual(monitor.formatPercent(withUsage.find(w => w.address === '0x1').cpu, 1), '—', 'unknown CPU renders as an em dash')
 assertEqual(monitor.processMemory(withUsage.find(w => w.address === '0x1')), '—', 'unknown memory renders as an em dash')
 
-assertDeepEqual(monitor.filterWindows(windows, 'ZEN').map(w => w.address).sort(), ['0x2', '0x3'], 'windows filter on their name and class')
-assertDeepEqual(monitor.filterWindows(windows, 'second').map(w => w.address), ['0x2'], 'windows filter on their title')
-assertDeepEqual(monitor.filterWindows(windows, '100').map(w => w.address), ['0x1'], 'windows filter on their pid')
-assertEqual(monitor.filterWindows(windows, '').length, 4, 'an empty filter keeps every window')
+assertDeepEqual(monitor.filterApps(windows, 'ZEN').map(w => w.address).sort(), ['0x2', '0x3'], 'windows filter on their name and class')
+assertDeepEqual(monitor.filterApps(windows, 'second').map(w => w.address), ['0x2'], 'windows filter on their title')
+assertDeepEqual(monitor.filterApps(windows, '100').map(w => w.address), ['0x1'], 'windows filter on their pid')
+assertEqual(monitor.filterApps(windows, '').length, 3, 'an empty filter keeps every window')
 
-assertEqual(monitor.emptyMessage('apps', '', true), 'No open windows', 'an empty apps view says so')
-assertEqual(monitor.emptyMessage('apps', 'x', true), 'No open window matches', 'an empty filtered apps view says so')
+assertEqual(monitor.emptyMessage('apps', '', true), 'Nothing running', 'an empty apps view says so')
+assertEqual(monitor.emptyMessage('apps', 'x', true), 'No app matches', 'an empty filtered apps view says so')
 assertEqual(monitor.emptyMessage('processes', '', true), 'Sampling…', 'a process view with no sample yet is sampling')
 assertEqual(monitor.emptyMessage('processes', 'x', false), 'No process matches', 'an empty filtered process view says so')
 
@@ -322,7 +325,7 @@ assert(monitor.windowTooltip({ pid: 7, title: hostile }).indexOf('\u001b') < 0, 
 // Every command is an argument vector, and the only value that ever crosses
 // into one is a pid.
 const hostileRows = monitor.parseProcesses(JSON.stringify([
-  { pid: 4242, name: hostile, command: hostile, cpu: 1, memory: 1, rssKb: 10, uid: 1000 }
+  { pid: 4242, startTime: '9000', name: hostile, command: hostile, cpu: 1, memory: 1, rssKb: 10, uid: 1000 }
 ]))
 assertEqual(hostileRows.length, 1, 'a hostile row still parses')
 assertEqual(hostileRows[0].name, hostile, 'the untouched name is kept as data')
@@ -343,11 +346,19 @@ assertDeepEqual(
 )
 assertDeepEqual(monitor.meminfoCommand(), ['cat', '/proc/meminfo'], 'memory detail is read through an argument vector')
 
-const termArgv = monitor.terminateCommand(hostileRows[0].pid)
-assertDeepEqual(termArgv, ['kill', '-s', 'TERM', '4242'], 'ending a process sends SIGTERM to its pid')
-const killArgv = monitor.forceKillCommand(hostileRows[0].pid)
-assertDeepEqual(killArgv, ['kill', '-s', 'KILL', '4242'], 'force killing a process sends SIGKILL to its pid')
-assertDeepEqual(monitor.signalCommand(4242, 'nonsense'), termArgv, 'an unknown signal name is SIGTERM, never anything stronger')
+const termArgv = monitor.rowSignalCommand(hostileRows[0], 'TERM')
+assertDeepEqual(
+  termArgv,
+  ['omarchy-system-signal', '--signal', 'TERM', '4242:9000'],
+  'ending a process sends SIGTERM to its pid'
+)
+const killArgv = monitor.rowSignalCommand(hostileRows[0], 'KILL', monitor.markTerminatedRow({}, hostileRows[0]))
+assertDeepEqual(
+  killArgv,
+  ['omarchy-system-signal', '--signal', 'KILL', '4242:9000'],
+  'force killing a process sends SIGKILL to its pid'
+)
+assertDeepEqual(monitor.rowSignalCommand(hostileRows[0], 'nonsense'), termArgv, 'an unknown signal name is SIGTERM, never anything stronger')
 
 const everyArgv = [].concat(statsArgv, listArgv, monitor.meminfoCommand(), termArgv, killArgv)
 assert(
@@ -369,13 +380,14 @@ for (const argv of [termArgv, killArgv]) {
   )
 }
 
-for (const command of [monitor.terminateCommand, monitor.forceKillCommand]) {
-  assertEqual(command(0), null, 'pid 0 is every process in the group, so it is refused')
-  assertEqual(command(1), null, 'pid 1 is refused')
-  assertEqual(command(-4242), null, 'a negative pid is a process group, so it is refused')
-  assertEqual(command(12.5), null, 'a fractional pid is refused')
-  assertEqual(command('12; rm -rf ~'), null, 'a pid that is not a plain number is refused')
-  assertEqual(command(null), null, 'a missing pid is refused')
+for (const signal of ['TERM', 'KILL']) {
+  const argv = (pid) => monitor.rowSignalCommand({ pid }, signal)
+  assertEqual(argv(0), null, 'pid 0 is every process in the group, so it is refused')
+  assertEqual(argv(1), null, 'pid 1 is refused')
+  assertEqual(argv(-4242), null, 'a negative pid is a process group, so it is refused')
+  assertEqual(argv(12.5), null, 'a fractional pid is refused')
+  assertEqual(argv('12; rm -rf ~'), null, 'a pid that is not a plain number is refused')
+  assertEqual(argv(null), null, 'a missing pid is refused')
 }
 
 // SIGKILL is an escalation, never a first move: a row offers it only once
@@ -383,20 +395,20 @@ for (const command of [monitor.terminateCommand, monitor.forceKillCommand]) {
 const row = hostileRows[0]
 assertEqual(monitor.signalFor(row, {}), 'TERM', 'a row nothing was sent to gets SIGTERM')
 assertEqual(monitor.canForceKill(row, {}), false, 'a row nothing was sent to cannot be force killed')
-const terminated = monitor.markTerminated({}, row.pid)
+const terminated = monitor.markTerminatedRow({}, row)
 assertEqual(monitor.signalFor(row, terminated), 'KILL', 'a row already sent SIGTERM offers SIGKILL')
 assertEqual(monitor.signalFor({ pid: 4243 }, terminated), 'TERM', 'the offer is per pid, not per panel')
-assertEqual(monitor.canForceKill({ pid: 1 }, monitor.markTerminated({}, 1)), false, 'pid 1 is never force-killable, marked or not')
-assertDeepEqual(monitor.markTerminated({}, 0), {}, 'marking pid 0 records nothing')
-assertDeepEqual(monitor.markTerminated({}, -5), {}, 'marking a process group records nothing')
+assertEqual(monitor.canForceKill({ pid: 1 }, monitor.markTerminatedRow({}, { pid: 1, startTime: "1" })), false, 'pid 1 is never force-killable, marked or not')
+assertDeepEqual(monitor.markTerminatedRow({}, { pid: 0, startTime: "1" }), {}, 'marking pid 0 records nothing')
+assertDeepEqual(monitor.markTerminatedRow({}, { pid: -5, startTime: "1" }), {}, 'marking a process group records nothing')
 assertDeepEqual(
   monitor.pruneTerminated(terminated, [{ pid: 4243 }]),
   {},
   'a pid gone from the process list loses its offer'
 )
 assertDeepEqual(
-  monitor.pruneTerminated(terminated, [{ pid: 4242 }, { pid: 4243 }]),
-  { '4242': true },
+  monitor.pruneTerminated(terminated, [{ pid: 4242, startTime: "9000" }, { pid: 4243, startTime: "9001" }]),
+  { '4242:9000': true },
   'a pid still running after SIGTERM keeps its offer'
 )
 
@@ -404,7 +416,6 @@ const termMessage = monitor.signalMessage(row, 'TERM', false)
 assert(termMessage.indexOf('4242') >= 0, 'the SIGTERM confirmation names the pid')
 assert(termMessage.indexOf('SIGTERM') >= 0 && termMessage.indexOf('SIGKILL') < 0, 'the SIGTERM confirmation says which signal is sent')
 assert(termMessage.indexOf('\n') < 0 && termMessage.indexOf('\u001b') < 0 && termMessage.indexOf('\u202e') < 0, 'the confirmation renders the name sanitized')
-assertEqual(monitor.terminateMessage(row), termMessage, 'terminateMessage is the SIGTERM confirmation')
 
 const killMessage = monitor.signalMessage(row, 'KILL', false)
 assert(killMessage.indexOf('4242') >= 0, 'the SIGKILL confirmation names the pid')
@@ -426,7 +437,6 @@ assert(
   'a silent failure still reports the exit code rather than passing as success'
 )
 assert(monitor.signalFailure(1, '', row, 'KILL', false).indexOf('force kill') >= 0, 'a failed SIGKILL says which it was')
-assertEqual(monitor.terminateFailure(1, 'x', row), monitor.signalFailure(1, 'x', row, 'TERM', false), 'terminateFailure is the SIGTERM failure')
 
 // ------------------------------------------------------------ panel source
 
@@ -445,12 +455,10 @@ assert(!/sudo|pkexec/.test(panel), 'the panel asks for no privilege')
 assert(!/"-9"|"-s"|"kill"|"KILL"|"TERM"/.test(panel), 'the panel never spells a kill command or a signal name itself')
 assert(!/execDetached|shellQuote|"bash"|"-lc"|hyprctl/.test(panel), 'the panel never hands anything to a shell')
 assert(/signalProc\.command = argv/.test(panel), 'the signal command comes from the model as a vector')
-assert(/Model\.signalCommand\(row\.pid, name\)/.test(panel), 'only the pid crosses into the signal command')
+assert(/Model\.rowSignalCommand\(row, name, root\.terminatedPids\)/.test(panel), 'only pids cross into the signal command')
 assert(/if \(!argv\)/.test(panel), 'a refused pid never reaches the process')
-assert(
-  /if \(name === Model\.KILL && !Model\.canForceKill\(row, root\.terminatedPids\)\) name = Model\.TERM/.test(panel),
-  'SIGKILL is re-checked against the terminated set at the moment of sending'
-)
+assert(/Model\.signalSnapshot\(row, root\.confirmSignal, root\.terminatedPids\)/.test(panel), 'confirmation captures identities before process samples change')
+assert(!/name = Model\.TERM/.test(panel), 'a stale force kill confirmation never becomes a fresh TERM')
 assert(/Model\.signalFor\(/.test(panel), 'which signal a row offers comes from the model')
 assert(/exitCode === 0 && name === Model\.TERM/.test(panel), 'only a delivered SIGTERM earns the force kill offer')
 assert(/Model\.pruneTerminated\(root\.terminatedPids, rows\)/.test(panel), 'the force kill offer is pruned to running pids on every sample')
@@ -500,6 +508,128 @@ for (let i = 0; i < panelLines.length; i++) {
 }
 assert(/^\s*Text \{$/m.test(panel), 'the panel paints text')
 assertDeepEqual(bareText, [], 'every Text in the panel declares a plain text format')
+
+// ------------------------------------------------------------ applications
+
+// An app that is running with no window open -- Steam after its window is
+// closed, a tray app -- used to be invisible in the Apps view and had to be
+// found and killed from a terminal. What groups its processes is the cgroup
+// systemd made for the launch.
+assertEqual(monitor.isAppUnit('app-mullvad-vpn-11281.scope'), true, 'a scope systemd made for an app is an app unit')
+assertEqual(monitor.isAppUnit('app-steam@autostart.service'), true, 'an autostarted app is an app unit')
+assertEqual(monitor.isAppUnit('dconf.service'), false, 'a session service is not an app unit')
+assertEqual(monitor.isAppUnit('xdg-desktop-portal-gtk.service'), false, 'a portal is not an app unit')
+assertEqual(monitor.isAppUnit('kitty-4141-0.scope'), false, "a terminal's child scope is not an app unit")
+assertEqual(monitor.isAppUnit(''), false, 'a process with no unit is in no app')
+
+assertEqual(monitor.unitAppId('app-mullvad-vpn-11281.scope'), 'mullvad-vpn', 'the app id is the unit name without systemd is trailing token')
+assertEqual(monitor.unitAppId('app-org.chromium.Chromium-146138.scope'), 'org.chromium.Chromium', 'a reverse-dns app id survives intact')
+assertEqual(monitor.unitAppId('app-steam@autostart.service'), 'steam', 'an autostart unit names the app it starts')
+assertEqual(monitor.unitAppId('app-Hyprland-gtk\\x2dlaunch-6a23fdc7.scope'), 'Hyprland-gtk-launch', 'systemd is dash escape is undone')
+assertEqual(monitor.unitAppId('dconf.service'), '', 'a unit that is not an app scope yields no id')
+
+// Steam launches through a shell script and keeps a pile of services alive
+// after its window closes; Mullvad calls every one of its processes `electron`
+// and is named only by its scope. Chromium and Electron both move the main
+// process into a scope of their own and leave the helpers in the launcher's,
+// so one app arrives as two units that have to be folded back together.
+const appProcesses = [
+  { pid: 100, ppid: 1, name: 'bash', command: 'bash /home/u/.local/share/Steam/steam.sh', cpu: 1, rssKb: 1000, unit: 'app-DE-gtk\\x2dlaunch-aaaa.scope', appUnit: true },
+  { pid: 101, ppid: 100, name: 'steam', command: '/home/u/.local/share/Steam/steam', cpu: 2, rssKb: 2000, unit: 'app-DE-gtk\\x2dlaunch-aaaa.scope', appUnit: true },
+  { pid: 102, ppid: 101, name: 'steamwebhelper', command: './steamwebhelper', cpu: 3, rssKb: 3000, unit: 'app-DE-gtk\\x2dlaunch-aaaa.scope', appUnit: true },
+  { pid: 200, ppid: 1, name: 'electron', command: '/usr/lib/electron/electron /usr/lib/mullvad-vpn/app.asar', cpu: 4, rssKb: 4000, unit: 'app-mullvad-vpn-200.scope', appUnit: true },
+  { pid: 201, ppid: 200, name: 'electron', command: '/usr/lib/electron/electron --type=zygote', cpu: 5, rssKb: 5000, unit: 'app-DE-gtk\\x2dlaunch-bbbb.scope', appUnit: true },
+  { pid: 300, ppid: 1, name: 'spotify', command: '/opt/spotify/spotify', cpu: 6, rssKb: 6000, unit: 'app-org.chromium.Chromium-300.scope', appUnit: true },
+  { pid: 301, ppid: 300, name: 'spotify', command: '/opt/spotify/spotify --type=renderer', cpu: 7, rssKb: 7000, unit: 'app-DE-gtk\\x2dlaunch-cccc.scope', appUnit: true },
+  { pid: 400, ppid: 1, name: 'udiskie', command: '/usr/bin/python /usr/bin/udiskie', cpu: 8, rssKb: 8000, unit: 'omarchy-arch-udiskie.service', appUnit: true },
+  { pid: 500, ppid: 1, name: 'kitty', command: 'kitty', cpu: 9, rssKb: 9000, unit: 'wayland-wm@hyprland.service', appUnit: false }
+]
+
+appProcesses.forEach(process => { process.startTime = String(process.pid * 10) })
+const appGroups = monitor.groupApplications(appProcesses)
+assertEqual(Object.keys(appGroups).length, 3, 'every launch is one group, and a session service is no group at all')
+const groupOf = (pid) => Object.keys(appGroups).find(key => appGroups[key].processes.some(p => p.pid === pid))
+assertEqual(groupOf(201), groupOf(200), 'an app that scopes its own main process is still one group')
+assertEqual(groupOf(301), groupOf(300), 'a browser is one group, not one per helper scope')
+assert(groupOf(100) !== groupOf(200), 'two unrelated apps stay apart')
+assertEqual(groupOf(400), undefined, 'a session daemon under app.slice is not an application')
+assertEqual(groupOf(500), undefined, 'a process outside app.slice is in no application group')
+
+const steamCandidates = monitor.groupNameCandidates(appGroups[groupOf(100)])
+assert(steamCandidates.indexOf('steam') > steamCandidates.indexOf('bash'), 'naming walks out from the root, so the wrapper is asked first and misses')
+assert(monitor.groupNameCandidates(appGroups[groupOf(200)])[0] === 'mullvad-vpn', 'a unit that names the app is asked before its processes are')
+
+// The lookup is the desktop database, injected because it lives in QML.
+const entries = { steam: { name: 'Steam', icon: 'steam' }, 'mullvad-vpn': { name: 'Mullvad VPN', icon: 'mullvad-vpn' }, spotify: { name: 'Spotify', icon: 'spotify' } }
+const lookup = (name) => entries[String(name).toLowerCase()] || null
+
+const openWindows = [{ address: '0x1', pid: 300, className: 'Spotify', title: 'A song' }]
+const background = monitor.backgroundApps(appProcesses, openWindows, lookup)
+assertDeepEqual(background.map(row => row.name), ['Mullvad VPN', 'Steam'], 'apps with no window are listed, apps with one are not listed twice')
+const steamRow = background.find(row => row.name === 'Steam')
+assertDeepEqual(steamRow.pids, [100, 101, 102], 'a background app stands for every process in its group')
+assertEqual(steamRow.cpu, 6, 'the row totals the CPU of the whole group')
+assertEqual(steamRow.rssKb, 6000, 'the row totals the memory of the whole group')
+assertEqual(steamRow.icon, 'steam', 'the row carries the icon of the entry that named it')
+assertEqual(monitor.isBackgroundApp(steamRow), true, 'a background app row says what it is')
+assertEqual(monitor.isBackgroundApp(openWindows[0]), false, 'a window is not a background app')
+assertEqual(monitor.rowDetail(steamRow, true), '3 background processes', 'the detail line counts the group')
+assertEqual(monitor.rowTooltip(steamRow, true), '', 'a row that elides nothing gets no tooltip')
+assertEqual(monitor.rowName(steamRow, true), 'Steam', 'a background app is named by its desktop entry')
+
+assertDeepEqual(
+  monitor.backgroundApps(appProcesses, openWindows, () => null).map(row => row.name),
+  [],
+  'an app the desktop database cannot name is left out rather than listed as a mystery row'
+)
+assertDeepEqual(monitor.backgroundApps(appProcesses, openWindows, null), [], 'with no lookup there are no background rows')
+
+// Windows first, then what is running behind them: they answer different
+// questions, and sorting them together would bury the second.
+const appViewRows = monitor.parseWindows(openWindows).concat(background)
+assertDeepEqual(appViewRows.map(row => row.name || row.className), ['Spotify', 'Mullvad VPN', 'Steam'], 'the apps view is windows then background apps')
+assertDeepEqual(monitor.filterApps(appViewRows, 'steam').map(row => row.name), ['Steam'], 'a background app is found by name')
+assertDeepEqual(monitor.filterApps(appViewRows, 'song').map(row => row.className), ['Spotify'], 'a window is still found by title')
+
+// Ending an app has to end the services it left behind, not just the process
+// the row was named after.
+assertDeepEqual(monitor.rowPids(steamRow), [100, 101, 102], 'a group row signals every pid it stands for')
+assertDeepEqual(monitor.rowPids({ pid: 42 }), [42], 'a window or process row signals its one pid')
+assertDeepEqual(monitor.rowPids({ pids: [0, 1, -5, 7, 7] }), [7], 'nothing at or below pid 1 is signalled, and no pid twice')
+assertDeepEqual(
+  monitor.rowSignalCommand(steamRow, 'TERM'),
+  ['omarchy-system-signal', '--signal', 'TERM', '100:1000', '101:1010', '102:1020'],
+  'the whole group goes in one argument vector'
+)
+assertEqual(monitor.rowSignalCommand({ pids: [] }, 'TERM'), null, 'a row with nothing to signal builds no command')
+
+const groupTerminated = monitor.markTerminatedRow({}, steamRow)
+assertDeepEqual(Object.keys(groupTerminated).sort(), ['100:1000', '101:1010', '102:1020'], 'sending SIGTERM to a group marks every pid in it')
+assertEqual(monitor.canForceKill(steamRow, monitor.pruneTerminated(groupTerminated, [{ pid: 102, startTime: "1020" }])), true, 'a group with a survivor still offers force kill')
+assertEqual(monitor.canForceKill(steamRow, monitor.pruneTerminated(groupTerminated, [{ pid: 999 }])), false, 'a group that is gone offers nothing')
+assert(
+  monitor.signalMessage(steamRow, 'TERM', true).indexOf('3 processes') >= 0,
+  'the confirmation says how much of the group goes',
+  monitor.signalMessage(steamRow, 'TERM', true)
+)
+
+// PID reuse and group arrivals must not expand a confirmed destructive action.
+assertEqual(monitor.rowSignalCommand({ pid: 4242 }, 'TERM'), null, 'a sample without process identity cannot be signalled')
+for (const startTime of [null, 9000, ' 9000', '9e3', '9000:4', '-1', '00']) {
+  assertEqual(monitor.rowSignalCommand({ pid: 4242, startTime }, 'TERM'), null, 'malformed identity is refused: ' + startTime)
+}
+assertEqual(monitor.processIdentity({ pid: 4242, startTime: '18446744073709551615' }), '4242:18446744073709551615', 'identity ticks retain uint64 precision')
+assertDeepEqual(monitor.parseProcesses('[{"pid":12.5,"startTime":"1"}]'), [], 'the parser never rounds a fractional PID into another process')
+assertEqual(withUsage.find(w => w.address === '0x2').startTime, '7000', 'window actions carry the sampled identity')
+assertDeepEqual(monitor.pruneTerminated(terminated, [{ pid: 4242, startTime: '9001' }]), {}, 'PID reuse revokes the previous process force kill offer')
+assertEqual(monitor.canForceKill({ pid: 4242, startTime: '9001' }, terminated), false, 'a replacement process never inherits force kill')
+assertEqual(monitor.rowSignalCommand(row, 'KILL', {}), null, 'KILL with revoked approval fails closed')
+const groupSnapshot = monitor.signalSnapshot(steamRow, 'TERM', {})
+steamRow.targets.push({ pid: 103, startTime: '1030' })
+assertDeepEqual(monitor.rowTargets(groupSnapshot).map(monitor.processIdentity), ['100:1000', '101:1010', '102:1020'], 'new group members never enter an existing confirmation')
+assertDeepEqual(monitor.rowSignalCommand(steamRow, 'KILL', groupTerminated), ['omarchy-system-signal', '--signal', 'KILL', '100:1000', '101:1010', '102:1020'], 'force kill excludes group members never sent TERM')
+const windowSnapshot = monitor.signalSnapshot({ pid: 20, startTime: '200', name: 'app', handle: { live: true } }, 'TERM', {})
+assertEqual(windowSnapshot.handle, undefined, 'confirmation stores no live window QObject')
 
 // ----------------------------------------------------------------- manifest
 

@@ -164,3 +164,14 @@ assert(
   'menu refreshes the shared icon index when opened'
 )
 JS
+
+fixture=$(mktemp -d)
+trap 'rm -rf "$fixture"' EXIT
+mkdir -p "$fixture/user data/applications" "$fixture/system/applications"
+printf '[Desktop Entry]\nName=System\n' > "$fixture/system/applications/overridden.desktop"
+printf '[Desktop Entry]\nHidden=true\n' > "$fixture/hidden.desktop"
+ln -s "$fixture/hidden.desktop" "$fixture/user data/applications/overridden.desktop"
+printf '[Desktop Entry]\nOnlyShowIn=GNOME;\n' > "$fixture/user data/applications/foreign.desktop"
+hidden=$(XDG_DATA_HOME="$fixture/user data" XDG_DATA_DIRS="$fixture/system" bash "$ROOT/shell/services/hidden-entries.sh" Hyprland)
+[[ $hidden == $'foreign\noverridden' ]] || fail "hidden entry scan honors XDG_DATA_HOME and symlink overrides" "$hidden"
+pass "hidden entry scan honors XDG_DATA_HOME and symlink overrides"

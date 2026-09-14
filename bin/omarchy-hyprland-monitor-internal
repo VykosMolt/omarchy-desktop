@@ -43,7 +43,8 @@ off() {
   fi
 
   if omarchy-hyprland-toggle-disabled $TOGGLE && omarchy-hyprland-toggle-disabled $MIRROR_TOGGLE; then
-    printf 'hl.monitor({ output = "%s", disabled = true })\n' "$INTERNAL" >"$TOGGLE_FLAG"
+    mkdir -p "${TOGGLE_FLAG%/*}" || return 1
+    printf 'hl.monitor({ output = "%s", disabled = true })\n' "$INTERNAL" >"$TOGGLE_FLAG" || return 1
     omarchy-notification-send -g 󰍹 "Laptop display disabled"
     hyprctl reload
   fi

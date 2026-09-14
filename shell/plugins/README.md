@@ -1,134 +1,98 @@
 # First-party plugins
 
-These plugins ship with Omarchy and are discovered by the shell at startup.
-They use the same `manifest.json` contract as third-party plugins; the
-only difference is that the shell flags them with `__isFirstParty: true`.
-First-party non-bar plugins are enabled unless listed in `disabledPlugins[]`;
-`omarchy.bar` is the default bar option and becomes inactive only while another
-`kind: "bar"` plugin is selected. Services and keep-loaded panels are mounted
-at startup; other panels, overlays, and menus are loaded on demand.
+These components ship with the port and are discovered from this directory
+through their `manifest.json` files. Non-bar components are enabled unless listed
+in `disabledPlugins`; `omarchy.bar` is the default full bar. Services and
+keep-loaded components mount at startup. Other panels, overlays and menus load
+when summoned.
 
-User-installed plugins live alongside these conceptually but on disk under
-`~/.config/omarchy/plugins/<plugin-id>/` rather than in this directory.
+All user paths follow the session's isolated roots from
+[`lib/omarchy-paths.sh`](../../lib/omarchy-paths.sh); QML accesses those roots
+through `qs.Commons.Paths`. Shell configuration lives under
+`$OMARCHY_CONFIG_HOME/shell.json`, current theme state under
+`$OMARCHY_STATE_HOME/current/theme`, and cached assets under
+`$OMARCHY_CACHE_HOME`. These are the roots exported by the dedicated session.
 
-| Plugin        | id                        | kinds                   | entry point                           |
-|---------------|---------------------------|-------------------------|---------------------------------------|
-| Bar           | `omarchy.bar`             | `bar`                   | `bar/Bar.qml`                         |
-| Image picker  | `omarchy.image-picker`    | `overlay`               | `image-picker/ImagePicker.qml`        |
-| Emojis        | `omarchy.emojis`          | `overlay`               | `emojis/Emojis.qml`                   |
-| Clipboard mgr | `omarchy.clipboard`       | `overlay`               | `clipboard/Clipboard.qml`             |
-| Omarchy menu  | `omarchy.menu`            | `menu`, `bar-widget`    | `menu/Menu.qml`, `menu/BarWidget.qml` |
-| Settings      | `omarchy.settings`        | `panel`                 | `panels/settings/Panel.qml`           |
-| Notifications | `omarchy.notifications`   | `service`               | `notifications/Service.qml`           |
-| Audio         | `omarchy.audio`           | `bar-widget`            | `panels/audio/Panel.qml`              |
-| Bluetooth     | `omarchy.bluetooth`       | `bar-widget`            | `panels/bluetooth/Panel.qml`          |
-| Clock         | `omarchy.clock`           | `bar-widget`            | `panels/clock/BarWidget.qml`          |
-| Monitor       | `omarchy.monitor`         | `bar-widget`            | `panels/monitor/Panel.qml`            |
-| Network       | `omarchy.network`         | `bar-widget`            | `panels/network/Panel.qml`            |
-| Power         | `omarchy.power`           | `bar-widget`            | `panels/power/Panel.qml`              |
-| System monitor| `omarchy.system-monitor`  | `bar-widget`            | `panels/system-monitor/Panel.qml`     |
-| Tailscale     | `omarchy.tailscale`       | `bar-widget`            | `panels/tailscale/Panel.qml`          |
-| Weather       | `omarchy.weather`         | `bar-widget`            | `panels/weather/BarWidget.qml`        |
-| Media         | `omarchy.media`           | `service`, `bar-widget` | `services/media/Service.qml`, `services/media/BarWidget.qml` |
-| Battery       | `omarchy.battery`         | `service`               | `services/battery/Service.qml`        |
-| Idle          | `omarchy.idle`            | `service`               | `services/idle/Service.qml`           |
-| Lock screen   | `omarchy.lock`            | `service`               | `lock/Service.qml`                    |
-| OSD           | `omarchy.osd`             | `panel`                 | `osd/Osd.qml`                         |
+| Plugin | ID | Kinds | Entry points |
+|---|---|---|---|
+| Audio | `omarchy.audio` | `bar-widget` | `panels/audio/Panel.qml` |
+| Background | `omarchy.background` | `service` | `background/Background.qml` |
+| Bar | `omarchy.bar` | `bar` | `bar/Bar.qml` |
+| Battery | `omarchy.battery` | `service` | `services/battery/Service.qml` |
+| Bluetooth | `omarchy.bluetooth` | `bar-widget` | `panels/bluetooth/Panel.qml` |
+| Clipboard | `omarchy.clipboard` | `overlay` | `clipboard/Clipboard.qml` |
+| Clock | `omarchy.clock` | `bar-widget` | `panels/clock/BarWidget.qml` |
+| Display | `omarchy.monitor` | `bar-widget` | `panels/monitor/Panel.qml` |
+| Emojis | `omarchy.emojis` | `overlay` | `emojis/Emojis.qml` |
+| Idle | `omarchy.idle` | `service` | `services/idle/Service.qml` |
+| Image picker | `omarchy.image-picker` | `overlay` | `image-picker/ImagePicker.qml` |
+| Lock Screen | `omarchy.lock` | `service` | `lock/Service.qml` |
+| Media | `omarchy.media` | `service`, `bar-widget` | `services/media/Service.qml`, `services/media/BarWidget.qml` |
+| Network | `omarchy.network` | `bar-widget` | `panels/network/Panel.qml` |
+| Notifications | `omarchy.notifications` | `service` | `notifications/Service.qml` |
+| Omarchy menu | `omarchy.menu` | `menu`, `bar-widget` | `menu/Menu.qml`, `menu/BarWidget.qml` |
+| On-screen display | `omarchy.osd` | `panel` | `osd/Osd.qml` |
+| Power | `omarchy.power` | `bar-widget` | `panels/power/Panel.qml` |
+| Settings | `omarchy.settings` | `panel` | `panels/settings/Panel.qml` |
+| Speed Test | `omarchy.speedtest` | `panel` | `panels/speedtest/Panel.qml` |
+| System monitor | `omarchy.system-monitor` | `bar-widget` | `panels/system-monitor/Panel.qml` |
+| Weather | `omarchy.weather` | `bar-widget` | `panels/weather/BarWidget.qml` |
+| Wi-Fi QR | `omarchy.wifiqr` | `panel` | `panels/wifiqr/Panel.qml` |
 
-First-party bar-only widgets also carry manifests next to their QML files,
-e.g. `bar/widgets/Workspaces.manifest.json`. Rich popup widgets live in their
-own plugin directories, each with its own `manifest.json`.
-
-## Bar
-
-The built-in status bar and default full-bar option. Layout lives in the
-top-level `bar:` subtree of `~/.config/omarchy/shell.json` (with the shell
-providing [`config/omarchy/shell.json`](../../config/omarchy/shell.json) when
-the user has no file). See [`bar/README.md`](bar/README.md) for the widget catalogue
-and customization schema.
+Individual bar widgets also have manifests beside their QML files, for example
+`bar/widgets/Workspaces.manifest.json`. The bar layout lives in the top-level
+`bar` object in `shell.json`; the default is
+[`config/omarchy/shell.json`](../../config/omarchy/shell.json). See
+[`bar/README.md`](bar/README.md) for widget configuration.
 
 ## Image picker
 
-Fullscreen image-grid selector overlay. Used by `omarchy-menu-images`
-(wallpaper picker) and `omarchy-theme-switcher` (theme picker) and any
-other caller that wants to present a directory of images with previews.
+The fullscreen image carousel serves wallpaper/theme selection and callers
+that supply image directories or prepared rows. Thumbnails come from the
+session's `image-selector` cache.
 
-Two ways to drive it:
+- `omarchy-shell shell summon omarchy.image-picker '<jsonPayload>'` accepts
+  `imageDirs`, `imageRows`, `selectedImage`, `selectionFile`, `doneFile`,
+  `showLabels`, and `filterable`.
+- `omarchy-shell image-selector open <imageDirs> <imageRowsB64> <selectedImage>
+  <selectionFile> <doneFile> <showLabels> <filterable>` carries the same inputs
+  through positional IPC. Prepared rows are base64 encoded to preserve tabs
+  and newlines.
 
-- Shell-level summon: `omarchy-shell shell summon omarchy.image-picker '<jsonPayload>'`.
-  The payload can carry `imageDirs`, `imageRows`, `selectedImage`,
-  `selectionFile`, `doneFile`, `showLabels`, `filterable`. Best for
-  in-shell callers that already speak JSON.
-- Direct IPC target: `omarchy-shell image-selector open <imageDirs> <imageRowsB64> <selectedImage> <selectionFile> <doneFile> <showLabels> <filterable>`.
-  Positional args; `imageRowsB64` is base64-encoded so embedded newlines /
-  tabs survive the bash argv handoff. This is what `omarchy-menu-images`
-  uses. Colors come from the central shell theme singleton; there is no
-  per-call override surface.
+Callers provide private selection and completion paths. A successful selection
+writes the chosen image path and creates the completion file. Cancel completes
+the request without writing a selection. A superseded or canceled asynchronous
+scan cannot reopen the carousel. The keep-loaded window is reused across
+summons.
 
-The selection round-trip remains file-based: callers create a
-`selection_file` and `done_file` (both `mktemp`), pass the paths, and
-poll `done_file` for existence. The plugin writes the chosen path into
-`selection_file` and touches `done_file` when it's done. `cancel` IPC
-clears it without writing a selection.
+## Menu and settings
 
-The plugin has `keepLoaded: true` so the layer-shell window survives
-between summons within a single shell session.
+The menu uses `menu/Menu.qml` inside the long-running shell. Its definition
+combines `default/omarchy/omarchy-menu.jsonc` with
+`$OMARCHY_CONFIG_HOME/extensions/omarchy-menu.jsonc`. File watches reload changes;
+condition expressions run in a batched subprocess and a selected action runs
+through the shell's command execution path.
+
+`omarchy-shell shell toggle omarchy.settings` opens Settings, also reachable
+under Setup in the menu. Idle timings and bar layout are shell configuration;
+appearance settings, monitor scaling and Stay Awake are backed by existing
+commands. Writes serialize, then reread the actual value. Failed write messages
+remain visible through that reread and clear after a successful retry.
+
+## Network and system monitor
+
+The network panel provides Wi-Fi, DNS, band selection and the configured VPN controls. Enterprise Wi-Fi setup and authentication repair open `nm-connection-editor`, where the network's EAP method, certificate and server settings can be configured. Saved enterprise profiles connect normally; the panel never collects enterprise credentials or creates an incomplete profile. If the editor is unavailable, the network row identifies the missing command. Its Wi-Fi sharing panel is `omarchy.wifiqr`; passwords are read only on deliberate reveal and cleared on dismissal. `omarchy.speedtest` runs download and upload measurements and stops its traffic when dismissed.
+
+The system monitor lists windows, background applications and processes. Ending
+uses SIGTERM after confirmation. Force kill is offered only for the exact
+process identities previously sent SIGTERM; PID reuse and new group members
+cannot inherit that action. The sampler's process start time accompanies each
+PID through confirmation to the signal helper.
 
 ## Lock screen
 
-Session-lock surface using Quickshell's native `WlSessionLock` and two
-separate PAM services: `omarchy-lock-password` for password auth and,
-only when fingerprints are enrolled, `omarchy-lock-fingerprint` for
-fingerprint auth. It mirrors the previous lock screen field dimensions,
-colors, blurred wallpaper, placeholder, and Hyprland-driven corners.
-
-## Omarchy menu
-
-Quickshell-powered Omarchy command menu.
-The menu UI lives in `menu/Menu.qml` as a first-party `menu` plugin and is
-summoned through the shell (`omarchy-shell shell summon omarchy.menu ...`),
-so it shares the long-running `omarchy-shell` process instead of starting a
-second Quickshell instance.
-
-The menu definition lives outside the shell host code:
-
-- defaults: `default/omarchy/omarchy-menu.jsonc`
-- user extensions: `~/.config/omarchy/extensions/omarchy-menu.jsonc`
-
-The shell parses both JSONC files at startup (with `watchChanges: true`
-so edits take effect without a restart), evaluates `when:` / `checked:`
-bash expressions in a single batched subprocess, and executes the
-selected `action:` string directly via `Quickshell.execDetached`. The
-long-running shell process keeps the parsed menu in memory, so the
-keybind → IPC → visible path costs ~30ms cold.
-
-## Settings
-
-The desktop's settings panel, summoned with `omarchy-shell shell toggle
-omarchy.settings` and listed in the menu under Setup. Standalone `panel`
-plugin, loaded on demand.
-
-Every setting it exposes is backed by one of two mechanisms and no third one:
-
-- **shell-owned** — the value lives in `shell.json`. The panel reads it from
-  `shell.shellConfig`, so it always shows the file rather than a cached copy,
-  and writes it either through `shell.mutateShellConfig` (the `idle` timings)
-  or through the command that owns the setting's validation (`omarchy-bar` for
-  the bar's position and transparency, so the bar validates the value and
-  patches itself live).
-- **system-owned** — the value lives outside the shell and is read and written
-  by running one of the port's commands: the theme, icon theme, monospace font,
-  text size, the focused monitor's scale, and Stay Awake.
-
-Every system-owned read is a `Process`, so the panel paints immediately and
-each row fills in when its command answers. Every write is followed by a
-re-read, and a command that fails puts its own message on the row.
-
-`panels/settings/Model.js` holds the setting inventory and its ownership, the
-duration choices and their labels, the output parsers, and the argument vector
-for every command — so all of it is testable without a compositor, and the QML
-never builds a command itself.
-
-## Coming soon
-
-- `omarchy.theme-switcher` — folds theme switching into the shell.
+The lock service uses Quickshell's native `WlSessionLock` with separate host
+PAM profiles: `omarchy-lock-password`, and `omarchy-lock-fingerprint` when
+fingerprints are configured. The password profile must exist before the
+service accepts a lock request; its status reports `missing-pam` otherwise.
+PAM configuration belongs to the host and is not installed by the shell.

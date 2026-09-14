@@ -17,6 +17,7 @@ fi
 
 HOOK_TYPE=$1
 HOOK_FILE=$2
+omarchy_require_flat_name "$HOOK_TYPE" "hook type" || exit 1
 HOOK_DIR="$OMARCHY_CONFIG_HOME/hooks/$HOOK_TYPE.d"
 HOOK_NAME=$(basename "$HOOK_FILE")
 HOOK_PATH="$HOOK_DIR/$HOOK_NAME"
@@ -27,7 +28,8 @@ if [[ ! -f $HOOK_FILE ]]; then
 fi
 
 mkdir -p "$HOOK_DIR"
-cp "$HOOK_FILE" "$HOOK_PATH"
+# Replace a previous hook link instead of writing through it to another file.
+cp --remove-destination -- "$HOOK_FILE" "$HOOK_PATH"
 chmod 755 "$HOOK_PATH"
 
 echo "Installed $HOOK_TYPE hook: $HOOK_PATH"

@@ -16,18 +16,23 @@ const items = {
 const script = menu.guardScript(items)
 const browserSlot = `\${__omarchy_read_${menu.guardReaders.indexOf('omarchy-default-browser')}}`
 
-assert(
-  script.includes('if { omarchy-pkg-present brave-bin; } >/dev/null 2>&1; then echo setup.default.browser.brave:w:1; else echo setup.default.browser.brave:w:0; fi'),
-  'guard script reports a when: as <id>:w:<0|1>'
-)
-assert(
-  script.includes('then echo setup.default.browser.zen:c:1; else echo setup.default.browser.zen:c:0; fi'),
-  'guard script reports a checked: as <id>:c:<0|1>'
-)
-assert(
-  script.includes('if { omarchy-pkg-present zen-browser-bin; } >/dev/null 2>&1; then echo install.browser.zen:d:1; else echo install.browser.zen:d:0; fi'),
-  'guard script reports a disabled: as <id>:d:<0|1>'
-)
+const { execFileSync } = require('child_process')
+const fs = require('fs')
+function runGuard(script) {
+  const outputPath = path.join(process.env.HOME, 'guard-output')
+  const fd = fs.openSync(outputPath, 'w')
+  try { execFileSync('bash', ['-c', script], { stdio: ['ignore', fd, 'inherit'] }) }
+  finally { fs.closeSync(fd) }
+  return fs.readFileSync(outputPath, 'utf8')
+}
+const output = runGuard(menu.guardScript({
+  visible: { id: 'visible', when: 'true' },
+  checked: { id: 'checked', checked: 'false' },
+  disabled: { id: 'disabled', disabled: 'true' }
+}))
+assertEqual(output, 'visible:w:1\nchecked:c:0\ndisabled:d:1\n', 'guard batch reports each guard outcome')
+const oddId = "literal'$(printf injected);percent%"
+assertEqual(runGuard(menu.guardScript({ [oddId]: { id: oddId, when: 'true' } })), oddId + ':w:1\n', 'guard ids are printed literally without shell interpretation')
 assert(!/\bplain:[wcd]:/.test(script), 'guard script skips items with nothing to evaluate')
 assertEqual(menu.guardScript({ plain: items.plain }), '', 'guard script is empty when no item carries a guard')
 
@@ -67,7 +72,6 @@ assert(
 
 // Every reader named in the shipped menu has to be listed, or it silently
 // keeps forking once per row that reads it.
-const fs = require('fs')
 const defaultItems = menu.parseMenuJsonc(fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8'))
 const guardText = defaultItems.map(item => `${item.when}\n${item.checked}\n${item.disabled}`).join('\n')
 const repeated = [...new Set(

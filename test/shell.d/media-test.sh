@@ -41,3 +41,23 @@ assertEqual(media.labelFor({ trackTitle: 'Song', identity: 'Spotify' }), 'Song',
 assertEqual(media.osdMessage({ trackTitle: 'Song', trackArtist: 'Artist' }, 'Fallback'), 'Song - Artist', 'media builds OSD messages')
 assertEqual(media.osdMessage(null, 'Fallback'), 'Fallback', 'media falls back OSD messages')
 JS
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/services/media/Service.qml', 'utf8')
+const deferred = []
+const shown = []
+const state = { players: [], pendingTrackOsd: null, MediaModel: requireFromRoot('shell/plugins/services/media/MediaModel.js'), trackOsdTimer: { restart: () => {}, stop: () => {} }, Qt: { callLater: fn => deferred.push(fn) }, showOsd: (label, icon, player) => shown.push(player) }
+state.root = state
+vm.createContext(state)
+for (const name of ['playerKey', 'playerForKey', 'scheduleOsd', 'flushPendingTrackOsd', 'playerForAction']) {
+  vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], state)
+}
+const player = { dbusName: 'org.mpris.MediaPlayer2.test' }
+state.scheduleOsd('Next', 'next', player, true, 'old')
+assertEqual(state.pendingTrackOsd.player, undefined, 'pending track feedback keeps no native player pointer')
+state.flushPendingTrackOsd(false)
+assertDeepEqual(shown, [null], 'a vanished player resolves to safe fallback feedback')
+assertEqual(state.playerForAction('pause', player.dbusName), null, 'an action for a vanished player never redirects to another app')
+JS

@@ -222,8 +222,8 @@ assert(
   'network row clicks gate unknown-network prompts on credential requirements'
 )
 assert(
-  /shouldRepromptPassphrase\(reason, row\.requiresCredentials\)/.test(panelSource),
-  'network failure reprompts use the row credential requirement'
+  /shouldRepromptPassphrase\(reason, root\.requiresCredentials\(network\.security\)\)/.test(panelSource),
+  'network failure reprompts use the live credential requirement independently of row delegates'
 )
 assert(
   /networkFailureReason\(reason, requiresCredentials\(network\.security\)\)/.test(panelSource),
@@ -293,4 +293,179 @@ assertDeepEqual(
 
 assertEqual(network.headerDetail({ type: 'wifi', freq: '5745' }), '', 'network keeps wifi band state out of the hero')
 assertEqual(network.headerDetail({ type: 'ethernet', speed: '100' }), '100mbit', 'network keeps ethernet speed in the hero')
+JS
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/panels/network/Panel.qml', 'utf8')
+const selected = { wifiNetworks: [{ ssid: 'A' }, { ssid: 'B' }], selectedIndex: 1, wifiNetworkObjects: [], wifiRowsSnapshot: [{ ssid: 'B' }, { ssid: 'A' }], passwordSsid: '', wifiDevice: {}, checkActionCompletion: () => {} }
+selected.root = selected
+vm.createContext(selected)
+for (const name of ['wifiIndexForSsid', 'syncWifiNetworks']) vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], selected)
+selected.syncWifiNetworks()
+assertEqual(selected.selectedIndex, 0, 'Wi-Fi selection follows its SSID when signal changes reorder rows')
+
+// QML emits property-change handlers before all var initializers have run.
+// Reproduce the live startup order: device first, then snapshot, then rows.
+// A setter delivers the actual list handler synchronously as QML does.
+const initial = {
+  Model: requireFromRoot('shell/plugins/panels/network/Model.js'),
+  wifiRowsSnapshot: undefined, wifiNetworkObjects: undefined, wifiDevice: {},
+  selectedIndex: -1, wifiActionFocused: true, focusSection: 'wifi', passwordSsid: '',
+  opened: false, setScannerEnabled() {}, checkActionCompletion() {},
+  canForgetNetwork(net) { return !!(net && net.known && !net.connected) }
+}
+initial.root = initial
+vm.createContext(initial)
+for (const name of ['wifiIndexForSsid', 'syncWifiNetworks']) vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], initial)
+const changedRows = source.match(/  onWifiNetworksChanged: (\{[^]*?\n  \})/)[1]
+const changedDevice = source.match(/  onWifiDeviceChanged: (\{[^]*?\n  \})/)[1]
+const snapshotBinding = source.match(/  readonly property var wifiRowsSnapshot: (\{[^]*?\n  \})/)[1]
+vm.runInContext('rowsChanged = function() ' + changedRows + '\ndeviceChanged = function() ' + changedDevice + '\nbuildSnapshot = function() ' + snapshotBinding, initial)
+let initialRows
+Object.defineProperty(initial, 'wifiNetworks', {
+  get() { return initialRows },
+  set(value) { initialRows = value; initial.rowsChanged() }
+})
+initial.rowsChanged()
+assertEqual(initial.selectedIndex, -1, 'an early row-change event tolerates an uninitialized model')
+assertEqual(initial.focusSection, 'dns', 'an early empty row event leaves keyboard focus in a valid section')
+initial.deviceChanged()
+assertDeepEqual(initial.wifiNetworks, [], 'the initial device event never publishes an undefined snapshot')
+assertDeepEqual(initial.buildSnapshot(), [], 'the snapshot binding tolerates an uninitialized backend list')
+initial.wifiNetworkObjects = [{ name: 'Initial Wi-Fi', known: true, connected: false, security: 3, signalStrength: 0.8 }]
+initial.wifiRowsSnapshot = initial.buildSnapshot()
+vm.runInContext(source.match(/  onWifiRowsSnapshotChanged: (.*)/)[1], initial)
+assertEqual(initial.wifiNetworks[0].ssid, 'Initial Wi-Fi', 'the first completed snapshot reaches the list after early initialization events')
+assertEqual(initial.wifiIndexForSsid('Initial Wi-Fi'), 0, 'the first completed snapshot is available to row actions')
+initial.wifiNetworks = undefined
+initial.syncWifiNetworks()
+assertEqual(initial.wifiNetworks[0].ssid, 'Initial Wi-Fi', 'a later refresh repairs an undefined list instead of failing before publication')
+
+// Enterprise authentication belongs to the native editor, which exposes the
+// certificate/server settings absent from a simple identity/password prompt.
+// Exercise the panel's actual entry points, including stale PSK submissions.
+const networkModel = requireFromRoot('shell/plugins/panels/network/Model.js')
+const securityNames = ['Wpa3SuiteB192', 'Sae', 'Wpa2Eap', 'Wpa2Psk', 'WpaEap', 'WpaPsk', 'StaticWep', 'DynamicWep', 'Leap', 'Owe', 'Open', 'Unknown']
+const security = Object.fromEntries(securityNames.map((name, index) => [name, index]))
+const calls = []
+const enterprise = {
+  Model: networkModel, WifiSecurityType: security,
+  wifiNetworkObjects: [], wifiNetworks: [], selectedIndex: 0, wifiActionFocused: false,
+  actionSsid: '', actionKind: '', failureSsid: '', failureReason: '',
+  passwordSsid: '', passwordText: '', opened: true,
+  enterpriseEditor: { pendingResult: false, startConfirmed: false, running: false, ssid: '', command: [] },
+  actionTimeout: { restart() {}, stop() {} }, refresh() {},
+  connectionFailReasons: { NoSecrets: 1, WifiAuthTimeout: 2, WifiClientFailed: 3 },
+  controller: { hide() { enterprise.opened = false } }
+}
+Object.defineProperty(enterprise, 'busy', { get() { return this.actionKind !== '' || this.enterpriseEditor.pendingResult } })
+enterprise.root = enterprise
+vm.createContext(enterprise)
+for (const name of ['cancelPasswordPrompt', 'close', 'requiresCredentials', 'isEnterpriseSecurity', 'openPasswordPrompt', 'networkForSsid', 'runNetworkAction', 'connectDirectly', 'connectWithPassphrase', 'openEnterpriseEditor', 'finishEnterpriseEditor', 'enterpriseEditorPending', 'canForgetNetwork', 'activateSelected', 'failNetworkAction', 'networkFailureReason', 'shouldRepromptPassphrase']) {
+  vm.runInContext(source.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], enterprise)
+}
+function networkFixture(name, known = false) {
+  const net = {
+    name: 'Campus " ; $(literal)', security: security[name], known, connected: false,
+    connect() { calls.push(['connect', name]) },
+    connectWithPsk(secret) { calls.push(['psk', secret]) }
+  }
+  enterprise.actionSsid = enterprise.actionKind = ''
+  enterprise.failureSsid = enterprise.failureReason = ''
+  enterprise.passwordSsid = enterprise.passwordText = ''
+  enterprise.enterpriseEditor.pendingResult = enterprise.enterpriseEditor.running = false
+  enterprise.enterpriseEditor.startConfirmed = false
+  enterprise.wifiNetworkObjects = [net]
+  enterprise.wifiNetworks = [{ ssid: net.name, security: net.security, known, connected: false }]
+  enterprise.opened = true
+  calls.length = 0
+  return net
+}
+const enterpriseNames = ['Wpa3SuiteB192', 'Wpa2Eap', 'WpaEap', 'DynamicWep', 'Leap']
+for (const name of enterpriseNames) {
+  const net = networkFixture(name)
+  enterprise.activateSelected()
+  assertDeepEqual(enterprise.enterpriseEditor.command, ['nm-connection-editor', '--create', '--type=802-11-wireless'], name + ' opens the native creation dialog without network-derived arguments')
+  assertEqual(enterprise.passwordSsid, '', name + ' never opens an inline credential prompt')
+  assertEqual(calls.length, 0, name + ' does not create or activate a profile from the panel')
+  assertEqual(enterprise.enterpriseEditorPending(net.name), true, name + ' keeps the editor launch bound to its selected SSID')
+  enterprise.finishEnterpriseEditor(0)
+  net.known = true
+  enterprise.connectDirectly(net.name)
+  assertDeepEqual(calls, [['connect', name]], name + ' saved profiles continue through the normal connection path')
+  enterprise.actionKind = ''
+  calls.length = 0
+  enterprise.passwordText = 'must not reach an enterprise backend'
+  enterprise.connectWithPassphrase(net.name, enterprise.passwordText)
+  assertDeepEqual(enterprise.enterpriseEditor.command, ['nm-connection-editor', '--show', '--type=802-11-wireless'], name + ' reconfiguration selects from saved profiles without changing them')
+  assertEqual(calls.length, 0, name + ' rejects stale PSK submissions')
+  assertEqual(enterprise.passwordText, '', name + ' clears any obsolete inline secret before native setup')
+}
+for (const name of ['Sae', 'Wpa2Psk', 'WpaPsk', 'StaticWep']) {
+  const net = networkFixture(name)
+  enterprise.openPasswordPrompt(net.name)
+  assertEqual(enterprise.passwordSsid, net.name, name + ' retains the inline passphrase prompt')
+  enterprise.connectWithPassphrase(net.name, ' psk secret ')
+  assertDeepEqual(calls, [['psk', ' psk secret ']], name + ' retains exact passphrase submission')
+}
+const reauth = source.match(/    function onConnectionFailed\(reason\) \{[^]*?\n    }/)
+vm.runInContext(reauth[0], enterprise)
+for (const reason of [1, 2]) {
+  const net = networkFixture('Wpa2Eap', true)
+  enterprise.connectDirectly(net.name)
+  enterprise.onConnectionFailed(reason)
+  assertDeepEqual(enterprise.enterpriseEditor.command, ['nm-connection-editor', '--show', '--type=802-11-wireless'], 'saved enterprise authentication failure ' + reason + ' opens the native editor')
+  assertEqual(enterprise.passwordSsid, '', 'saved enterprise authentication failure ' + reason + ' does not collect a password')
+}
+const failedNet = networkFixture('Wpa2Eap')
+enterprise.openPasswordPrompt(failedNet.name)
+enterprise.enterpriseEditor.running = false
+const editorSource = source.match(/  Process \{\n    id: enterpriseEditor[^]*?\n  }/)[0]
+const failedStart = editorSource.match(/onRunningChanged: if \(!running\) Qt\.callLater\((function\(\) \{[^]*?\n    \})\)/)
+vm.runInContext('editorFailedStart = ' + failedStart[1], enterprise)
+enterprise.editorFailedStart()
+assertEqual(enterprise.busy, false, 'a missing native editor releases the Wi-Fi action guard')
+assertEqual(enterprise.failureSsid, failedNet.name, 'a missing native editor reports failure on its original row')
+assertEqual(enterprise.failureReason, 'Install nm-connection-editor', 'a missing native editor produces actionable feedback')
+assertEqual(enterprise.opened, true, 'a missing native editor leaves the panel visible')
+enterprise.finishEnterpriseEditor(0)
+assertEqual(enterprise.failureReason, 'Install nm-connection-editor', 'duplicate completion cannot erase a native-editor startup failure')
+networkFixture('Wpa2Eap')
+enterprise.wifiNetworkObjects = []
+enterprise.openPasswordPrompt('vanished')
+assertEqual(enterprise.enterpriseEditor.pendingResult, false, 'a vanished enterprise network cannot launch a stale setup request')
+assert(!/enterpriseConnectScript|connectEnterprise|802-1x\.|nmcli connection (?:add|edit)|identityText|Identity \(user@domain\)/.test(source + fs.readFileSync(root + '/shell/plugins/panels/network/Model.js', 'utf8')), 'the panel contains no inline enterprise credential collection or profile creation path')
+assert(!/stdinEnabled|write\(/.test(editorSource), 'the native editor process never receives credentials on stdin')
+
+// Speed-test phases reuse one child, so completion has to drain both streams
+// before upload or a new summon can start.
+const speedSource = fs.readFileSync(root + '/shell/plugins/panels/speedtest/Panel.qml', 'utf8')
+const deferred = []
+const speed = { opened: true, requestSerial: 1, phase: 'down', pendingPhase: '', running: true, expectedStop: true, stderrText: '', error: '', Qt: { callLater: fn => deferred.push(fn) }, speedTestProc: { running: false, pendingResult: true, serial: 1, resultExited: true, outDone: false, errDone: false, code: 0, startConfirmed: true }, phaseTimer: { stop: () => {}, restart: () => {} } }
+speed.root = speed
+vm.createContext(speed)
+for (const name of ['settleSpeedTest', 'finishPhase', 'pumpPhase', 'startPhase']) vm.runInContext(speedSource.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))[0], speed)
+speed.settleSpeedTest()
+assertEqual(speed.pendingPhase, '', 'exit alone cannot advance a speed-test phase')
+speed.speedTestProc.outDone = speed.speedTestProc.errDone = true
+speed.settleSpeedTest()
+assertEqual(speed.pendingPhase, 'up', 'upload is queued only after both streams finish')
+speed.opened = false
+deferred.splice(0).forEach(fn => fn())
+assertEqual(speed.speedTestProc.running, false, 'a queued upload cannot start after dismissal')
+speed.opened = true
+speed.pendingPhase = ''
+speed.expectedStop = false
+speed.running = true
+speed.speedTestProc.pendingResult = true
+speed.speedTestProc.startConfirmed = false
+speed.speedTestProc.resultExited = speed.speedTestProc.outDone = speed.speedTestProc.errDone = false
+const recovery = speedSource.slice(speedSource.indexOf('    id: speedTestProc')).match(/onRunningChanged: if \(!running\) Qt\.callLater\((function\(\) \{[^]*?\n    \})\)/)
+vm.runInContext('recover = ' + recovery[1], speed)
+speed.recover()
+assertEqual(speed.running, false, 'a helper that cannot start releases the speed-test busy state')
+assertEqual(speed.speedTestProc.pendingResult, false, 'failed startup settles without nonexistent exit or stream signals')
+assertEqual(speed.error, 'Speed test failed', 'failed startup reaches visible speed-test feedback')
 JS

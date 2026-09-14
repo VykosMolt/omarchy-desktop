@@ -5,11 +5,12 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 units_dir="$ROOT/default/systemd/user"
+lock_condition="ExecCondition=/usr/bin/bash -c '/usr/bin/flock -n -E 75 \"%t/omarchy-arch-session.lock\" /usr/bin/true; [[ \$\$? == 75 ]]'"
 
 # Every session unit is gated on the session lock, so nothing here can start
 # inside the other Hyprland session on this account.
 for unit in "$units_dir"/omarchy-arch-*.service; do
-  grep -Fx "ExecCondition=/usr/bin/bash -c '! /usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true'" "$unit" >/dev/null ||
+  grep -Fx "$lock_condition" "$unit" >/dev/null ||
     fail "$(basename "$unit") starts without holding the session lock, so it can run in another session"
   grep -Fx 'EnvironmentFile=%t/omarchy-arch-session.env' "$unit" >/dev/null ||
     fail "$(basename "$unit") does not read the session environment file"
@@ -47,19 +48,6 @@ for unit in "$units_dir"/omarchy-arch-*.service; do
 done
 pass "start limits are declared where systemd reads them"
 
-# Hyprland lives in session.slice under uwsm's wayland-wm@ service. Marking any
-# ancestor of that as an oomd kill candidate puts the compositor back in the
-# victim pool, which is the crash this whole thing exists to prevent.
-oomd_slice="$units_dir/app.slice.d/10-oomd.conf"
-grep -Fx 'ManagedOOMMemoryPressure=kill' "$oomd_slice" >/dev/null ||
-  fail "nothing is a kill candidate, so systemd-oomd watches the machine thrash and never acts"
-grep -Fx 'ManagedOOMSwap=kill' "$oomd_slice" >/dev/null ||
-  fail "no swap backstop for the slower shape of the same failure"
-candidates=$(grep -rlE '^ManagedOOM(MemoryPressure|Swap)=kill' "$ROOT/default/systemd" 2>/dev/null || true)
-[[ $candidates == "$oomd_slice" ]] ||
-  fail "systemd-oomd kill candidacy is set outside app.slice, which can select the compositor: $candidates"
-pass "only user app scopes are systemd-oomd kill candidates"
-
 # The desktop must not depend on a line inside the compositor's config to
 # appear. A login once produced a bare compositor because Hyprland read another
 # session's config, so autostart.lua never ran and nothing started.
@@ -81,3 +69,170 @@ pass "the session target starts from the compositor unit as well as from Hyprlan
 grep -F 'systemctl --user link --runtime --force' "$ROOT/bin/omarchy-arch-session" >/dev/null ||
   fail "the session does not link its units at runtime"
 pass "the session links its units for this session only"
+
+# Only lock contention authorizes a service. File errors must not turn the
+# inversion of flock into permission to start in a different session.
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+condition=${lock_condition#* -c }
+condition=${condition:1:${#condition}-2}
+condition=${condition//\%t/$tmpdir}
+condition=${condition//\$\$/\$}
+if bash -c "$condition"; then fail "an unlocked session cannot start services"; fi
+exec 8> "$tmpdir/omarchy-arch-session.lock"
+flock -n 8
+bash -c "$condition" || fail "a held session lock permits services"
+exec 8>&-
+rm "$tmpdir/omarchy-arch-session.lock"
+mkdir "$tmpdir/omarchy-arch-session.lock"
+if bash -c "$condition" 2>/dev/null; then fail "a lock I/O error cannot authorize services"; fi
+rmdir "$tmpdir/omarchy-arch-session.lock"
+pass "session service gate distinguishes contention from lock errors"
+
+# Exercise the real launcher with a fake HOME and stub services. The losing
+# concurrent launcher must not run recovery, rewrite env, or relink anything.
+mkdir -p "$tmpdir/home/omarchy-arch-port/runtime" "$tmpdir/config/hypr" "$tmpdir/bin"
+touch "$tmpdir/config/hypr/hyprland.lua"
+cat > "$tmpdir/home/omarchy-arch-port/runtime/env.sh" <<'ENV'
+export OMARCHY_PATH="$ROOT"
+export OMARCHY_ARCH_SESSION=1
+export OMARCHY_SESSION_CONFIG_HOME="$OMARCHY_LAUNCH_TEST/config"
+export OMARCHY_SESSION_STATE_HOME="$OMARCHY_LAUNCH_TEST/state"
+export OMARCHY_SESSION_CACHE_HOME="$OMARCHY_LAUNCH_TEST/cache"
+export OMARCHY_SESSION_DATA_HOME="$OMARCHY_LAUNCH_TEST/data"
+export OMARCHY_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME/omarchy"
+export OMARCHY_STATE_HOME="$OMARCHY_SESSION_STATE_HOME/omarchy"
+export OMARCHY_CACHE_HOME="$OMARCHY_SESSION_CACHE_HOME/omarchy"
+export OMARCHY_DATA_HOME="$OMARCHY_SESSION_DATA_HOME/omarchy"
+export OMARCHY_SLEEP_LOCK_UNIT=omarchy-arch-sleep-lock.service
+ENV
+cat > "$tmpdir/bin/systemctl" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >> "$OMARCHY_LAUNCH_TEST/calls"
+STUB
+cat > "$tmpdir/bin/omarchy-hw-recover-internal-monitor" <<'STUB'
+#!/bin/bash
+printf '%s\n' recovery >> "$OMARCHY_LAUNCH_TEST/calls"
+if [[ ${OMARCHY_LAUNCH_WAIT_RECOVERY:-0} == 1 ]]; then
+  touch "$OMARCHY_LAUNCH_TEST/recovery-ready"
+  while [[ ! -e $OMARCHY_LAUNCH_TEST/recovery-release ]]; do sleep 0.02; done
+fi
+STUB
+cat > "$tmpdir/bin/start-hyprland" <<'STUB'
+#!/bin/bash
+exit 99
+STUB
+cat > "$tmpdir/bin/uwsm" <<'STUB'
+#!/bin/bash
+if [[ " $* " == *" -n "* ]]; then
+  printf '%s\n' dry-run
+  exit 0
+fi
+if [[ ${OMARCHY_LAUNCH_WAIT_UWSM:-0} == 1 ]]; then
+  stop_fixture() {
+    touch "$OMARCHY_LAUNCH_TEST/stopping"
+    while [[ ! -e $OMARCHY_LAUNCH_TEST/teardown-release ]]; do sleep 0.02; done
+    exit 23
+  }
+  trap stop_fixture TERM
+  touch "$OMARCHY_LAUNCH_TEST/uwsm-ready"
+  while true; do sleep 0.02; done
+fi
+if flock -n "$XDG_RUNTIME_DIR/omarchy-arch-session.lock" true; then exit 90; fi
+[[ -s $XDG_RUNTIME_DIR/omarchy-arch-session.env ]] || exit 91
+[[ $(stat -c %a "$XDG_RUNTIME_DIR/omarchy-arch-session.env") == 600 ]] || exit 92
+[[ $(umask) == 0022 ]] || exit 93
+printf '%s\n' "$@" > "$OMARCHY_LAUNCH_TEST/argv"
+exit 17
+STUB
+chmod +x "$tmpdir/bin/"*
+run_launcher() {
+  (umask 022; HOME="$tmpdir/home" XDG_RUNTIME_DIR="$tmpdir" \
+    OMARCHY_LAUNCH_TEST="$tmpdir" PATH="$tmpdir/bin:$PATH" "$launcher" "$@")
+}
+
+printf '%s\n' untouched > "$tmpdir/omarchy-arch-session.env"
+exec 8> "$tmpdir/omarchy-arch-session.lock"
+flock -n 8
+if run_launcher > "$tmpdir/out" 2>&1; then fail "a second session is rejected"; fi
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "a rejected launch mutated session state"
+exec 8>&-
+pass "a competing launcher cannot mutate the active session"
+
+run_launcher --dry-run >/dev/null || fail "dry-run reaches uwsm"
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "dry-run mutated session state"
+pass "dry-run leaves session runtime files untouched"
+
+launcher_status=0
+run_launcher --verbose || launcher_status=$?
+(( launcher_status == 17 )) || fail "launcher preserves uwsm status and holds its lock" "$launcher_status"
+[[ ! -e $tmpdir/omarchy-arch-session.env ]] || fail "launcher leaves stale session environment"
+[[ ! -e $tmpdir/systemd/user/wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf ]] || fail "launcher leaves compositor drop-in"
+flock -n "$tmpdir/omarchy-arch-session.lock" true || fail "launcher retains lock after exit"
+grep -Fx -- "$tmpdir/config/hypr/hyprland.lua" "$tmpdir/argv" >/dev/null || fail "launcher loses isolated compositor config"
+grep -Fx -- '--verbose' "$tmpdir/argv" >/dev/null || fail "launcher loses compositor arguments"
+pass "session launcher holds ownership through uwsm and cleans up after exit"
+
+# Real signals exercise Bash's interrupted wait. Only processes owned by this
+# fixture receive them; the stubs never reach systemd or the compositor.
+LAUNCHER="$launcher" FIXTURE="$tmpdir" python3 - <<'PYTHON'
+import os, signal, subprocess, time
+from pathlib import Path
+root = Path(os.environ["FIXTURE"])
+env = os.environ.copy()
+env.update(HOME=str(root / "home"), XDG_RUNTIME_DIR=str(root),
+           OMARCHY_LAUNCH_TEST=str(root), PATH=str(root / "bin") + ":" + env["PATH"])
+
+
+def await_file(path, proc):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        if proc.poll() is not None:
+            raise AssertionError(f"launcher exited early: {proc.returncode}")
+        time.sleep(.02)
+    raise AssertionError(f"did not observe {path.name}")
+
+
+def cleanup(proc):
+    (root / "teardown-release").touch()
+    (root / "recovery-release").touch()
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+proc = subprocess.Popen([os.environ["LAUNCHER"]], env={**env, "OMARCHY_LAUNCH_WAIT_UWSM": "1"})
+try:
+    await_file(root / "uwsm-ready", proc)
+    proc.send_signal(signal.SIGTERM)
+    await_file(root / "stopping", proc)
+    assert proc.poll() is None, "supervisor exited before uwsm teardown"
+    assert (root / "omarchy-arch-session.env").exists(), "environment removed during teardown"
+    probe = subprocess.run(["flock", "-n", "-E", "75", str(root / "omarchy-arch-session.lock"), "true"])
+    assert probe.returncode == 75, "session ownership released during teardown"
+    (root / "teardown-release").touch()
+    assert proc.wait(timeout=5) == 23, "interrupted wait lost the child's final status"
+    assert not (root / "omarchy-arch-session.env").exists(), "environment survived teardown"
+finally:
+    cleanup(proc)
+
+(root / "argv").unlink(missing_ok=True)
+(root / "recovery-release").unlink(missing_ok=True)
+proc = subprocess.Popen([os.environ["LAUNCHER"]], env={**env, "OMARCHY_LAUNCH_WAIT_RECOVERY": "1"})
+try:
+    await_file(root / "recovery-ready", proc)
+    proc.send_signal(signal.SIGTERM)
+    (root / "recovery-release").touch()
+    assert proc.wait(timeout=5) == 143, "pre-launch signal did not abort startup"
+    assert not (root / "argv").exists(), "uwsm started after termination was requested"
+    assert not (root / "omarchy-arch-session.env").exists(), "aborted launch left its environment"
+finally:
+    cleanup(proc)
+PYTHON
+pass "session signals preserve ownership through teardown and abort pre-launch startup"

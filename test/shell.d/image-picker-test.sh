@@ -21,6 +21,7 @@ const rows = [
 ].join('\n')
 
 const images = picker.loadRows(rows)
+assertEqual(picker.loadRows('/themes/__proto__\n/themes/constructor').length, 2, 'image picker keeps names that match object prototype properties')
 assertDeepEqual(
   images,
   [
@@ -51,4 +52,30 @@ assert(
   /source: item\.sourceActivated && item\.thumbnailPath \? Util\.fileUrl\(item\.thumbnailPath\) : ""[\s\S]*asynchronous: false/.test(imagePickerQml),
   'image picker loads activated thumbnails synchronously to avoid carousel flicker'
 )
+JS
+
+picker_test_dir=$(mktemp -d)
+trap 'rm -rf "$picker_test_dir"' EXIT
+mkdir -p "$picker_test_dir/images" "$picker_test_dir/cache/image-selector"
+printf 'original' >"$picker_test_dir/images/wallpaper.png"
+signature=$(stat -Lc '%s:%Y' "$picker_test_dir/images/wallpaper.png")
+hash=$(printf '%s\t%s' "$picker_test_dir/images/wallpaper.png" "$signature" | md5sum | cut -d ' ' -f 1)
+printf 'thumbnail' >"$picker_test_dir/cache/image-selector/$hash.jpg"
+picker_rows=$(OMARCHY_PATH="$ROOT" OMARCHY_CACHE_HOME="$picker_test_dir/cache" "$ROOT/shell/plugins/image-picker/list.sh" "$picker_test_dir/images")
+[[ $picker_rows == "$picker_test_dir/images/wallpaper.png"$'\t'"$picker_test_dir/cache/image-selector/$hash.jpg" ]] || fail "image picker uses thumbnails from the session cache"
+pass "image picker uses thumbnails from the session cache"
+
+run_node_test <<'JS'
+const fs = require('fs')
+const vm = require('vm')
+const source = fs.readFileSync(root + '/shell/plugins/image-picker/ImagePicker.qml', 'utf8')
+const completed = []
+const state = { requestSerial: 7, requestActive: true, doneFile: '/private/request.done', selectionFile: '/private/selection', opened: true, finishDoneFile: file => completed.push(file) }
+state.root = state
+vm.createContext(state)
+vm.runInContext(source.match(/  function cancel\([^]*?\n  }/)[0], state)
+state.cancel()
+assertEqual(state.requestSerial, 8, 'cancel invalidates all callbacks belonging to the prior scan')
+assertDeepEqual(completed, ['/private/request.done'], 'cancel still completes the waiting caller')
+assertEqual(state.opened, false, 'canceled picker stays closed')
 JS

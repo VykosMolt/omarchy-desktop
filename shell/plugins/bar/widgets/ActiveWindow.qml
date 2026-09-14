@@ -11,6 +11,8 @@ BarWidget {
   readonly property var toplevel: ToplevelManager.activeToplevel
   readonly property string title: toplevel ? (toplevel.title || toplevel.appId || "") : ""
   readonly property int maxLabelWidth: Number(setting("maxWidth", 280))
+  readonly property bool tooltipHovered: mouseArea.containsMouse
+  Component.onDestruction: if (root.bar) root.bar.hideTooltip(root)
 
   visible: title !== "" && !vertical
   implicitWidth: visible ? Math.min(maxLabelWidth, labelText.implicitWidth) + Style.spacing.controlPaddingX * 2 : 0
@@ -42,6 +44,7 @@ BarWidget {
   }
 
   MouseArea {
+    id: mouseArea
     anchors.fill: parent
     hoverEnabled: true
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton

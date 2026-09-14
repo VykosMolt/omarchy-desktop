@@ -30,10 +30,8 @@ import qs.Commons
 // parallel axis (along-the-bar) uses the anchor's content x/y since the
 // bar spans full screen on that axis.
 //
-// Outside-click dismissal: an overlay MouseArea catches clicks, with the
-// QsWindow.mask subtracting the bar strip so clicks on the bar still
-// reach the bar widgets (activePopout coordinator hands off to another
-// popup if the user clicks a different bar icon).
+// Outside-click dismissal: an overlay MouseArea catches clicks and forwards
+// clicks in the bar strip to the corresponding widget.
 PanelWindow {
   id: root
 
@@ -126,8 +124,8 @@ PanelWindow {
     return Math.max(bar.barSize, actual) + root.gap
   }
   mask: Region {
-    width: root.screenW
-    height: root.screenH
+    width: root.open ? root.screenW : 0
+    height: root.open ? root.screenH : 0
   }
 
   // Track every layout change between the bar's contentItem and the
@@ -276,8 +274,7 @@ PanelWindow {
 
   // --- outside-click dismissal --------------------------------------------
 
-  // Catches clicks anywhere in the clickable region (i.e. everywhere on
-  // screen except the bar strip, which is masked out). The card has its
+  // Catches clicks anywhere on screen and forwards the bar strip. The card has its
   // own MouseArea below so clicks on it don't bubble up here. Disabled
   // during the fade-out so the dying overlay doesn't swallow clicks that
   // were meant for the apps behind it.

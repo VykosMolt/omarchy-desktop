@@ -4,23 +4,6 @@ set -euo pipefail
 
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
-open_and_close() {
-  local name="$1" plugin="$2" namespace="$3" payload="${4:-}"
-
-  if [[ -n $payload ]]; then
-    omarchy-shell shell summon "$plugin" "$payload" >/dev/null
-  else
-    omarchy-shell shell summon "$plugin" >/dev/null
-  fi
-
-  wait_until "$name opens" 15 layer_present "$namespace"
-  sleep 1
-  screenshot "success-$name-open"
-
-  omarchy-shell shell hide "$plugin" >/dev/null
-  wait_until "$name closes" 15 layer_absent "$namespace"
-}
-
 # Search and select an emoji. The host harness separately proves the shortcut
 # with a QMP hardware key chord, while this test focuses on UI behavior.
 omarchy-shell shell summon omarchy.emojis >/dev/null
@@ -34,7 +17,7 @@ wait_until "emoji picker selection closes" 15 layer_absent "omarchy-emojis"
 # Seed two clipboard entries, search for the older one, and copy it back out.
 clipboard_token="Omarchy acceptance clipboard $(date +%s)"
 printf '%s' "$clipboard_token" | wl-copy
-wait_until "clipboard history captures test text" 15 grep -Fq "$clipboard_token" "$HOME/.local/state/omarchy/clipboard-history.json"
+wait_until "clipboard history captures test text" 15 grep -Fq "$clipboard_token" "$OMARCHY_STATE_HOME/clipboard-history.json"
 printf '%s' "clipboard decoy" | wl-copy
 sleep 1
 
@@ -70,20 +53,6 @@ sleep 1
 screenshot "success-theme-selector"
 wtype -k Escape
 wait_until "theme selector closes" 15 layer_absent "omarchy-image-selector"
-
-# Walk the reminder flow through each input screen, but dismiss before it
-# schedules a real timer in the test user's session.
-omarchy-shell shell summon omarchy.reminders >/dev/null
-wait_until "reminder flow opens" 15 layer_present "omarchy-reminders"
-screenshot "success-reminder-01-minutes-prompt"
-wtype "5"
-sleep 1
-screenshot "success-reminder-02-minutes-entered"
-wtype -k Return
-wait_until "reminder message prompt opens" 15 screen_contains "Reminder message"
-screenshot "success-reminder-03-message-prompt"
-wtype -k Escape
-wait_until "reminder flow closes" 15 layer_absent "omarchy-reminders"
 
 # Render a real shell notification and clear it through the notification IPC.
 omarchy-shell notifications dismissAll >/dev/null

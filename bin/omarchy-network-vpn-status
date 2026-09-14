@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# omarchy:summary=Print VPN tunnel status for the shell
+# omarchy:group=network
+# omarchy:examples=omarchy network vpn-status
+
+# Tab-separated key/value lines, like omarchy-network-status --verbose. The
+# daemon owns its own tunnel -- NetworkManager only ever sees the interface as
+# an external device it can neither raise nor lower -- so its CLI is the only
+# source of truth. `backend none` means there is nothing to show.
+
+emit() {
+  printf '%s\t%s\n' "$1" "$2"
+}
+
+if omarchy-cmd-present mullvad jq && status_json=$(mullvad status -j 2>/dev/null) && [[ -n $status_json ]]; then
+  state=$(jq -r '.state // ""' <<<"$status_json")
+
+  IFS=$'\t' read -r iface name city country < <(
+    jq -r '[(.details.endpoint.tunnel_interface // ""), (.details.location.hostname // ""), (.details.location.city // ""), (.details.location.country // "")] | @tsv' \
+      <<<"$status_json")
+
+  case "$state" in
+    connected) active=true busy=false ;;
+    connecting | disconnecting) active=false busy=true ;;
+    *) active=false busy=false ;;
+  esac
+
+  if [[ -n $city && -n $country ]]; then
+    location="$city, $country"
+  else
+    location="$city$country"
+  fi
+
+  emit backend mullvad
+  emit state "$state"
+  emit active "$active"
+  emit busy "$busy"
+  emit iface "$iface"
+  emit name "$name"
+  emit location "$location"
+else
+  emit backend none
+  emit active false
+  emit busy false
+fi

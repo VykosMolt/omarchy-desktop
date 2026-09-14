@@ -312,18 +312,13 @@ function canForgetNetwork(network) {
   return !!(network && network.known && !network.connected)
 }
 
-// The password arrives on stdin and reaches nmcli through the scriptable
-// `connection edit` editor -- argv is world-readable in /proc, so the secret
-// must never be an argument (printf is a bash builtin, so no process spawns
-// with it either).
-var enterpriseConnectScript =
-  "u=$(uuidgen); IFS= read -r pw;" +
-  " nmcli connection add type wifi con-name \"$1\" ssid \"$1\" connection.uuid \"$u\"" +
-  " wifi-sec.key-mgmt wpa-eap 802-1x.eap peap 802-1x.phase2-auth mschapv2" +
-  " 802-1x.identity \"$2\" 802-1x.auth-timeout 8 >/dev/null" +
-  " && printf 'set 802-1x.password %s\\nsave\\nquit\\n' \"$pw\" | nmcli connection edit uuid \"$u\" >/dev/null" +
-  " && nmcli connection up uuid \"$u\"" +
-  " || { nmcli connection delete uuid \"$u\" >/dev/null 2>&1; false; }"
+// Enterprise setup needs the network's EAP method and server validation
+// settings. The native editor owns that workflow; this panel neither guesses
+// them nor collects credentials. WifiNetwork does not expose a profile UUID,
+// so saved profiles are selected from the editor's wireless list.
+function enterpriseEditorCommand(known) {
+  return ["nm-connection-editor", known ? "--show" : "--create", "--type=802-11-wireless"]
+}
 
 function networkFailureReason(reason, needsCredentials, reasons) {
   var r = reasons || {}
@@ -347,9 +342,43 @@ function shouldRepromptPassphrase(reason, needsCredentials, reasons) {
   return reason === r.NoSecrets || reason === r.WifiAuthTimeout
 }
 
+// omarchy-network-vpn-status speaks the same key/value shape as the verbose
+// network status, so it parses the same way.
+function parseVpnStatus(raw) {
+  var next = parseKeyValue(raw)
+  return {
+    backend: next.backend || "none",
+    state: next.state || "disconnected",
+    active: next.active === "true",
+    busy: next.busy === "true",
+    name: next.name || "",
+    location: next.location || ""
+  }
+}
+
+// Where the tunnel surfaces while it is up, and what it is doing while it
+// moves. The relay hostname is too long for the header line, so it rides in
+// the tooltip instead.
+function vpnStatusLabel(vpn) {
+  var value = vpn || {}
+  if (value.busy) return value.state.toUpperCase()
+  if (!value.active) return "OFF"
+  return value.location ? value.location.toUpperCase() : "ON"
+}
+
+function vpnTooltip(vpn) {
+  var value = vpn || {}
+  if (value.busy) return "VPN " + value.state
+  if (value.active) return value.name ? "Disconnect from " + value.name : "Turn VPN off"
+  return "Turn VPN on"
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     parseNetworkStatus: parseNetworkStatus,
+    parseVpnStatus: parseVpnStatus,
+    vpnStatusLabel: vpnStatusLabel,
+    vpnTooltip: vpnTooltip,
     wifiIconFor: wifiIconFor,
     connectionIcon: connectionIcon,
     formatHeaderSpeed: formatHeaderSpeed,
@@ -373,7 +402,7 @@ if (typeof module !== "undefined") {
     wifiSectionTitle: wifiSectionTitle,
     requiresCredentials: requiresCredentials,
     canForgetNetwork: canForgetNetwork,
-    enterpriseConnectScript: enterpriseConnectScript,
+    enterpriseEditorCommand: enterpriseEditorCommand,
     networkFailureReason: networkFailureReason,
     shouldRepromptPassphrase: shouldRepromptPassphrase
   }

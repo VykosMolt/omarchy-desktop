@@ -23,6 +23,11 @@ QtObject {
   property var installedPlugins: ({})
   property int registryRevision: 0
   property bool scanning: false
+  property bool scanStarted: false
+  property bool scanExited: false
+  property bool scanOutputDone: false
+  property int scanExitCode: 0
+  property string scanOutput: ""
   property string lastEnableError: ""
 
   signal pluginsChanged()
@@ -220,6 +225,7 @@ QtObject {
 
     if (!Array.isArray(config.bar.layout[section])) config.bar.layout[section] = []
     if (target.index !== undefined && target.index !== null) {
+      if (!isFinite(Number(target.index))) return { error: "index must be a finite number" }
       var requested = Math.max(0, Math.floor(Number(target.index)))
       return { section: section, index: Math.min(requested, config.bar.layout[section].length) }
     }
@@ -240,7 +246,7 @@ QtObject {
       if (!fromSection) return "from-index requires from-section"
       var entries = config.bar.layout[fromSection]
       var fromIndex = Math.floor(Number(placement.fromIndex))
-      if (!Array.isArray(entries) || fromIndex < 0 || fromIndex >= entries.length)
+      if (!Array.isArray(entries) || !isFinite(fromIndex) || fromIndex < 0 || fromIndex >= entries.length)
         return "no widget at " + fromSection + "[" + fromIndex + "]"
       if (barEntryId(entries[fromIndex]) !== key)
         return "widget at " + fromSection + "[" + fromIndex + "] is not " + key
@@ -266,6 +272,7 @@ QtObject {
     shellConfigMutator(function(config) {
       ensureConfigShape(config)
       error = moveBarEntry(config, id, placement || {})
+      return !error
     })
     if (error) return error
     registryRevision++
@@ -308,13 +315,13 @@ QtObject {
       if (index !== undefined && index !== null) {
         if (!section) {
           error = "index requires section"
-          return
+          return false
         }
         var entries = config.bar.layout[section]
         var numericIndex = Math.floor(Number(index))
-        if (!Array.isArray(entries) || numericIndex < 0 || numericIndex >= entries.length) {
+        if (!Array.isArray(entries) || !isFinite(numericIndex) || numericIndex < 0 || numericIndex >= entries.length) {
           error = "no widget at " + section + "[" + numericIndex + "]"
-          return
+          return false
         }
         location = { found: true, section: section, index: numericIndex }
       } else {
@@ -322,16 +329,16 @@ QtObject {
       }
       if (!location.found) {
         error = "could not find widget " + id
-        return
+        return false
       }
       if (barEntryId(config.bar.layout[location.section][location.index]) !== String(id)) {
         error = "widget at " + location.section + "[" + location.index + "] is not " + id
-        return
+        return false
       }
       var entry = config.bar.layout[location.section][location.index]
       if (!Util.isPlainObject(entry)) {
         error = "widget entry must be an object"
-        return
+        return false
       }
       entry[String(key)] = value
     })
@@ -389,7 +396,7 @@ QtObject {
         var relativeId = String(placement.before || placement.after)
         if (!findRelativeBarLocation(config, relativeId, String(placement.section || "")).found) {
           lastEnableError = "could not find target widget " + relativeId
-          return
+          return false
         }
       }
 
@@ -411,12 +418,18 @@ QtObject {
         if (!location.found && isBarWidget) {
           var section = defaultBarWidgetSection(manifest)
           var target = barTarget(config, placement || {}, section)
+          if (target.error) {
+            lastEnableError = target.error
+            return false
+          }
           config.bar.layout[target.section].splice(target.index, 0, entry)
           insertedWithPlacement = true
         }
 
-        if (isBarWidget && !insertedWithPlacement && placement && Object.keys(placement).length)
-          moveBarEntry(config, key, placement)
+        if (isBarWidget && !insertedWithPlacement && placement && Object.keys(placement).length) {
+          lastEnableError = moveBarEntry(config, key, placement)
+          if (lastEnableError) return false
+        }
 
         return
       }
@@ -486,34 +499,65 @@ QtObject {
     scanFinished()
   }
 
+  function finishScan() {
+    if (!scanning || !scanExited || !scanOutputDone) return
+    if (scanExitCode === 0) {
+      parseScanOutput(scanOutput)
+    } else {
+      console.warn("PluginRegistry: scan failed; keeping the previous registry")
+      scanning = false
+      scanFinished()
+    }
+  }
+
+  function scanStopped() {
+    if (!scanning || scanStarted || scanProcess.running) return
+    // A failed exec emits running=false without exited or closed streams.
+    scanExitCode = -1
+    scanExited = true
+    scanOutputDone = true
+    finishScan()
+  }
+
   property Process scanProcess: Process {
+    onStarted: registry.scanStarted = true
+    onRunningChanged: if (!running) Qt.callLater(registry.scanStopped)
     onExited: function(exitCode) {
-      var output = scanStdout.text || ""
-      registry.parseScanOutput(output)
+      registry.scanExitCode = exitCode
+      registry.scanExited = true
+      registry.finishScan()
     }
     stdout: StdioCollector {
-      id: scanStdout
       waitForEnd: true
+      onStreamFinished: {
+        registry.scanOutput = text
+        registry.scanOutputDone = true
+        registry.finishScan()
+      }
     }
   }
 
   function rescan() {
     if (scanning) return
     scanning = true
+    scanStarted = false
+    scanExited = false
+    scanOutputDone = false
+    scanOutput = ""
     // $0 = plugin dir. Some bash versions need the explicit -- separator.
     // Plugins may be grouped one level deeper, e.g. panels/audio or
     // services/battery, and a bar widget can carry sibling manifests such as
     // widgets/Clock.manifest.json so several widgets live in one directory.
-    var script = ""
+    var script = "set -euo pipefail; "
       + "emit_manifest() { local manifest=\"$1\"; local sub; "
       + "  if [[ ${manifest##*/} == \"manifest.json\" ]]; then sub=\"${manifest%/manifest.json}\"; else sub=\"$(dirname -- \"$manifest\")\"; fi; "
       + "  printf '===firstparty::%s===\\n' \"$sub\"; "
       + "  cat \"$manifest\"; "
       + "  printf '\\n=== EOM ===\\n'; "
       + "}; "
-      + "[[ -d \"$0\" ]] || exit 0; "
-      + "while IFS= read -r manifest; do emit_manifest \"$manifest\"; done "
-      + "  < <(find \"$0\" -mindepth 2 -maxdepth 3 -type f \\( -name manifest.json -o -name '*.manifest.json' \\) | sort)"
+      + "[[ -d \"$0\" ]] || exit 1; "
+      + "manifest_list=$(find \"$0\" -mindepth 2 -maxdepth 3 -type f \\( -name manifest.json -o -name '*.manifest.json' \\) | sort); "
+      + "while IFS= read -r manifest; do [[ -n \"$manifest\" ]] || continue; emit_manifest \"$manifest\"; done <<< \"$manifest_list\""
     scanProcess.command = ["bash", "-c", script, registry.firstPartyDir]
     scanProcess.running = true
   }

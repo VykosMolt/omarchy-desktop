@@ -25,7 +25,9 @@ Item {
   property bool layoutSettled: false
   property bool requestActive: false
   property int requestSerial: 0
+  property var applyQueue: []
   property int applySerial: 0
+  property bool applyActive: false
   property string doneFile: ""
   property string filterText: ""
   property var doneFilesToRelease: []
@@ -157,16 +159,29 @@ Item {
 
     var activeSelectionFile = selectionFile
     var activeDoneFile = doneFile
-    applySerial = requestSerial
+    var serial = requestSerial
     requestActive = false
     selectionFile = ""
     doneFile = ""
 
-    applyProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(path) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
+    var command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(path) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
+    root.applyQueue = root.applyQueue.concat([{ serial: serial, command: command }])
+    root.startNextApply()
+  }
+
+  function startNextApply() {
+    if (root.applyActive || applyProc.running || root.applyQueue.length === 0) return
+    var request = root.applyQueue[0]
+    root.applyQueue = root.applyQueue.slice(1)
+    root.applyActive = true
+    root.applySerial = request.serial
+    applyProc.startConfirmed = false
+    applyProc.command = request.command
     applyProc.running = true
   }
 
   function cancel() {
+    root.requestSerial++
     if (requestActive)
       finishDoneFile(doneFile)
 
@@ -201,6 +216,7 @@ Item {
     root.imagesLoaded = true
 
     if (reveal !== false) {
+      if (newImages.length === 0) { root.cancel(); return }
       root.opened = true
       root.revealWhenSettled(root.requestSerial)
     }
@@ -347,15 +363,27 @@ Item {
 
   Process {
     id: applyProc
+    property bool startConfirmed: false
+    onStarted: startConfirmed = true
     onExited: {
+      root.applyActive = false
       if (root.applySerial === root.requestSerial)
         root.opened = false
+      Qt.callLater(root.startNextApply)
     }
+    onRunningChanged: if (!running) Qt.callLater(function() {
+      if (!applyProc.startConfirmed && !applyProc.running) {
+        root.applyActive = false
+        if (root.applySerial === root.requestSerial) root.opened = false
+      }
+      root.startNextApply()
+    })
   }
 
   Process {
     id: releaseProc
-    onExited: root.releaseNextDoneFile()
+    onExited: Qt.callLater(root.releaseNextDoneFile)
+    onRunningChanged: if (!running) Qt.callLater(root.releaseNextDoneFile)
   }
 
   PanelWindow {
@@ -507,6 +535,11 @@ Item {
                   source: item.sourceActivated && item.thumbnailPath ? Util.fileUrl(item.thumbnailPath) : ""
                   fillMode: Image.PreserveAspectCrop
                   asynchronous: false
+                  // Directory callers may supply originals without cached
+                  // thumbnails. Decode once for the expanded preview so a
+                  // large wallpaper does not keep a full-size texture here.
+                  sourceSize.width: Math.ceil(root.expandedWidth * (panel.screen ? panel.screen.devicePixelRatio : 1) * 1.6)
+                  sourceSize.height: Math.ceil(root.expandedHeight * (panel.screen ? panel.screen.devicePixelRatio : 1) * 1.6)
                   cache: true
                   smooth: true
                 }

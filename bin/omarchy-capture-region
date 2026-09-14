@@ -15,13 +15,21 @@
 #   fullscreen      the focused monitor, no interaction
 #
 #   --keep-freeze   leave the hyprpicker screen freeze running and print its
-#                   PID as the first output line (empty when no freeze was
-#                   started); the caller owns killing it
+#                   PID:startTime identity first (empty when no freeze was
+#                   started); the caller owns signalling that exact identity
 #   --match-monitor print "monitor:NAME" instead when the picked geometry
 #                   exactly matches a monitor
 
-FULLSCREEN_MARKER="${XDG_RUNTIME_DIR:-/tmp}/omarchy-capture-region-fullscreen"
-WINDOW_MARKER="${XDG_RUNTIME_DIR:-/tmp}/omarchy-capture-region-window"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-process.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+session_key=$(printf '%s' "${HYPRLAND_INSTANCE_SIGNATURE:-default}" | sha256sum | cut -c1-16)
+runtime_dir="$runtime_dir/omarchy-capture-$session_key"
+mkdir -p -m 700 -- "$runtime_dir" || exit 1
+PICKER_PROCESS_FILE="$runtime_dir/picker.json"
+
+FULLSCREEN_MARKER="$runtime_dir/omarchy-capture-region-fullscreen"
+WINDOW_MARKER="$runtime_dir/omarchy-capture-region-window"
 
 # accounting for portrait/transformed displays
 JQ_MONITOR_GEO='
@@ -30,7 +38,7 @@ JQ_MONITOR_GEO='
     (.width / .scale | floor) as $w |
     (.height / .scale | floor) as $h |
     .transform as $t |
-    if $t == 1 or $t == 3 then
+    if ($t % 2) == 1 then
       "\($x),\($y) \($h)x\($w)"
     else
       "\($x),\($y) \($w)x\($h)"
@@ -134,24 +142,29 @@ geo_at_cursor() {
 # Keyboard control while slurp is open: binds scoped to slurp's layer
 # surface (default/hypr/bindings/utilities.lua) invoke these modes. The
 # --take-* modes flag the intent with a marker file and dismiss slurp.
+if [[ ${1:-} == "--cancel" ]]; then
+  omarchy_process_control "$PICKER_PROCESS_FILE" TERM
+  exit
+fi
+
 if [[ ${1:-} == "--take-fullscreen" ]]; then
-  pgrep -x slurp >/dev/null || exit 0
+  omarchy_process_control "$PICKER_PROCESS_FILE" || exit 0
   touch "$FULLSCREEN_MARKER"
-  pkill -x slurp
+  omarchy_process_control "$PICKER_PROCESS_FILE" TERM || true
   exit 0
 fi
 
 if [[ ${1:-} == "--take-window" ]]; then
-  pgrep -x slurp >/dev/null || exit 0
+  omarchy_process_control "$PICKER_PROCESS_FILE" || exit 0
   touch "$WINDOW_MARKER"
-  pkill -x slurp
+  omarchy_process_control "$PICKER_PROCESS_FILE" TERM || true
   exit 0
 fi
 
 # Warps the cursor to another window's center, so slurp's own hover
 # highlight tracks the selection.
 if [[ ${1:-} == "--select-window" ]]; then
-  pgrep -x slurp >/dev/null || exit 0
+  omarchy_process_control "$PICKER_PROCESS_FILE" || exit 0
 
   direction=${2:-}
   pos=$(hyprctl cursorpos)
@@ -271,6 +284,10 @@ if [[ ${1:-} == "--select-window" ]]; then
   exit 0
 fi
 
+omarchy_require_ui || exit 1
+exec {capture_lock_fd}>"$runtime_dir/picker.lock"
+flock -n "$capture_lock_fd" || exit 1
+
 MODE=smart
 KEEP_FREEZE=false
 MATCH_MONITOR=false
@@ -289,7 +306,16 @@ done
 pick() {
   local selection
   rm -f "$FULLSCREEN_MARKER" "$WINDOW_MARKER"
-  selection=$(slurp "$@" 2>/dev/null)
+  local output pid
+  output=$(mktemp "$runtime_dir/selection.XXXXXX") || return 1
+  # Explicit stdin keeps Bash's asynchronous-command /dev/null default from
+  # dropping the rectangle hints supplied through the picker's pipeline.
+  slurp "$@" <&0 >"$output" 2>/dev/null {capture_lock_fd}>&- &
+  pid=$!
+  omarchy_process_record "$pid" "$PICKER_PROCESS_FILE" || true
+  wait "$pid" 2>/dev/null || true
+  selection=$(<"$output")
+  rm -f "$output" "$PICKER_PROCESS_FILE"
 
   if [[ -z $selection && -e $FULLSCREEN_MARKER ]]; then
     rm -f "$FULLSCREEN_MARKER"
@@ -304,16 +330,24 @@ pick() {
 
 FREEZE_PID=""
 freeze_screen() {
-  hyprpicker -r -z >/dev/null 2>&1 &
-  FREEZE_PID=$!
+  hyprpicker -r -z >/dev/null 2>&1 {capture_lock_fd}>&- &
+  local pid=$!
+  if omarchy_process_record "$pid" "$runtime_dir/freeze.json"; then
+    FREEZE_PID=$(jq -r '"\(.pid):\(.startTime)"' "$runtime_dir/freeze.json")
+  fi
   sleep .1
 }
 
 cleanup_freeze() {
+  omarchy_process_control "$PICKER_PROCESS_FILE" TERM || true
+  rm -f "$PICKER_PROCESS_FILE" "$FULLSCREEN_MARKER" "$WINDOW_MARKER"
   [[ $KEEP_FREEZE == true ]] && return
-  [[ -n $FREEZE_PID ]] && kill $FREEZE_PID 2>/dev/null
+  [[ -n $FREEZE_PID ]] && omarchy-system-signal --signal TERM "$FREEZE_PID" 2>/dev/null
+  rm -f "$runtime_dir/freeze.json"
 }
 trap cleanup_freeze EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 case "$MODE" in
 region)
@@ -339,25 +373,16 @@ smart | *)
     click_x=${BASH_REMATCH[1]}
     click_y=${BASH_REMATCH[2]}
 
-    while IFS= read -r rect; do
-      [[ $rect =~ ^(-?[0-9]+),(-?[0-9]+)[[:space:]]([0-9]+)x([0-9]+)$ ]] || continue
-      rect_x=${BASH_REMATCH[1]}
-      rect_y=${BASH_REMATCH[2]}
-      rect_width=${BASH_REMATCH[3]}
-      rect_height=${BASH_REMATCH[4]}
-
-      if ((click_x >= rect_x && click_x < rect_x + rect_width && click_y >= rect_y && click_y < rect_y + rect_height)); then
-        SELECTION="${rect_x},${rect_y} ${rect_width}x${rect_height}"
-        break
-      fi
-    done <<<"$RECTS"
+    if resolve_rect_at "$click_x" "$click_y" <<<"$RECTS"; then
+      SELECTION=$RESOLVED_RECT
+    fi
   fi
   ;;
 esac
 
 [[ $KEEP_FREEZE == true ]] && echo "$FREEZE_PID"
 
-[[ -n $SELECTION ]] || exit 1
+[[ $SELECTION =~ ^-?[0-9]+,-?[0-9]+[[:space:]][1-9][0-9]*x[1-9][0-9]*$ ]] || exit 1
 
 if [[ $MATCH_MONITOR == true ]]; then
   monitor=$(hyprctl monitors -j | jq -r --arg geo "$SELECTION" "${JQ_MONITOR_GEO} .[] | select(format_geo == \$geo) | .name" | head -1)

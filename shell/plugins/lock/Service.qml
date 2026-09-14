@@ -36,6 +36,9 @@ Item {
   property string lastEventAt: ""
   property bool strandedLock: false
   property bool strandedLockResolved: false
+  // The panel is switched off. The lock still holds the session; there is just
+  // nothing to paint into, so an animated lock screen can stand still.
+  property bool displayBlanked: false
 
   readonly property bool locked: lockRequested || sessionLock.locked || sessionLock.secure
   readonly property bool authenticating: authenticatingPassword || fingerprintAuthenticating
@@ -168,11 +171,13 @@ Item {
   }
 
   function runWake() {
+    displayBlanked = false
     if (!wakeProcess.running) wakeProcess.running = true
     if (lockRequested) armBlankTimer()
   }
 
   function runBlank() {
+    displayBlanked = true
     if (!blankProcess.running) blankProcess.running = true
   }
 
@@ -271,6 +276,8 @@ Item {
       LockView {
         id: lockView
         anchors.fill: parent
+        userName: root.userName
+        paused: root.displayBlanked
         backgroundPath: root.backgroundPath
         backgroundVersion: root.backgroundVersion
         fingerprintConfigured: root.fingerprintConfigured
@@ -301,6 +308,7 @@ Item {
 
     LockView {
       anchors.fill: parent
+      userName: root.userName
       backgroundPath: root.backgroundPath
       backgroundVersion: root.backgroundVersion
       fingerprintConfigured: root.fingerprintConfigured

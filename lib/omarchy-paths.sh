@@ -23,6 +23,37 @@ export \
   OMARCHY_CACHE_HOME \
   OMARCHY_DATA_HOME
 
+# Runtime locks and handshakes must not fall back to predictable files directly
+# in /tmp. Respect the session runtime directory, or create a private fallback
+# under this session's cache when running from a stripped environment.
+omarchy_runtime_dir() {
+  local directory=${XDG_RUNTIME_DIR:-}
+  local mode
+
+  if [[ -n $directory ]]; then
+    if [[ ! -d $directory || ! -O $directory || ! -w $directory ]]; then
+      echo "Invalid session runtime directory: $directory" >&2
+      return 1
+    fi
+    mode=$(stat -Lc '%a' -- "$directory") || return 1
+    if (( (8#$mode & 0022) != 0 )); then
+      echo "Session runtime directory is writable by other users: $directory" >&2
+      return 1
+    fi
+  else
+    directory="$OMARCHY_CACHE_HOME/runtime"
+    if [[ -L $directory ]]; then
+      echo "Refusing a symlink for the runtime directory: $directory" >&2
+      return 1
+    fi
+    (umask 077; mkdir -p -- "$directory") || return 1
+    [[ -O $directory ]] || return 1
+    chmod 700 -- "$directory" || return 1
+  fi
+
+  printf '%s\n' "$directory"
+}
+
 # One rule for an argument that becomes a single component of one of those
 # roots. omarchy-toggle, omarchy-hyprland-toggle, omarchy-state and omarchy-hook
 # each join a caller-supplied name into a path they then write, delete or

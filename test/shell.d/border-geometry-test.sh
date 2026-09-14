@@ -10,6 +10,17 @@ const geometry = {}
 vm.createContext(geometry)
 vm.runInContext(source, geometry)
 
+const colors = { root: { shellValues: {}, foreground: '#eeeeee' }, Geometry: geometry }
+const colorQml = fs.readFileSync(path.join(root, 'shell/Commons/Color.qml'), 'utf8')
+vm.createContext(colors)
+for (const name of ['firstColorToken', 'flatColor']) {
+  vm.runInContext(colorQml.match(new RegExp('^  function ' + name + '\\([^]*?^  }', 'm'))[0], colors)
+}
+colors.root.shellValues = { first: 'second', second: 'first' }
+assertEqual(colors.flatColor('first', '#123456'), '#123456', 'cyclic theme aliases return the fallback instead of overflowing the stack')
+colors.root.shellValues = { first: 'second', second: 'rgba(123456ff) rgba(abcdefee) 45deg' }
+assertEqual(colors.flatColor('first', '#ffffff'), '#123456', 'acyclic theme aliases resolve the first gradient stop')
+
 assertDeepEqual(
   geometry.parseWidthSpec('2 4 6 8', 1),
   { top: 2, right: 4, bottom: 6, left: 8 },

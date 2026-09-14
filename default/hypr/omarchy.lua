@@ -2,6 +2,7 @@
 
 require("default.hypr.helpers")
 local require_optional = require("default.hypr.require_optional")
+local paths = require("default.hypr.paths")
 
 -- Use Omarchy defaults, but don't edit these directly.
 require("default.hypr.autostart")
@@ -19,4 +20,4 @@ require("default.hypr.input")
 require("default.hypr.windows")
 
 -- Current theme overrides.
-require_optional.module("omarchy.current.theme.hyprland")
+require_optional.file(paths.omarchy_state_home .. "/current/theme/hyprland.lua")

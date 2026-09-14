@@ -33,6 +33,7 @@ Item {
   signal wheelMoved(int delta)
 
   function triggerPress(button) {
+    if (!root.enabled || !root.visible || !root.interactive || !root.pressable || root.concealed) return
     if (root.bar) root.bar.hideTooltip(root)
     root.pressed(button)
   }

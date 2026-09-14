@@ -1,30 +1,18 @@
 #!/bin/bash
 
-image_dirs=${1:-}
-cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/image-selector
-index_file="$cache_dir/index.tsv"
+source "$OMARCHY_PATH/lib/omarchy-paths.sh" || exit 1
 
-mkdir -p "$cache_dir"
+image_dirs=${1:-}
+cache_dir="$OMARCHY_CACHE_HOME/image-selector"
 
 thumbnail_for() {
   local image="$1"
-  local signature hash thumbnail legacy_hash
+  local signature hash thumbnail
 
   signature=$(stat -Lc '%s:%Y' "$image") || return
-  hash=$(awk -F '\t' -v path="$image" -v sig="$signature" '$1 == path && $2 == sig { print $3; exit }' "$index_file" 2>/dev/null)
-
-  if [[ -z $hash ]]; then
-    hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
-  fi
+  hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
 
   thumbnail="$cache_dir/$hash.jpg"
-
-  if [[ ! -f $thumbnail ]]; then
-    # Older on-demand picker code keyed fallback thumbnails by file content.
-    # Keep finding those if a user still has them cached.
-    legacy_hash=$(md5sum "$image" 2>/dev/null | cut -d ' ' -f 1)
-    [[ -n $legacy_hash && -f $cache_dir/$legacy_hash.jpg ]] && thumbnail="$cache_dir/$legacy_hash.jpg"
-  fi
 
   if [[ -f $thumbnail ]]; then
     printf '%s' "$thumbnail"

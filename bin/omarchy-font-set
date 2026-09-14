@@ -21,43 +21,90 @@ case "$font_name" in
     ;;
 esac
 
-if ! fc-list | grep -Fqi -- "$font_name"; then
-  echo "Font '$font_name' not found."
+if [[ $font_name == *[[:cntrl:]]* ]] || ! fc-list -f '%{family}\n' |
+  FONT_NAME="$font_name" awk -F, 'BEGIN { want = tolower(ENVIRON["FONT_NAME"]) }
+    { for (i = 1; i <= NF; i++) if (tolower($i) == want) found = 1 }
+    END { exit !found }'; then
+  echo "Font '$font_name' not found." >&2
   exit 1
 fi
 
-# kitty is configured wherever KITTY_CONFIG_DIRECTORY points, which is not
-# always ~/.config/kitty: a session launching `kitty --config <path>` sets it,
-# and writing the default path then edits a file kitty never reads.
-kitty_conf="${KITTY_CONFIG_DIRECTORY:-$HOME/.config/kitty}/kitty.conf"
-if [[ -f $kitty_conf ]]; then
-  sed -i "s/^font_family .*/font_family $font_name/g" "$kitty_conf"
-  pkill -USR1 -x kitty
-fi
+# Change only this preference, preserving the user's other fontconfig rules
+# and kitty settings. XML and replacement metacharacters are plain data.
+python3 - "$font_name" <<'PYTHON' || exit 1
+import os
+import tempfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+import sys
 
-# fontconfig is the canonical source of truth — the omarchy shell, Qt apps,
-# and anything resolving "monospace" all read from here. This file is loaded
-# after the package-owned default, and prepend_first puts the chosen family at
-# the head of the list so it wins over the family that default prefers.
-fontconfig_file="$HOME/.config/fontconfig/fonts.conf"
-mkdir -p "$(dirname "$fontconfig_file")"
-cat >"$fontconfig_file" <<XML
-<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-  <match target="pattern">
-    <test name="family" qual="any">
-      <string>monospace</string>
-    </test>
-    <edit name="family" mode="prepend_first" binding="strong">
-      <string>$font_name</string>
-    </edit>
-  </match>
-</fontconfig>
-XML
+family = sys.argv[1]
+config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+fontconfig = (config / "fontconfig/fonts.conf").resolve()
+kitty = (Path(os.environ.get("KITTY_CONFIG_DIRECTORY", str(config / "kitty"))) / "kitty.conf").resolve()
+parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+try:
+    tree = ET.parse(fontconfig, parser=parser) if fontconfig.exists() else ET.ElementTree(ET.Element("fontconfig"))
+except ET.ParseError as error:
+    sys.exit(f"Cannot update invalid fontconfig file: {error}")
+root = tree.getroot()
+if root.tag != "fontconfig":
+    sys.exit("Cannot update a file without a fontconfig root")
+match = None
+for candidate in root.findall("match"):
+    children = list(candidate)
+    if len(children) != 2 or candidate.get("target") != "pattern":
+        continue
+    test, edit = children
+    if (test.tag == "test" and test.get("name") == "family"
+            and test.findtext("string") == "monospace" and len(test) == 1
+            and test.get("compare", "eq") == "eq" and test.get("qual", "any") == "any"
+            and edit.tag == "edit" and edit.get("name") == "family"
+            and edit.get("mode") == "prepend_first" and len(edit) == 1
+            and edit[0].tag == "string"):
+        match = edit[0]
+        break
+if match is None:
+    rule = ET.SubElement(root, "match", target="pattern")
+    test = ET.SubElement(rule, "test", name="family", qual="any")
+    ET.SubElement(test, "string").text = "monospace"
+    edit = ET.SubElement(rule, "edit", name="family", mode="prepend_first", binding="strong")
+    match = ET.SubElement(edit, "string")
+match.text = family
 
+
+def publish(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
+    try:
+        if path.exists():
+            os.fchmod(fd, path.stat().st_mode & 0o777)
+        with os.fdopen(fd, "w") as output:
+            output.write(data)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+publish(fontconfig, '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
+        + ET.tostring(root, encoding="unicode") + "\n")
+if kitty.is_file():
+    lines = kitty.read_text().splitlines()
+    updated = []
+    found = False
+    for line in lines:
+        if line.split(maxsplit=1)[:1] == ["font_family"]:
+            if not found:
+                updated.append("font_family " + family)
+                found = True
+        else:
+            updated.append(line)
+    if not found:
+        updated.append("font_family " + family)
+    publish(kitty, "\n".join(updated) + "\n")
+PYTHON
+
+omarchy-restart-terminal
 omarchy-restart-shell
-
-
-
 omarchy-hook font-set "$font_name"

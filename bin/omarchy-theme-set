@@ -5,6 +5,7 @@
 # omarchy:examples=omarchy theme list | omarchy theme set "Tokyo Night"
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
 
 if [[ -z $1 ]]; then
   echo "Usage: omarchy-theme-set <theme-name>"
@@ -15,13 +16,13 @@ CURRENT_THEME_PATH="$OMARCHY_STATE_HOME/current/theme"
 NEXT_THEME_PATH="$OMARCHY_STATE_HOME/current/next-theme"
 CURRENT_BACKGROUND_LINK="$OMARCHY_STATE_HOME/current/background"
 BACKGROUND_TRANSITION_CACHE="$OMARCHY_CACHE_HOME/background-transitions"
-THEME_SET_LOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-theme-set.lock"
+THEME_SET_LOCK="$runtime_dir/omarchy-theme-set.lock"
 USER_THEMES_PATH="$OMARCHY_CONFIG_HOME/themes"
 OMARCHY_THEMES_PATH="$OMARCHY_PATH/themes"
 
 # What a theme installed from a git repo may not ship, because these run code.
-# Hyprland requires a theme's hyprland.lua and gum_env.lua at login and Neovim
-# loads its neovim.lua at startup, so no .lua from such a theme is staged at all.
+# Hyprland requires a theme's hyprland.lua at login, so no top-level .lua from
+# such a theme is staged at all.
 # Each terminal config names the program the terminal launches, and vscode.json
 # names a VS Code extension to install, which is arbitrary JavaScript.
 # icons.theme is not code, but it renames the user's icon set, which is theirs
@@ -39,17 +40,18 @@ INSTALLED_THEME_DENIED=(alacritty.toml foot.ini ghostty.conf kitty.conf vscode.j
 IGNORED_THEME_FILES=()
 
 run_parallel() {
-  local pid
+  local pid status=0
   local pids=()
 
   for command in "$@"; do
-    bash -lc "$command" &
+    "$command" &
     pids+=("$!")
   done
 
   for pid in "${pids[@]}"; do
-    wait "$pid"
+    wait "$pid" || status=1
   done
+  return "$status"
 }
 
 shell_ipc() {
@@ -189,16 +191,16 @@ stage_installed_dir() {
   local dest="$2"
   local entry name
 
-  mkdir -p "$dest"
+  mkdir -p "$dest" || return 1
 
   for entry in "$source"/*; do
     [[ -e $entry && ! -L $entry ]] || continue
     name=${entry##*/}
 
     if [[ -d $entry ]]; then
-      stage_installed_dir "$entry" "$dest/$name"
-    else
-      cp "$entry" "$dest/$name"
+      stage_installed_dir "$entry" "$dest/$name" || return 1
+    elif [[ -f $entry ]]; then
+      cp "$entry" "$dest/$name" || return 1
     fi
   done
 }
@@ -210,7 +212,7 @@ stage_installed_dir() {
 theme_came_from_a_repo() {
   local source="$1"
 
-  [[ ! -L $source && -d $source/.git ]]
+  [[ ! -L $source && -e $source/.git ]]
 }
 
 stage_installed_theme() {
@@ -229,9 +231,9 @@ stage_installed_theme() {
         *) IGNORED_THEME_FILES+=("$name") ;;
       esac
     elif [[ -d $entry ]]; then
-      stage_installed_dir "$entry" "$NEXT_THEME_PATH/$name"
-    else
-      cp "$entry" "$NEXT_THEME_PATH/$name"
+      stage_installed_dir "$entry" "$NEXT_THEME_PATH/$name" || return 1
+    elif [[ -f $entry ]]; then
+      cp "$entry" "$NEXT_THEME_PATH/$name" || return 1
     fi
   done
 
@@ -254,15 +256,20 @@ stage_installed_colors_from_alacritty() {
     return
   fi
 
-  scratch=$(mktemp -d)
-  cp "$source/alacritty.toml" "$scratch/alacritty.toml"
-  omarchy-theme-colors-from-alacritty "$scratch"
+  scratch=$(mktemp -d) || return 1
+  if ! cp "$source/alacritty.toml" "$scratch/alacritty.toml" ||
+    ! omarchy-theme-colors-from-alacritty "$scratch"; then
+    rm -rf "$scratch"
+    return 1
+  fi
 
+  local status=0
   if [[ -f $scratch/colors.toml ]]; then
-    cp "$scratch/colors.toml" "$NEXT_THEME_PATH/colors.toml"
+    cp "$scratch/colors.toml" "$NEXT_THEME_PATH/colors.toml" || status=1
   fi
 
   rm -rf "$scratch"
+  return "$status"
 }
 
 report_ignored_theme_files() {
@@ -292,38 +299,63 @@ fi
 # directory and updates current theme/background symlinks; concurrent calls can
 # otherwise race and make one selection appear to be ignored.
 exec 9>"$THEME_SET_LOCK"
-flock 9
+flock 9 || exit 1
 
 # Setup clean next theme directory (for atomic theme config swapping)
-rm -rf "$NEXT_THEME_PATH"
-mkdir -p "$NEXT_THEME_PATH"
+rm -rf "$NEXT_THEME_PATH" || exit 1
+mkdir -p "$NEXT_THEME_PATH" || exit 1
 
-# Copy official theme first, then overlay the user's theme on top
-cp -r "$OMARCHY_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null
+# Copy existing entries only; an I/O failure must not publish a partial theme.
+copy_theme_entries() {
+  local source=$1
+  local entries=()
+  shopt -s nullglob
+  entries=("$source"/*)
+  (( ${#entries[@]} == 0 )) || cp -r -- "${entries[@]}" "$NEXT_THEME_PATH/"
+}
+
+# Copy official theme first, then overlay the user's theme on top.
+copy_theme_entries "$OMARCHY_THEMES_PATH/$THEME_NAME" || exit 1
 
 if theme_came_from_a_repo "$USER_THEMES_PATH/$THEME_NAME"; then
-  stage_installed_theme "$USER_THEMES_PATH/$THEME_NAME"
+  stage_installed_theme "$USER_THEMES_PATH/$THEME_NAME" || exit 1
   report_ignored_theme_files
 else
-  cp -r "$USER_THEMES_PATH/$THEME_NAME/"* "$NEXT_THEME_PATH/" 2>/dev/null
+  copy_theme_entries "$USER_THEMES_PATH/$THEME_NAME" || exit 1
 fi
 
 # A theme older than colors.toml carries its palette in alacritty.toml.
 if [[ ! -f $NEXT_THEME_PATH/colors.toml && -f $NEXT_THEME_PATH/alacritty.toml ]]; then
-  omarchy-theme-colors-from-alacritty "$NEXT_THEME_PATH"
+  omarchy-theme-colors-from-alacritty "$NEXT_THEME_PATH" || exit 1
 fi
 
 # Generate dynamic configs
-omarchy-theme-set-templates
+omarchy-theme-set-templates || exit 1
 
 OLD_BACKGROUND_SNAPSHOT=""
 if [[ $THEME_HEADLESS != "1" && $OMARCHY_THEME_SKIP_BACKGROUND != "1" ]]; then
   OLD_BACKGROUND_SNAPSHOT=$(snapshot_current_background)
 fi
 
-# Swap next theme in as current
-rm -rf "$CURRENT_THEME_PATH"
-mv "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH"
+# Exchange directories in one filesystem operation: a failed swap preserves
+# the current theme, and readers never see a missing theme between rm and mv.
+python3 - "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH" <<'PYTHON' || exit 1
+import ctypes
+import os
+import sys
+source, target = sys.argv[1:]
+if os.path.lexists(target):
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = libc.renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    if rename(-100, os.fsencode(source), -100, os.fsencode(target), 2):
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), target)
+else:
+    os.replace(source, target)
+PYTHON
+rm -rf "$NEXT_THEME_PATH"
 
 # Store theme name for reference
 echo "$THEME_NAME" >"$OMARCHY_STATE_HOME/current/theme.name"
@@ -333,9 +365,8 @@ echo "$THEME_NAME" >"$OMARCHY_STATE_HOME/current/theme.name"
 colors_payload=$([[ -f $CURRENT_THEME_PATH/colors.toml ]] && base64 -w 0 "$CURRENT_THEME_PATH/colors.toml")
 shell_payload=$([[ -f $CURRENT_THEME_PATH/shell.toml ]] && base64 -w 0 "$CURRENT_THEME_PATH/shell.toml")
 if [[ $THEME_HEADLESS == "1" ]]; then
-  # No shell/session bus exists during ISO chroot finalization, but the first
-  # real login still needs a current background symlink for omarchy-shell to
-  # render.
+  # Offline preparation still needs a current background link for the next
+  # session to render.
   [[ $OMARCHY_THEME_SKIP_BACKGROUND == "1" ]] || set_theme_background_link || true
 elif [[ $OMARCHY_THEME_SKIP_BACKGROUND == "1" ]]; then
   shell_ipc shell applyTheme "$colors_payload" "$shell_payload" || true

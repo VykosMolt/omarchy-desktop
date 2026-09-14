@@ -5,7 +5,14 @@
 # omarchy:name=lock
 # omarchy:examples=omarchy system lock
 
-omarchy-shell lock lock >/dev/null
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+runtime_dir=$(omarchy_runtime_dir) || exit 1
+
+reply=$(omarchy-shell lock lock) || exit 1
+case "$reply" in
+  "" | ok | true) ;;
+  *) echo "Screen lock refused: $reply" >&2; exit 1 ;;
+esac
 
 # Set keyboard layout to default (first layout)
 hyprctl switchxkblayout all 0 > /dev/null 2>&1
@@ -16,5 +23,5 @@ if pgrep -x "1password" >/dev/null && omarchy-cmd-present 1password; then
   (
     flock -n 9 || exit 0
     timeout --kill-after=1s 3s 1password --lock >/dev/null 2>&1 || true
-  ) 9>"${XDG_RUNTIME_DIR:-/tmp}/omarchy-1password-lock.lock" &
+  ) 9>"$runtime_dir/omarchy-1password-lock.lock" &
 fi

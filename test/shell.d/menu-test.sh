@@ -10,6 +10,70 @@ const menu = requireFromRoot('shell/plugins/menu/MenuModel.js')
 const menuQml = fs.readFileSync(path.join(root, 'shell/plugins/menu/Menu.qml'), 'utf8')
 const defaultMenuJsonc = fs.readFileSync(path.join(root, 'default/omarchy/omarchy-menu.jsonc'), 'utf8')
 
+const literal = 'https://example.test/path//part/*text*/,} [1,] "quoted" \\ end'
+assertEqual(menu.parseMenuJsonc(JSON.stringify({ literal: { label: literal } }))[0].label, literal, 'JSONC parsing preserves comment markers, escapes and comma-brackets inside strings')
+assertEqual(menu.parseMenuJsonc('{"row": {"label": "Valid", /* between */},}')[0].label, 'Valid', 'JSONC parsing supports block comments between fields')
+const base = menu.parseMenuJsonc('{"branch": {"provider": "colors", "when": "can-list"}, "branch.run": {"action": "run-me", "checked": "is-active", "aliases": ["runner"]}}')
+const extensions = menu.parseMenuJsonc('{"branch": {"label": "Renamed"}, "branch.run": {"label": "Run it"}}', true)
+const sparse = menu.mergeMenuSources(base, extensions)
+assertEqual(sparse.items.branch.provider, 'colors', 'renaming a menu preserves its provider')
+assertEqual(sparse.items.branch.when, 'can-list', 'renaming a menu preserves its visibility guard')
+assertEqual(sparse.items['branch.run'].action, 'run-me', 'renaming an action preserves its command')
+assertDeepEqual(sparse.items['branch.run'].aliases, ['runner'], 'partial overrides preserve aliases')
+const cleared = menu.mergeMenuSources(base, menu.parseMenuJsonc('{"branch.run": {"action": "", "aliases": []}}', true))
+assertEqual(cleared.items['branch.run'].kind, 'menu', 'an explicit empty override clears an action and recalculates its kind')
+assertDeepEqual(cleared.items['branch.run'].aliases, [], 'an explicit empty aliases array clears aliases')
+const prototypeNames = menu.mergeMenuSources(menu.parseMenuJsonc('{"constructor": {"label": "Constructor"}, "__proto__": {"label": "Prototype"}}'), [])
+assert(prototypeNames.itemOrder.includes('constructor') && prototypeNames.itemOrder.includes('__proto__'), 'menu IDs cannot collide with inherited object properties')
+const malformed = menu.normalizeItem('bad', { label: {}, action: [], aliases: [12, 'valid', null] })
+assertEqual(malformed.label, 'bad', 'malformed menu labels fall back to the item id')
+assertDeepEqual(malformed.aliases, ['valid'], 'malformed menu aliases cannot crash text search')
+
+const vm = require('vm')
+const { execFileSync } = require('child_process')
+const requestDir = fs.mkdtempSync(path.join(process.env.HOME, 'menu-requests-'))
+const requests = {
+  requestActive: false, doneFile: '', selectionFile: '', opened: false, resultQueue: [],
+  resultProc: { running: false, command: null },
+  disarmPointer() {}, rebuildDisplay() {}, evaluateGuards() {}, invalidateVolatileProvider() {}, loadProviderForMenu() {},
+  item() { return true }, appLibrary: null, Qt: { callLater() {} }
+}
+requests.root = requests
+vm.createContext(requests)
+for (const name of ['finishRequest', 'writeNextResult', 'openDmenu', 'openExistingMenu']) {
+  const match = menuQml.match(new RegExp('^  function ' + name + '\\([^]*?^  }', 'm'))
+  assert(match, 'menu request lifecycle exposes ' + name)
+  vm.runInContext(match[0], requests)
+}
+function openRequest(name) {
+  requests.openDmenu({ selectionFile: path.join(requestDir, name + '.selection'), doneFile: path.join(requestDir, name + '.done') })
+}
+function completeWrite() {
+  execFileSync(requests.resultProc.command[0], requests.resultProc.command.slice(1), { stdio: 'inherit' })
+  requests.resultProc.running = false
+  requests.writeNextResult()
+}
+openRequest('first')
+requests.finishRequest('first\nselection $(literal)')
+openRequest('second')
+requests.finishRequest('second selection')
+openRequest('third')
+assertEqual(requests.resultQueue.length, 1, 'overlapping file responses are queued while the first writer runs')
+completeWrite()
+assert(requests.opened && requests.requestActive, 'an older response cannot close a newly opened picker')
+completeWrite()
+assertEqual(fs.readFileSync(path.join(requestDir, 'first.selection'), 'utf8'), 'first\nselection $(literal)\n', 'menu response preserves literal multiline selection')
+assertEqual(fs.readFileSync(path.join(requestDir, 'second.selection'), 'utf8'), 'second selection\n', 'queued response uses its own selection file')
+requests.openExistingMenu('root')
+completeWrite()
+assert(fs.existsSync(path.join(requestDir, 'third.done')) && !fs.existsSync(path.join(requestDir, 'third.selection')), 'opening the regular menu cancels an outstanding picker and releases its waiter')
+assert(requests.opened, 'completing cancellation leaves the regular menu open')
+openRequest('fourth')
+openRequest('fifth')
+completeWrite()
+assert(fs.existsSync(path.join(requestDir, 'fourth.done')) && requests.requestActive, 'a second picker cancels the previous request without taking its result paths')
+fs.rmSync(requestDir, { recursive: true })
+
 const parsed = menu.parseMenuJsonc(`
 {
   // comment
@@ -62,7 +126,6 @@ assertEqual(menu.slugify('Power Saver!'), 'power-saver', 'menu slugifies provide
 assertEqual(menu.pathFor(merged.items, 'style.theme'), 'Style › Theme picker', 'menu builds item paths')
 assertEqual(menu.parentPathFor(merged.items, 'style.theme'), 'Style', 'menu builds parent paths')
 assert(menu.isDescendantOf(merged.items, 'style.theme', 'style'), 'menu detects descendants')
-assertEqual(menu.childCount(merged.items, merged.itemOrder, 'style'), 1, 'menu counts children')
 assertEqual(menu.labelFor({ id: 'style.theme', label: 'Theme', checked: 'cmd' }, { 'style.theme': true }), 'Theme ✓', 'menu appends checked marker')
 assertEqual(menu.labelFor({ id: 'install.browser.zen', label: 'Zen', disabled: 'cmd' }, {}, { 'install.browser.zen': true }), 'Zen ✓', 'menu marks a disabled row as something you already have')
 assertEqual(menu.labelFor({ id: 'install.browser.zen', label: 'Zen', disabled: 'cmd' }, {}, { 'install.browser.zen': false }), 'Zen', 'menu leaves an uninstalled row unmarked')
@@ -118,7 +181,6 @@ assertDeepEqual(
     target: 'style.theme',
     detail: 'Style',
     path: 'Style › Theme picker',
-    childCount: 0,
     action: 'custom-theme',
     provider: '',
     score: 12,
@@ -484,4 +546,3 @@ assert(
   'mouse activation carries pointer intent into subordinate menus'
 )
 JS
-

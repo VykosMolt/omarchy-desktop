@@ -1,3 +1,11 @@
+function validCoordinates(latitude, longitude) {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined
+      || String(latitude).trim() === "" || String(longitude).trim() === "") return false
+  var lat = Number(latitude)
+  var lon = Number(longitude)
+  return isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+}
+
 // weather.json holds {"name": ..., "latitude": ..., "longitude": ...} (see
 // omarchy-weather-location, which owns the format). Missing, blank, or
 // unparseable means the location is auto-detected from the IP address.
@@ -7,9 +15,9 @@ function parseLocationFile(raw) {
     var data = JSON.parse(String(raw || ""))
     if (!data || typeof data !== "object") return unset
 
-    var latitude = parseFloat(data.latitude)
-    var longitude = parseFloat(data.longitude)
-    var hasCoordinates = !isNaN(latitude) && !isNaN(longitude)
+    var latitude = Number(data.latitude)
+    var longitude = Number(data.longitude)
+    var hasCoordinates = validCoordinates(data.latitude, data.longitude)
     return {
       name: typeof data.name === "string" ? data.name.replace(/^\s+|\s+$/g, "") : "",
       latitude: hasCoordinates ? latitude : null,
@@ -24,9 +32,7 @@ function parseLocationFile(raw) {
 // both are present, the URL-encoded name as a fallback (hand-edited
 // weather.loc files may only carry a name), empty for IP auto-detect.
 function wttrLocationQuery(location, latitude, longitude) {
-  var lat = parseFloat(String(latitude))
-  var lon = parseFloat(String(longitude))
-  if (!isNaN(lat) && !isNaN(lon)) return lat + "," + lon
+  if (validCoordinates(latitude, longitude)) return Number(latitude) + "," + Number(longitude)
 
   var name = String(location || "").replace(/^\s+|\s+$/g, "")
   return name === "" ? "" : encodeURIComponent(name)
@@ -42,13 +48,13 @@ function parseGeocodingResults(raw) {
     var out = []
     for (var i = 0; i < results.length; i++) {
       var r = results[i]
-      if (!r || !r.name || r.latitude === undefined || r.longitude === undefined) continue
+      if (!r || !r.name || !validCoordinates(r.latitude, r.longitude)) continue
       var region = [r.admin1, r.country].filter(function(part) { return !!part }).join(", ")
       out.push({
         name: String(r.name),
         description: region,
-        latitude: r.latitude,
-        longitude: r.longitude
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude)
       })
     }
     return out
@@ -267,6 +273,7 @@ function iconForCode(code, night) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    validCoordinates: validCoordinates,
     parseLocationFile: parseLocationFile,
     wttrLocationQuery: wttrLocationQuery,
     parseGeocodingResults: parseGeocodingResults,

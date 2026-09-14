@@ -41,11 +41,13 @@ BarWidget {
     active: root.inUse
     tooltipText: root.muted ? "Microphone muted" : (root.inUse ? "Microphone in use" : "Microphone live")
     onPressed: function(b) {
-      if (b === Qt.MiddleButton) root.bar.run("omarchy-shell shell toggle omarchy.audio")
+      if (b === Qt.MiddleButton) {
+        if (root.bar) root.bar.run("omarchy-shell shell toggle omarchy.audio")
+      }
       else root.toggleMute()
     }
     onWheelMoved: function(delta) {
-      if (!root.source || !root.source.audio) return
+      if (!root.source || !root.source.audio || delta === 0) return
       var step = 0.05
       root.source.audio.volume = Math.max(0, Math.min(1, root.volume + (delta > 0 ? step : -step)))
     }

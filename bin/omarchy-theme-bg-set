@@ -11,7 +11,7 @@ if [[ -z $1 ]]; then
   exit 1
 fi
 
-BACKGROUND="$(realpath "$1")"
+BACKGROUND="$(realpath -- "$1")" || exit 1
 CURRENT_BACKGROUND_LINK="$OMARCHY_STATE_HOME/current/background"
 
 if [[ ! -f $BACKGROUND ]]; then
@@ -20,7 +20,8 @@ if [[ ! -f $BACKGROUND ]]; then
 fi
 
 # Create symlink to the new background
-ln -nsf "$BACKGROUND" "$CURRENT_BACKGROUND_LINK"
+mkdir -p "${CURRENT_BACKGROUND_LINK%/*}" || exit 1
+ln -nsf "$BACKGROUND" "$CURRENT_BACKGROUND_LINK" || exit 1
 
 # Update the live shell background immediately when it is running. The
 # background plugin also polls this symlink, but IPC avoids the visible delay.

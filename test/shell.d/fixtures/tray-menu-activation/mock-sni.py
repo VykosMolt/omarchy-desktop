@@ -15,17 +15,13 @@ ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/StatusNotifierItem/Menu"
 
 
-def variant(value):
-  return dbus.Variant(value)
-
-
 class StatusNotifierItem(dbus.service.Object):
   def __init__(self, bus):
     super().__init__(bus, ITEM_PATH)
 
   @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="ss", out_signature="v")
   def Get(self, interface, prop):
-    return variant(self.GetAll(interface)[prop])
+    return self.GetAll(interface)[prop]
 
   @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="s", out_signature="a{sv}")
   def GetAll(self, interface):
@@ -78,7 +74,7 @@ class DBusMenu(dbus.service.Object):
 
   @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="ss", out_signature="v")
   def Get(self, interface, prop):
-    return variant(self.GetAll(interface)[prop])
+    return self.GetAll(interface)[prop]
 
   @dbus.service.method("org.freedesktop.DBus.Properties", in_signature="s", out_signature="a{sv}")
   def GetAll(self, interface):
@@ -124,7 +120,7 @@ class DBusMenu(dbus.service.Object):
 
   @dbus.service.method("com.canonical.dbusmenu", in_signature="is", out_signature="v")
   def GetProperty(self, item_id, name):
-    return variant("")
+    return ""
 
   @dbus.service.method("com.canonical.dbusmenu", in_signature="isvu")
   def Event(self, item_id, event_id, data, timestamp):

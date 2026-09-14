@@ -22,6 +22,8 @@ cat >"$stub_bin/systemd-cat" <<'STUB'
 {
   printf '%s\n' "__EGL_VENDOR_LIBRARY_FILENAMES=${__EGL_VENDOR_LIBRARY_FILENAMES-unset}"
   printf '%s\n' "__GLX_VENDOR_LIBRARY_NAME=${__GLX_VENDOR_LIBRARY_NAME-unset}"
+  printf '%s\n' "QT_FFMPEG_DECODING_HW_DEVICE_TYPES=${QT_FFMPEG_DECODING_HW_DEVICE_TYPES-unset}"
+  printf '%s\n' "QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=${QT_FFMPEG_ENCODING_HW_DEVICE_TYPES-unset}"
 } >"$OMARCHY_TEST_ENV_LOG"
 exit 0
 STUB
@@ -58,6 +60,10 @@ grep -Fx "__EGL_VENDOR_LIBRARY_FILENAMES=$vendor_json" <<<"$output" >/dev/null |
 grep -Fx "__GLX_VENDOR_LIBRARY_NAME=mesa" <<<"$output" >/dev/null ||
   fail "the shell is pinned to the Mesa GLX vendor alongside EGL" "$output"
 pass "a Mesa-capable render node pins the shell to Mesa"
+grep -Fx "QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi" <<<"$output" >/dev/null &&
+  grep -Fx "QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=vaapi" <<<"$output" >/dev/null ||
+  fail "the shell's video decoding is limited to VA-API so no CUDA context is left holding the discrete card" "$output"
+pass "a Mesa-capable render node limits the shell's hardware video probe to VA-API"
 
 # An AMD render node counts the same way.
 amd_drm="$tmpdir/drm-amd"
@@ -75,6 +81,8 @@ printf '0x10de\n' >"$nvidia_drm/renderD128/device/vendor"
 output=$(run_launcher "$nvidia_drm" "$vendor_json")
 grep -Fx "__EGL_VENDOR_LIBRARY_FILENAMES=unset" <<<"$output" >/dev/null ||
   fail "a machine with only an NVIDIA render node is left alone" "$output"
+grep -Fx "QT_FFMPEG_DECODING_HW_DEVICE_TYPES=unset" <<<"$output" >/dev/null ||
+  fail "a machine with only an NVIDIA render node keeps every hardware decoder" "$output"
 pass "a machine with only an NVIDIA render node keeps every EGL vendor"
 
 # No Mesa vendor file installed: nothing to pin to.

@@ -262,17 +262,21 @@ function parseProcesses(raw) {
     var row = parsed[i]
     if (!row || typeof row !== "object") continue
 
-    var pid = Math.round(Number(row.pid))
-    if (!isFinite(pid) || pid <= 0) continue
+    var pid = Number(row.pid)
+    if (!isFinite(pid) || Math.floor(pid) !== pid || pid <= 0 || pid > 2147483647) continue
 
     rows.push({
       pid: pid,
+      startTime: processStartTime(row.startTime),
       name: String(row.name === undefined || row.name === null ? "" : row.name),
       command: String(row.command === undefined || row.command === null ? "" : row.command),
       cpu: Math.max(0, toNumber(row.cpu, 0)),
       memory: Math.max(0, toNumber(row.memory, 0)),
       rssKb: Math.max(0, toNumber(row.rssKb, 0)),
-      uid: Math.round(toNumber(row.uid, -1))
+      uid: Math.round(toNumber(row.uid, -1)),
+      ppid: Math.max(0, Math.round(toNumber(row.ppid, 0))),
+      unit: String(row.unit === undefined || row.unit === null ? "" : row.unit),
+      appUnit: row.appUnit === true
     })
   }
   return rows
@@ -383,8 +387,15 @@ function parseWindows(list) {
     // the user would call an open app.
     if (w.mapped === false || w.hidden === true) continue
 
+    // A toplevel the compositor cannot name a process for is not a window
+    // anyone opened. XWayland's own "Default IME" surfaces are the ones that
+    // reach here, and a shell that has been up for a day accumulates the
+    // handles of every one it ever made: they listed as "window" with an em
+    // dash for both figures and no way to act on them. A real window whose IPC
+    // object has not landed yet is a beat behind, and the settle timer that
+    // already refreshes after every change brings it in.
     var pid = Math.round(toNumber(w.pid, 0))
-    if (!isFinite(pid) || pid <= 0) pid = 0
+    if (!isFinite(pid) || pid <= 0) continue
 
     var workspaceId = fieldNumber(w.workspaceId)
 
@@ -492,11 +503,191 @@ function attachUsage(windows, processes) {
     var row = {}
     for (var key in w) row[key] = w[key]
     var match = w.pid > 0 ? byPid[w.pid] : undefined
+    row.startTime = match ? processStartTime(match.startTime) : ""
     row.cpu = match ? match.cpu : null
     row.rssKb = match ? match.rssKb : null
     out.push(row)
   }
   return out
+}
+
+// ----------------------------------------------------------- applications
+
+// The Apps view answers "what is running", and windows alone cannot: an app
+// with no window open -- Steam after its window closed, a tray app -- was
+// invisible here and had to be hunted down in a terminal.
+//
+// What groups its processes into an application is the cgroup systemd put them
+// in: everything one launch forks stays in the scope made for it, however far
+// it drifts from the process that started it. systemd names that scope after
+// the application -- `app[-<launcher>]-<ApplicationID>-<RANDOM>.scope`, or
+// `app-<ApplicationID>@autostart.service` for one started at login -- and the
+// `app-` prefix is what separates an application from a session service.
+function isAppUnit(unit) {
+  return /^app-.+\.(?:scope|service)$/.test(String(unit || ""))
+}
+
+// The application id inside that name, which names apps whose processes do
+// not: every Mullvad process is called `electron`, its scope is called
+// `app-mullvad-vpn-11281.scope`.
+function unitAppId(unit) {
+  var match = String(unit || "").match(/^app-(.+?)(?:@autostart)?\.(?:scope|service)$/)
+  if (!match) return ""
+  // \x2d is systemd's escape for a dash; the trailing token is its pid or
+  // random suffix, not the app's.
+  return match[1].replace(/\\x2d/g, "-").replace(/-[0-9a-f]+$/i, "")
+}
+
+// One group per launch. Chromium and Electron both move their main process
+// into a scope of their own and leave the helpers in the launcher's, so one app
+// arrives as two units: a process whose parent sits in another app unit joins
+// that unit, which folds the pair back together. A parent outside every app
+// unit -- the service manager -- links nothing, so two unrelated apps never
+// merge through it.
+function groupApplications(processes) {
+  var list = Array.isArray(processes) ? processes : []
+  var unitOf = {}
+  var members = {}
+
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i]
+    if (!p || p.appUnit !== true || !isAppUnit(p.unit)) continue
+    unitOf[p.pid] = p.unit
+    if (!members[p.unit]) members[p.unit] = []
+    members[p.unit].push(p)
+  }
+
+  // Union-find over those links, iterated to a fixed point by resolving each
+  // side to its current root before joining.
+  var parents = {}
+  function root(unit) {
+    while (parents[unit] !== undefined && parents[unit] !== unit) unit = parents[unit]
+    return unit
+  }
+
+  for (var unit in members) parents[unit] = unit
+  for (var j = 0; j < list.length; j++) {
+    var own = unitOf[list[j].pid]
+    var parent = unitOf[list[j].ppid]
+    if (own === undefined || parent === undefined) continue
+    var a = root(own)
+    var b = root(parent)
+    if (a !== b) parents[a] = b
+  }
+
+  var groups = {}
+  for (var member in members) {
+    var key = root(member)
+    if (!groups[key]) groups[key] = { key: key, units: [], processes: [] }
+    groups[key].units.push(member)
+    groups[key].processes = groups[key].processes.concat(members[member])
+  }
+  return groups
+}
+
+// The names worth asking the desktop database about. The unit's own id first,
+// since that is systemd being told what was launched; then process names in pid
+// order, which walks out from the process that started the group. Steam is
+// launched by a shell script, so `bash` is asked and misses before `steam` is
+// asked and hits, and nothing in a group of helper processes answers at all --
+// which is how a session daemon stays out of the Apps view.
+function groupNameCandidates(group) {
+  var names = [unitAppId(group.key)]
+  var units = group.units || []
+  for (var u = 0; u < units.length; u++) names.push(unitAppId(units[u]))
+
+  var list = (group.processes || []).slice().sort(function(a, b) { return a.pid - b.pid })
+  for (var i = 0; i < list.length; i++) {
+    // comm is truncated at fifteen characters, so the command line is the only
+    // place a longer binary name survives whole.
+    names.push(list[i].name)
+    names.push(String(list[i].command || "").replace(/^\s+/, "").split(" ")[0].split("/").pop())
+  }
+
+  var seen = {}
+  return names.filter(function(name) {
+    if (name === "" || seen[name] === true) return false
+    seen[name] = true
+    return true
+  })
+}
+
+// One row per application running with nothing on screen. An app with a window
+// is already listed as that window, and an app the desktop database cannot name
+// is left out entirely -- an unnamed row is the mystery entry this view is
+// meant not to have. `lookup` is injected because it lives in QML.
+function backgroundApps(processes, windows, lookup) {
+  if (typeof lookup !== "function") return []
+
+  var windowed = {}
+  var list = Array.isArray(windows) ? windows : []
+  for (var i = 0; i < list.length; i++) if (list[i]) windowed[list[i].pid] = true
+
+  var groups = groupApplications(processes)
+  var rows = []
+
+  for (var key in groups) {
+    var members = groups[key].processes
+    var pids = []
+    var cpu = 0
+    // Summing RSS counts a page shared between an app's own processes once per
+    // process, so a browser's total reads high. It is still the only figure
+    // that answers "how much is this app holding", and top sums it too.
+    var rssKb = 0
+    var visible = false
+
+    for (var m = 0; m < members.length; m++) {
+      if (windowed[members[m].pid] === true) visible = true
+      if (members[m].pid > 1) pids.push(members[m].pid)
+      cpu += toNumber(members[m].cpu, 0)
+      rssKb += toNumber(members[m].rssKb, 0)
+    }
+    if (visible || pids.length === 0) continue
+
+    var entry = null
+    var names = groupNameCandidates(groups[key])
+    for (var n = 0; n < names.length && entry === null; n++) entry = lookup(names[n]) || null
+    if (!entry) continue
+
+    pids.sort(function(a, b) { return a - b })
+    rows.push({
+      background: true,
+      key: key,
+      name: String(entry.name || ""),
+      icon: String(entry.icon || ""),
+      // The lowest pid, so a row still reads as one process everywhere that
+      // expects one; `pids` is what a signal actually goes to.
+      pid: pids[0],
+      pids: pids,
+      targets: rowTargets({ targets: members }),
+      processCount: members.length,
+      cpu: cpu,
+      rssKb: rssKb
+    })
+  }
+
+  return rows.sort(function(a, b) {
+    var an = a.name.toLowerCase()
+    var bn = b.name.toLowerCase()
+    return an < bn ? -1 : (an > bn ? 1 : 0)
+  })
+}
+
+function isBackgroundApp(row) {
+  return !!(row && row.background === true)
+}
+
+function rowDetail(row, isWindow) {
+  if (!isBackgroundApp(row)) return isWindow ? windowDetail(row) : processDetail(row)
+  var count = Math.max(1, Math.round(toNumber(row.processCount, 1)))
+  return count === 1 ? "1 background process" : count + " background processes"
+}
+
+// A background app row shows everything it knows and elides nothing, so there
+// is nothing left for a tooltip to add.
+function rowTooltip(row, isWindow) {
+  if (isBackgroundApp(row)) return ""
+  return isWindow ? windowTooltip(row) : processTooltip(row)
 }
 
 // --------------------------------------------------------------- filtering
@@ -542,14 +733,20 @@ function filterProcesses(rows, query) {
   return out
 }
 
-function filterWindows(rows, query) {
+// The Apps view holds two kinds of row. A window matches on what the compositor
+// knows about it; a background app matches on its name, so typing "steam" finds
+// it whether or not its window is open.
+function filterApps(rows, query) {
   var list = Array.isArray(rows) ? rows : []
   if (normalizeQuery(query) === "") return list
   var out = []
   for (var i = 0; i < list.length; i++) {
     var r = list[i]
     if (!r) continue
-    if (matchesQuery([r.name, r.className, r.appId, r.title, r.pid], query)) out.push(r)
+    var fields = isBackgroundApp(r)
+      ? [r.name, r.key, r.pid]
+      : [r.name, r.className, r.appId, r.title, r.pid]
+    if (matchesQuery(fields, query)) out.push(r)
   }
   return out
 }
@@ -557,7 +754,7 @@ function filterWindows(rows, query) {
 function emptyMessage(view, query, sampling) {
   var filtered = normalizeQuery(query) !== ""
   if (normalizeView(view) === "apps") {
-    return filtered ? "No open window matches" : "No open windows"
+    return filtered ? "No app matches" : "Nothing running"
   }
   if (filtered) return "No process matches"
   return sampling ? "Sampling…" : "No processes"
@@ -577,7 +774,7 @@ function clampSeconds(value, fallback, min, max) {
 
 // Every command is an argument vector. Nothing built from a process name, a
 // window title or a command line is ever interpolated into one -- the only
-// value that crosses into a command is a pid, and signalCommand refuses
+// value that crosses into a command is a pid, and rowSignalCommand refuses
 // anything that is not a plain positive integer above 1.
 function statsCommand() {
   return ["omarchy-system-stats", "--bar-widget"]
@@ -608,35 +805,99 @@ function normalizeSignal(name) {
   return String(name) === KILL ? KILL : TERM
 }
 
-// Never with privilege: no sudo, no pkexec. A process the user does not own
-// fails here, and the panel says so.
+// Every pid a row stands for. A window or a process is one; a background app is
+// the whole group systemd is holding for it, which is the point -- ending Steam
+// has to end the services it left behind, not just the one this row named.
 //
 // pid 1 and anything below it is refused outright: a negative pid is a process
-// group and 0 is every process in the caller's group, so neither may reach
-// kill(1) whatever produced it.
-function signalCommand(pid, name) {
-  var n = Number(pid)
-  if (!isFinite(n) || Math.floor(n) !== n || n <= 1) return null
-  return ["kill", "-s", normalizeSignal(name), String(n)]
+// group and 0 is every process in the caller's group, so neither may be
+// signalled whatever produced it.
+function rowPids(row) {
+  var r = row || {}
+  var list = Array.isArray(r.pids) ? r.pids : [r.pid]
+  var out = []
+  var seen = {}
+  for (var i = 0; i < list.length; i++) {
+    var n = Number(list[i])
+    if (!isFinite(n) || Math.floor(n) !== n || n <= 1) continue
+    if (seen[n] === true) continue
+    seen[n] = true
+    out.push(n)
+  }
+  return out
 }
 
-function terminateCommand(pid) {
-  return signalCommand(pid, TERM)
+// Never with privilege: no sudo, no pkexec, no shell. A process the user does
+// not own fails here, and the panel says so.
+//
+// Through omarchy-system-signal rather than kill, because a group is signalled
+// as a group: kill exits non-zero the moment one of the pids has already gone,
+// which is the ordinary outcome of ending the process the others depended on,
+// and a quit that worked would have reported a failure.
+function processStartTime(value) {
+  // Keep /proc ticks as a string: JavaScript cannot represent every uint64.
+  return typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value) ? value : ""
 }
 
-function forceKillCommand(pid) {
-  return signalCommand(pid, KILL)
+function processIdentity(process) {
+  var p = process || {}
+  var pid = Number(p.pid)
+  var start = processStartTime(p.startTime)
+  if (!isFinite(pid) || Math.floor(pid) !== pid || pid <= 1 || pid > 2147483647 || start === "") return ""
+  return String(pid) + ":" + start
 }
 
-// The set of pids this panel has sent TERM to, kept by the panel as a plain
-// object. Force kill is offered for a row only while its pid is in that set,
-// and the set is pruned to the pids still running, so the offer disappears
-// with the process.
-function markTerminated(terminated, pid) {
+function rowTargets(row) {
+  var r = row || {}
+  var list = Array.isArray(r.targets) ? r.targets : [r]
+  var out = []
+  var seen = {}
+  for (var i = 0; i < list.length; i++) {
+    var token = processIdentity(list[i])
+    if (token === "" || seen[token] === true) continue
+    seen[token] = true
+    out.push({ pid: Number(list[i].pid), startTime: list[i].startTime })
+  }
+  return out
+}
+
+function signalTargets(row, name, terminated) {
+  return rowTargets(row).filter(function(target) {
+    return normalizeSignal(name) !== KILL || !!(terminated && terminated[processIdentity(target)] === true)
+  })
+}
+
+// Capture only plain data when opening confirmation. Polling, a new child in
+// an app group, or a destroyed window handle cannot change its recipients.
+function signalSnapshot(row, name, terminated) {
+  var r = row || {}
+  var targets = signalTargets(r, name, terminated)
+  if (targets.length === 0) return null
+  return {
+    pid: targets[0].pid,
+    pids: targets.map(function(target) { return target.pid }),
+    targets: targets,
+    name: String(r.name || ""),
+    className: String(r.className || ""),
+    appId: String(r.appId || ""),
+    background: r.background === true
+  }
+}
+
+function rowSignalCommand(row, name, terminated) {
+  var targets = signalTargets(row, name, terminated)
+  if (targets.length === 0) return null
+  return ["omarchy-system-signal", "--signal", normalizeSignal(name)]
+    .concat(targets.map(processIdentity))
+}
+
+// An offer belongs to a process incarnation, not a reusable PID. KILL may
+// target only these identities, including when a group gains new children.
+function markTerminatedRow(terminated, row) {
   var next = {}
   for (var key in (terminated || {})) next[key] = true
-  var n = Math.round(toNumber(pid, 0))
-  if (n > 1) next[String(n)] = true
+  var targets = rowTargets(row)
+  for (var i = 0; i < targets.length; i++) next[processIdentity(targets[i])] = true
   return next
 }
 
@@ -644,8 +905,8 @@ function pruneTerminated(terminated, processes) {
   var alive = {}
   var procs = Array.isArray(processes) ? processes : []
   for (var i = 0; i < procs.length; i++) {
-    var p = procs[i]
-    if (p && p.pid > 0) alive[String(p.pid)] = true
+    var token = processIdentity(procs[i])
+    if (token !== "") alive[token] = true
   }
   var next = {}
   for (var key in (terminated || {})) {
@@ -655,9 +916,7 @@ function pruneTerminated(terminated, processes) {
 }
 
 function canForceKill(row, terminated) {
-  var pid = Math.round(toNumber((row || {}).pid, 0))
-  if (pid <= 1) return false
-  return !!(terminated && terminated[String(pid)] === true)
+  return signalTargets(row, KILL, terminated).length > 0
 }
 
 // Which signal a request on this row means right now.
@@ -666,22 +925,24 @@ function signalFor(row, terminated) {
 }
 
 function rowName(row, isWindow) {
+  if (isBackgroundApp(row)) return sanitizeText(row.name, 32) || "app"
   return isWindow ? windowName(row) : processName(row)
 }
 
 function signalMessage(row, name, isWindow) {
   var r = row || {}
-  var pid = Math.round(toNumber(r.pid, 0))
   var label = rowName(r, isWindow)
-  var where = pid > 0 ? " (pid " + pid + ")" : ""
+  var pids = rowPids(r)
+  // A background app is a group, so the dialog says how much of it goes rather
+  // than naming one pid that is only the process the group was rooted at.
+  var where = isBackgroundApp(r)
+    ? (pids.length === 1 ? " (1 process)" : " (" + pids.length + " processes)")
+    : (pids.length === 1 ? " (pid " + pids[0] + ")" : "")
+
   if (normalizeSignal(name) === KILL) {
     return label + where + " did not end after SIGTERM. Force kill it with SIGKILL? Unsaved work is lost."
   }
   return "Send SIGTERM to " + label + where + "?"
-}
-
-function terminateMessage(row) {
-  return signalMessage(row, TERM, false)
 }
 
 function signalActionLabel(name) {
@@ -722,10 +983,6 @@ function signalFailure(exitCode, stderr, row, name, isWindow) {
   if (!detail) detail = "kill exited " + code
   var verb = normalizeSignal(name) === KILL ? "force kill" : "end"
   return "Could not " + verb + " " + rowName(row, isWindow) + ": " + detail
-}
-
-function terminateFailure(exitCode, stderr, row) {
-  return signalFailure(exitCode, stderr, row, TERM, false)
 }
 
 if (typeof module !== "undefined") {
@@ -769,10 +1026,18 @@ if (typeof module !== "undefined") {
     windowTooltip: windowTooltip,
     sortWindows: sortWindows,
     attachUsage: attachUsage,
+    isAppUnit: isAppUnit,
+    unitAppId: unitAppId,
+    groupNameCandidates: groupNameCandidates,
+    backgroundApps: backgroundApps,
+    isBackgroundApp: isBackgroundApp,
+    groupApplications: groupApplications,
+    rowDetail: rowDetail,
+    rowTooltip: rowTooltip,
     normalizeQuery: normalizeQuery,
     matchesQuery: matchesQuery,
     filterProcesses: filterProcesses,
-    filterWindows: filterWindows,
+    filterApps: filterApps,
     emptyMessage: emptyMessage,
     clampLimit: clampLimit,
     clampSeconds: clampSeconds,
@@ -782,20 +1047,21 @@ if (typeof module !== "undefined") {
     TERM: TERM,
     KILL: KILL,
     normalizeSignal: normalizeSignal,
-    signalCommand: signalCommand,
-    terminateCommand: terminateCommand,
-    forceKillCommand: forceKillCommand,
-    markTerminated: markTerminated,
+    rowPids: rowPids,
+    rowSignalCommand: rowSignalCommand,
+    rowTargets: rowTargets,
+    processIdentity: processIdentity,
+    signalSnapshot: signalSnapshot,
+    markTerminatedRow: markTerminatedRow,
     pruneTerminated: pruneTerminated,
     canForceKill: canForceKill,
     signalFor: signalFor,
+    rowName: rowName,
     signalMessage: signalMessage,
-    terminateMessage: terminateMessage,
     signalActionLabel: signalActionLabel,
     signalIcon: signalIcon,
     signalTooltip: signalTooltip,
     processFailure: processFailure,
-    signalFailure: signalFailure,
-    terminateFailure: terminateFailure
+    signalFailure: signalFailure
   }
 }

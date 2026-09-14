@@ -8,7 +8,7 @@ ConditionPathIsDirectory=/sys/class/bluetooth
 
 [Service]
 EnvironmentFile=%t/omarchy-arch-session.env
-ExecCondition=/usr/bin/bash -c '! /usr/bin/flock -n %t/omarchy-arch-session.lock /usr/bin/true'
+ExecCondition=/usr/bin/bash -c '/usr/bin/flock -n -E 75 "%t/omarchy-arch-session.lock" /usr/bin/true; [[ $$? == 75 ]]'
 Type=simple
 ExecCondition=/usr/bin/systemctl is-active --quiet bluetooth.service
 ExecStart=/usr/bin/bt-agent -c NoInputNoOutput

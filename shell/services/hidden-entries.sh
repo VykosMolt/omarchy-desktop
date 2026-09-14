@@ -79,7 +79,7 @@ scan_dir() {
   local dir=$1
   local file id
 
-  [[ -d $dir ]] || return
+  [[ -d $dir ]] || return 0
 
   while IFS= read -r -d '' file; do
     id=$(desktop_id_for_file "$dir" "$file")
@@ -89,10 +89,10 @@ scan_dir() {
     if is_hidden_desktop_file "$file"; then
       printf '%s\n' "$id"
     fi
-  done < <(find "$dir" -type f -name '*.desktop' -print0 2>/dev/null | sort -z)
+  done < <(find -L "$dir" -type f -name '*.desktop' -print0 2>/dev/null | sort -z)
 }
 
-scan_dir "$HOME/.local/share/applications"
+scan_dir "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 
 IFS=":" read -ra data_dirs <<< "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 for data_dir in "${data_dirs[@]}"; do

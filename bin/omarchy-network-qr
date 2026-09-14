@@ -22,7 +22,7 @@ if [[ -z $interface ]]; then
   # menu's visibility gate describe. Fall back to the first connected Wi-Fi
   # device. nmcli localizes state names, so pin the locale, and the prefix
   # match accepts states like "connected (externally)".
-  route_device=$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }')
+  route_device=$(ip route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit } }' || true)
   if [[ -n $route_device && -d /sys/class/net/$route_device/wireless ]]; then
     interface=$route_device
   else
@@ -34,9 +34,10 @@ fi
 uuid=$(nmcli --get-values GENERAL.CON-UUID device show "$interface" | head -n 1)
 [[ -n $uuid && $uuid != "--" ]] || { echo "No active Wi-Fi connection" >&2; exit 1; }
 
-mapfile -t fields < <(nmcli --show-secrets --escape no --get-values \
+fields_output=$(nmcli --show-secrets --escape no --get-values \
   802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk,802-11-wireless.hidden,802-11-wireless-security.wep-key0 \
-  connection show uuid "$uuid")
+  connection show uuid "$uuid") || exit 1
+mapfile -t fields <<<"$fields_output"
 
 ssid=${fields[0]:-}
 key_management=${fields[1]:-}
