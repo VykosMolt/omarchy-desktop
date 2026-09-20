@@ -53,6 +53,25 @@ for command in omarchy-menu-select omarchy-menu omarchy-menu-emoji \
 done
 pass "each one refuses under OMARCHY_NO_UI=1 and says why"
 
+# A notification is not a window, but it lands on the user's screen just the
+# same and goes over the session bus rather than through anything HOME can
+# sandbox. The action that asked for it still succeeded, so this one is
+# suppressed rather than failed -- a guard that made every caller exit non-zero
+# would be switched off within the week.
+if ! OMARCHY_NO_UI=1 OMARCHY_PATH="$ROOT" PATH="$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-notification-send" "Headline" "Body" >/dev/null 2>"$test_err"; then
+  fail "a suppressed notification does not fail the action that asked for it"
+fi
+grep -q 'OMARCHY_NO_UI' "$test_err" ||
+  fail "omarchy-notification-send says why it did not notify"
+
+# -p hands back the id of a toast a caller can update. There is no toast, so
+# there is no id, and inventing one would have the caller replace a stranger's.
+printed=$(OMARCHY_NO_UI=1 OMARCHY_PATH="$ROOT" PATH="$ROOT/bin:$PATH" \
+  "$ROOT/bin/omarchy-notification-send" -p "Headline" 2>/dev/null)
+[[ -z $printed ]] || fail "a suppressed notification has no id to print" "$printed"
+pass "a notification is suppressed under OMARCHY_NO_UI=1 without failing its caller"
+
 # This used to check that omarchy-reminder show, the one guarded command with a
 # non-drawing mode, still worked under the guard -- a guard that broke the
 # headless paths would just get switched off. Reminders are gone and every

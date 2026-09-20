@@ -5,6 +5,11 @@ o.bind("SUPER + SHIFT + code:201", "Omarchy menu", "omarchy-menu toggle root")
 o.bind("SUPER + ESCAPE", "System menu", "omarchy-menu toggle system")
 o.bind("XF86PowerOff", "Power menu", "omarchy-menu toggle system", { locked = true })
 o.bind("SUPER + K", "Keybindings", "omarchy-menu-keybindings")
+-- Settings and wallpaper get a plain Super chord each. Closing a window
+-- stays on SUPER + Q and the scratchpad on SUPER + ~, which is where the
+-- second chord for each already was.
+o.bind("SUPER + S", "Settings", "omarchy-shell shell toggle omarchy.settings")
+o.bind("SUPER + W", "Wallpaper", "omarchy-menu toggle background")
 o.bind("SUPER + CTRL + Q", "Calculator", "omacalc")
 o.bind("XF86Calculator", "Calculator", "omacalc")
 

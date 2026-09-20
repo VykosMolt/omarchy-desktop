@@ -1,8 +1,33 @@
 #!/bin/bash
 
 # omarchy:summary=Set the default browser for Omarchy and XDG handlers
-# omarchy:args=[chromium|chrome|brave|brave-origin|edge|firefox|zen]
-# omarchy:examples=omarchy default browser firefox | omarchy default browser brave
+# omarchy:args=[--list|chromium|chrome|brave|brave-origin|edge|firefox|zen]
+# omarchy:examples=omarchy default browser --list | omarchy default browser firefox
+
+# One table, read by both the picker and the setter, so a browser can never be
+# offered in a list it cannot then be set from: id, command, desktop id, name,
+# and the glyph the notification carries.
+browsers() {
+  cat <<'BROWSERS'
+chromium	chromium	chromium.desktop	Chromium	
+chrome	google-chrome-stable	google-chrome.desktop	Chrome	󰊯
+brave	brave	brave-browser.desktop	Brave	󰖟
+brave-origin	brave-origin	brave-origin.desktop	Brave Origin	󰖟
+edge	microsoft-edge-stable	microsoft-edge.desktop	Edge	󰇩
+firefox	firefox	firefox.desktop	Firefox	󰈹
+zen	zen-browser	zen.desktop	Zen	󰖟
+BROWSERS
+}
+
+# Only the browsers this machine can actually switch to.
+if [[ ${1:-} == "--list" ]]; then
+  while IFS=$'\t' read -r id command _desktop_id name _glyph; do
+    if omarchy-cmd-present "$command"; then
+      printf '%s\t%s\n' "$id" "$name"
+    fi
+  done < <(browsers)
+  exit 0
+fi
 
 if (($# == 0)); then
   # Read the answer where xdg-settings writes it before paying for
@@ -49,19 +74,21 @@ if (($# == 0)); then
   exit 0
 fi
 
-case "$1" in
-chromium) browser="chromium"; command="chromium"; desktop_id="chromium.desktop"; name="Chromium"; glyph= ;;
-chrome) browser="chrome"; command="google-chrome-stable"; desktop_id="google-chrome.desktop"; name="Chrome"; glyph=󰊯 ;;
-brave) browser="brave"; command="brave"; desktop_id="brave-browser.desktop"; name="Brave"; glyph=󰖟 ;;
-brave-origin) browser="brave-origin"; command="brave-origin"; desktop_id="brave-origin.desktop"; name="Brave Origin"; glyph=󰖟 ;;
-edge) browser="edge"; command="microsoft-edge-stable"; desktop_id="microsoft-edge.desktop"; name="Edge"; glyph=󰇩 ;;
-firefox) browser="firefox"; command="firefox"; desktop_id="firefox.desktop"; name="Firefox"; glyph=󰈹 ;;
-zen) browser="zen"; command="zen-browser"; desktop_id="zen.desktop"; name="Zen"; glyph=󰖟 ;;
-*)
+command=""
+while IFS=$'\t' read -r id candidate_command candidate_desktop_id candidate_name candidate_glyph; do
+  if [[ $id == "$1" ]]; then
+    command="$candidate_command"
+    desktop_id="$candidate_desktop_id"
+    name="$candidate_name"
+    glyph="$candidate_glyph"
+    break
+  fi
+done < <(browsers)
+
+if [[ -z $command ]]; then
   echo "Usage: omarchy-default-browser <chromium|chrome|brave|brave-origin|edge|firefox|zen>"
   exit 1
-  ;;
-esac
+fi
 
 if omarchy-cmd-missing "$command"; then
   echo "$name is not installed." >&2

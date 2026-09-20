@@ -1,14 +1,24 @@
 #!/bin/bash
 
 # omarchy:summary=Show current background
+# omarchy:args=[--path]
 # omarchy:examples=omarchy theme bg current
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-backgrounds.sh"
 
 BACKGROUND_PATH=$(readlink -f "$OMARCHY_STATE_HOME/current/background" 2>/dev/null)
 
-if [[ -n $BACKGROUND_PATH ]]; then
-  basename -- "$BACKGROUND_PATH" | perl -pe 's/\.[^.]+$//; s/^\d+-//; s/-/ /g; s/\b(\w)/\U$1/g'
-else
+# --path answers with the file itself, which is what a caller matching against
+# omarchy-theme-bg-list needs; the bare form answers with the name a person
+# reads.
+if [[ -z $BACKGROUND_PATH ]]; then
+  if [[ ${1:-} == "--path" ]]; then
+    exit 1
+  fi
   echo "Unknown"
+elif [[ ${1:-} == "--path" ]]; then
+  printf '%s\n' "$BACKGROUND_PATH"
+else
+  omarchy_background_label "$BACKGROUND_PATH"
 fi

@@ -24,9 +24,13 @@ printf '%s\n' '#!/bin/bash' 'echo "notify-send was invoked" >"$OMARCHY_TEST_NOTI
 chmod +x "$tmpdir/notify-send"
 tripwire="$tmpdir/notify-send-was-used"
 
+# The guard the suite runs under would suppress every notification, and then
+# this file would assert nothing. It is switched off here and only here,
+# because the stub above is what the call reaches: nothing in this file can
+# touch the session bus, which is what the guard exists to protect.
 send() {
   OMARCHY_TEST_BUSCTL_ARGS="$args_file" OMARCHY_TEST_NOTIFY_TRIPWIRE="$tripwire" \
-    PATH="$tmpdir:$ROOT/bin:$PATH" omarchy-notification-send "$@"
+    OMARCHY_NO_UI=0 PATH="$tmpdir:$ROOT/bin:$PATH" omarchy-notification-send "$@"
 }
 
 # Notify(susssasa{sv}i) args, by position in the recorded busctl argv:

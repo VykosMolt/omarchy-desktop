@@ -46,15 +46,12 @@ keybindings() {
     bash "$ROOT/bin/omarchy-menu-keybindings" --print
 }
 
-# Closing a window and toggling the scratchpad are two of the actions Omarchy
-# binds twice on purpose. The last bind carries the longest description Omarchy
-# ships, which is what puts a row closest to the width the menu allows.
+# Moving a window to the scratchpad is one of the actions Omarchy binds twice on
+# purpose, and its pair is also the widest one that still fits a shared row.
 stub_hyprctl <<BINDS
-$(lua_bind 64 "SUPER + W" "Close window")
-$(lua_bind 64 "SUPER + Q" "Close window")
+$(lua_bind 72 "SUPER + ALT + S" "Move window to scratchpad")
+$(lua_bind 65 "SUPER + SHIFT + grave" "Move window to scratchpad")
 $(lua_bind 64 "SUPER + F" "Full screen")
-$(lua_bind 64 "SUPER + S" "Toggle scratchpad")
-$(lua_bind 64 "SUPER + grave" "Toggle scratchpad")
 $(exec_bind 73 "SUPER SHIFT ALT + 0" "Move window silently to workspace 10" "true")
 BINDS
 
@@ -65,21 +62,20 @@ grep -q 'SUPER + F  *→ Full screen' <<<"$rendered" ||
   fail "a chord with no alternative renders on its own" "$rendered"
 pass "the keybindings menu renders its entries"
 
-(( $(grep -c '→ Close window$' <<<"$rendered") == 1 )) ||
+(( $(grep -c '→ Move window to scratchpad$' <<<"$rendered") == 1 )) ||
   fail "an alternative chord joins the row of the first one" "$rendered"
-grep -q 'SUPER + W / SUPER + Q  *→ Close window' <<<"$rendered" ||
+grep -q 'SUPER ALT + S / SUPER SHIFT + ~  *→ Move window to scratchpad' <<<"$rendered" ||
   fail "a shared row names both chords" "$rendered"
 pass "an alternative chord joins the row of the first one"
 
-# Which chord leads is the whole point of keeping Hyprland's order: SUPER + W is
-# the documented default and SUPER + Q the alternative bound after it.
-grep -q '^SUPER + W / SUPER + Q' <<<"$rendered" ||
+# Which chord leads is the whole point of keeping Hyprland's order: SUPER + ALT
+# + S is the documented default and the Quake-style chord the alternative bound
+# after it.
+grep -q '^SUPER ALT + S / SUPER SHIFT + ~' <<<"$rendered" ||
   fail "the chord declared first leads a shared row" "$rendered"
 pass "the chord declared first leads a shared row"
 
 # Hyprland calls the key left of 1 "grave". Nobody reads their keyboard that way.
-grep -q 'SUPER + S / SUPER + ~  *→ Toggle scratchpad' <<<"$rendered" ||
-  fail "the grave key reads as the symbol printed on it" "$rendered"
 ! grep -q 'grave' <<<"$rendered" ||
   fail "no entry still says grave" "$rendered"
 pass "the grave key reads as the symbol printed on it"
@@ -174,24 +170,24 @@ pass "chords too wide to share a row stay on their own"
 # A shared label is not a shared action. Two chords that merely read alike have
 # to stay apart, or the menu hides one of them behind the other.
 stub_hyprctl <<BINDS
-$(lua_bind 64 "SUPER + W" "Close window")
-$(exec_bind 64 "SUPER + X" "Close window" "omarchy-hyprland-window-close-all")
+$(lua_bind 72 "SUPER + ALT + S" "Move window to scratchpad")
+$(exec_bind 64 "SUPER + X" "Move window to scratchpad" "omarchy-hyprland-window-pop")
 BINDS
 
 rendered=$(keybindings)
-(( $(grep -c '→ Close window$' <<<"$rendered") == 2 )) ||
+(( $(grep -c '→ Move window to scratchpad$' <<<"$rendered") == 2 )) ||
   fail "chords with the same label but different actions stay apart" "$rendered"
 pass "chords with the same label but different actions stay apart"
 
 # An unresolved Lua bind reports no dispatcher at all, so nothing says the two
 # chords run the same thing, whatever their label promises.
 stub_hyprctl <<BINDS
-$(lua_bind 64 "SUPER + Y" "Close window")
-$(lua_bind 64 "SUPER + Z" "Close window")
+$(lua_bind 64 "SUPER + Y" "Move window to scratchpad")
+$(lua_bind 64 "SUPER + Z" "Move window to scratchpad")
 BINDS
 
 rendered=$(keybindings)
-(( $(grep -c '→ Close window$' <<<"$rendered") == 2 )) ||
+(( $(grep -c '→ Move window to scratchpad$' <<<"$rendered") == 2 )) ||
   fail "chords whose dispatch is unknown stay apart" "$rendered"
 pass "chords whose dispatch is unknown stay apart"
 
@@ -199,9 +195,7 @@ pass "chords whose dispatch is unknown stay apart"
 # the script, so dropping an action from the list fails instead of shrinking
 # what gets checked.
 expected_alternatives=(
-  "Close window"
   "Calculator"
-  "Toggle scratchpad"
   "Move window to scratchpad"
 )
 

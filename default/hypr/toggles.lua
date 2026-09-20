@@ -19,3 +19,8 @@ disabled_input_device("touchpad")
 disabled_input_device("touchscreen")
 
 require("default.hypr.workspace-layouts")
+
+-- Last, and loaded from here because config/hypr/hyprland.lua requires this
+-- module last: a value the settings panel wrote has to survive a reload even
+-- when hypr/looknfeel.lua or hypr/input.lua sets the same key.
+require("default.hypr.settings")

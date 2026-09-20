@@ -1,12 +1,13 @@
 #!/bin/bash
 
 # The settings panel has no compositor in this suite, so everything worth
-# testing about it lives in Model.js: which settings exist, which mechanism
-# backs each one, the duration choices and how they read, the parsers for every
-# command's output, and the argument vector each command runs. Panel.qml is
-# asserted against as source text -- that it uses the kit's lifecycle and key
-# handling, that it never builds a command itself, and that it re-reads after a
-# write instead of assuming one took.
+# testing about it lives in Model.js: which categories exist, which settings
+# sit in each, which mechanism backs every one, how a value reads, the parsers
+# for every command's output, and the argument vector each command runs.
+# Panel.qml is asserted against as source text -- that it uses the kit's
+# lifecycle and key handling, that it renders whatever the model names rather
+# than wiring settings one at a time, that it never builds a command itself,
+# and that it re-reads after a write instead of assuming one took.
 
 set -euo pipefail
 
@@ -31,24 +32,11 @@ assert(manifest.keepLoaded !== true, 'the settings panel loads on demand rather 
 // ------------------------------------------------------------- the inventory
 
 const shellOwned = settings.rows().filter(row => row.owner === 'shell').map(row => row.id)
-const systemOwned = settings.rows().filter(row => row.owner === 'system').map(row => row.id)
 
 assertDeepEqual(
-  shellOwned,
-  ['idle.screenOff', 'idle.lock', 'idle.suspend', 'bar.position', 'bar.transparent'],
+  shellOwned.slice().sort(),
+  ['bar.position', 'bar.transparent', 'idle.lock', 'idle.screenOff', 'idle.suspend'],
   'the shell-owned settings are the ones that live in shell.json'
-)
-assertDeepEqual(
-  systemOwned,
-  [
-    'idle.stayAwake',
-    'appearance.theme',
-    'appearance.iconTheme',
-    'appearance.font',
-    'appearance.textSize',
-    'display.scale',
-  ],
-  'the system-owned settings are the ones a command reads and writes'
 )
 assert(
   settings.rows().every(row => row.owner === 'shell' || row.owner === 'system'),
@@ -57,6 +45,10 @@ assert(
 assert(
   settings.rows().every(row => (row.owner === 'shell') === (row.configPath !== undefined)),
   'exactly the shell-owned settings name a path in shell.json'
+)
+assert(
+  settings.rows().every(row => row.owner === 'system' || row.option === undefined),
+  'a Hyprland option is never claimed to live in shell.json'
 )
 
 // Ownership and who performs the write are separate questions. The bar's own
@@ -67,32 +59,62 @@ assertDeepEqual(
   ['config', 'config', 'config'],
   'the idle timings are written straight into shell.json'
 )
+assert(
+  settings.rows().filter(row => row.writeVia === 'config').every(row => row.id.indexOf('idle.') === 0),
+  'the idle timings are the only settings written without a command'
+)
 assertDeepEqual(
   ['bar.position', 'bar.transparent'].map(settings.writeViaOf),
   ['command', 'command'],
   'the bar settings are written through omarchy-bar so the bar validates them'
 )
-assert(
-  systemOwned.every(id => settings.writeViaOf(id) === 'command'),
-  'every system-owned setting is written by running a command'
-)
 
-// Every setting shows up in exactly one section, and every section has content.
-const sectionIds = settings.sections().map(section => section.id)
-assertDeepEqual(sectionIds, ['power', 'appearance', 'bar', 'display'], 'the panel has four sections')
-assert(
-  sectionIds.every(id => settings.rowsInSection(id).length > 0),
-  'no section is empty'
+// Every setting shows up in exactly one category, every category has content,
+// and no two settings share an id.
+const sectionIds = settings.sectionIds()
+assertDeepEqual(
+  sectionIds,
+  ['appearance', 'wallpaper', 'bar', 'windows', 'input', 'touchpad', 'display', 'power', 'notifications', 'defaults', 'keys'],
+  'the panel covers appearance, wallpaper, bar, windows, input, touchpad, display, power, notifications, defaults and keys'
 )
+assert(sectionIds.every(id => settings.rowsInSection(id).length > 0), 'no category is empty')
 assert(
   settings.rows().every(row => sectionIds.indexOf(row.section) !== -1),
-  'every setting belongs to a declared section'
+  'every setting belongs to a declared category'
 )
+assert(
+  settings.sections().every(section => section.name && section.title && section.caption),
+  'every category has a sidebar name, a heading, and a line saying what it covers'
+)
+assertEqual(
+  new Set(settings.rowIds()).size,
+  settings.rowIds().length,
+  'no two settings share an id'
+)
+
+// Each control kind is one the panel knows how to render.
+const kinds = ['duration', 'switch', 'choice', 'search', 'group', 'slider', 'action', 'list']
+assert(
+  settings.rows().every(row => kinds.indexOf(row.kind) !== -1),
+  'every setting names a control the panel can draw',
+  settings.rows().filter(row => kinds.indexOf(row.kind) === -1).map(row => row.id + ': ' + row.kind).join(', ')
+)
+
+// ------------------------------------------------------------------ cursor
+
+// j/k stays inside the category on screen; Tab is what moves between them.
+assertEqual(settings.moveRow('bar', 0, -1), 0, 'the cursor stops at the first setting of a category')
+assertEqual(settings.moveRow('bar', 1, 1), 1, 'the cursor stops at the last setting of a category')
+assertEqual(settings.moveRow('bar', 0, 1), 1, 'the cursor walks a category in order')
+assertEqual(settings.moveSection(0, -1), 0, 'Tab stops at the first category')
+assertEqual(settings.moveSection(sectionIds.length - 1, 1), sectionIds.length - 1, 'Tab stops at the last category')
+assertEqual(settings.rowIndex('bar.transparent'), 1, 'a row knows where it sits in its own category')
+assertEqual(settings.firstRowIn('bar'), 'bar.position', 'a category knows which row the cursor lands on')
 
 // ------------------------------------------------------------------ durations
 
 assertDeepEqual(
-  settings.durationChoices(),
+  settings.displayOptions('idle.lock', 0, []).map(option => Number(option.value)),
   [0, 60, 120, 300, 600, 900, 1800, 2700, 3600],
   'the duration choices are never, 1, 2, 5, 10, 15, 30 and 45 minutes, and an hour'
 )
@@ -142,6 +164,13 @@ assertEqual(settings.barPosition({ bar: { position: 'sideways' } }), 'top', 'an 
 assertEqual(settings.barTransparent(config), true, 'bar transparency reads from shell.json')
 assertEqual(settings.barTransparent({}), false, 'a missing bar transparency reads as opaque')
 
+// The panel carries every value as a string, so a shell-owned row has to hand
+// one back in the same shape a command-backed row would.
+assertEqual(settings.shellValue('idle.lock', config), '300', 'a shell-owned timeout reads back as a string')
+assertEqual(settings.shellValue('bar.transparent', config), 'true', 'a shell-owned switch reads back as true or false')
+assertEqual(settings.shellValue('bar.position', config), 'left', 'a shell-owned choice reads back as its value')
+assertEqual(settings.shellValue('appearance.theme', config), '', 'a command-backed row has no value in shell.json')
+
 // The defaults this port ships have to be readable by the panel that edits
 // them, or the first thing a user sees is a wrong value.
 assertEqual(settings.idleSeconds(defaultShellConfig, 'lock'), 300, 'the shipped defaults lock at five minutes')
@@ -190,11 +219,15 @@ assertEqual(
 
 // ------------------------------------------------------------------ choices
 
-assertDeepEqual(settings.barPositionValues(), ['top', 'bottom', 'left', 'right'], 'the bar can sit on any edge')
 assertDeepEqual(
-  settings.barPositionOptions().map(option => option.label),
-  ['Top', 'Bottom', 'Left', 'Right'],
-  'bar positions are labelled for a person'
+  settings.barPositionOptions(),
+  [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' }
+  ],
+  'the bar can sit on any edge, each labelled for a person'
 )
 
 const textSizes = settings.textSizeOptions(12)
@@ -203,6 +236,15 @@ assertEqual(textSizes[0].value, '9', 'text size starts at the smallest size the 
 assertEqual(textSizes[textSizes.length - 1].value, '20', 'text size stops at the largest size the command accepts')
 assertEqual(textSizes[3].label, '12 px (default)', 'the shell default text size is marked as the default')
 assertEqual(settings.textSizeOptions(24).length, 13, 'a text size set outside the range is still offered')
+
+// omarchy-cursor-theme accepts 8 to 128 px, so every size offered has to sit
+// inside that or the panel offers a value the command refuses.
+const cursorSizes = settings.cursorSizeOptions(24)
+assert(
+  cursorSizes.every(option => Number(option.value) >= 8 && Number(option.value) <= 128),
+  'every cursor size offered is one omarchy-cursor-theme accepts'
+)
+assertEqual(settings.cursorSizeOptions(23).length, cursorSizes.length + 1, 'a cursor size set outside the presets is still offered')
 
 assertDeepEqual(
   settings.monitorScaleOptions(1.6).map(option => option.value),
@@ -222,9 +264,49 @@ assertDeepEqual(
 assertEqual(settings.normalizeScale('1.600000'), '1.6', 'hyprctl float noise compares equal to the preset it means')
 assertEqual(settings.normalizeScale('0'), '', 'a scale of zero is no scale at all')
 
-assertEqual(settings.moveRow(0, -1), 0, 'the cursor stops at the first setting')
-assertEqual(settings.moveRow(settings.rowIds().length - 1, 1), settings.rowIds().length - 1, 'the cursor stops at the last setting')
-assertEqual(settings.moveRow(0, 1), 1, 'the cursor walks the settings in order')
+// A row whose choices come from a command shows what the command listed, plus
+// whatever is actually in force -- a theme installed and then removed would
+// otherwise show as nothing at all.
+const listed = [{ value: 'Papirus', label: 'Papirus' }]
+assertDeepEqual(
+  settings.displayOptions('appearance.iconTheme', 'Papirus', listed),
+  listed,
+  'a value the command listed is not offered twice'
+)
+assertDeepEqual(
+  settings.displayOptions('appearance.iconTheme', 'Gone', listed).map(option => option.value),
+  ['Papirus', 'Gone'],
+  'a value nothing listed is still shown, so the row never reads as empty'
+)
+assertDeepEqual(
+  settings.displayOptions('bar.position', 'top', []).map(option => option.value),
+  ['top', 'bottom', 'left', 'right'],
+  'a row with fixed choices ignores whatever a command might have listed'
+)
+assertDeepEqual(
+  settings.displayOptions('input.followMouse', '1', []).find(option => option.value === '1'),
+  { value: '1', label: 'Focus follows the pointer' },
+  'a choice offers a label a person can read, not the number Hyprland stores'
+)
+
+// ------------------------------------------------------------------ sliders
+
+const gaps = settings.sliderSpec('windows.gapsIn')
+assertEqual(gaps.integer, true, 'a pixel setting steps in whole pixels')
+assertEqual(settings.sliderValue('windows.gapsIn', 7.4), '7', 'a slider snaps to a value the option accepts')
+assertEqual(settings.sliderValue('windows.gapsIn', -5), '0', 'a slider never sends a value below its floor')
+assertEqual(settings.sliderValue('windows.gapsIn', 500), '40', 'a slider never sends a value above its ceiling')
+assertEqual(settings.sliderLabel('windows.gapsIn', 5), '5 px', 'a pixel setting reads in pixels')
+assertEqual(settings.sliderLabel('windows.activeOpacity', 0.87), '85%', 'an opacity reads as a percentage of its own step')
+assertEqual(settings.sliderLabel('input.repeatRate', 40), '40', 'a setting with no unit reads as a bare number')
+assertEqual(settings.sliderSpec('bar.position'), null, 'a row that is not a slider has no slider to describe')
+assert(
+  settings.rows().filter(row => row.kind === 'slider').every(row => {
+    const spec = settings.sliderSpec(row.id)
+    return spec && isFinite(spec.minimum) && isFinite(spec.maximum) && spec.step > 0 && spec.maximum > spec.minimum
+  }),
+  'every slider names a range and a step it can actually walk'
+)
 
 // ------------------------------------------------------------------ parsing
 
@@ -236,27 +318,63 @@ assertDeepEqual(
 assertEqual(settings.parseFirstLine('Tokyo Night\nCatppuccin\n'), 'Tokyo Night', 'the current value is the first line')
 assertEqual(settings.parseFirstLine(''), '', 'no output is no value')
 
+assertDeepEqual(
+  settings.parseTabbedOptions('Tokyo Night\nCatppuccin\n'),
+  [{ value: 'Tokyo Night', label: 'Tokyo Night' }, { value: 'Catppuccin', label: 'Catppuccin' }],
+  'a list of bare names is read as values that are their own labels'
+)
+assertDeepEqual(
+  settings.parseTabbedOptions('/pics/a b.png\tA B\nzen\tZen\n'),
+  [{ value: '/pics/a b.png', label: 'A B' }, { value: 'zen', label: 'Zen' }],
+  'a list that names a value and a label keeps them apart, spaces and all'
+)
+
 assertEqual(settings.parseIdleStatus('{"stayAwake":true,"enabled":false}').stayAwake, true, 'Stay Awake is read off the idle service status')
 assertEqual(settings.parseIdleStatus('{"stayAwake":false}').stayAwake, false, 'the idle service reports Stay Awake off')
 assertEqual(settings.parseIdleStatus('omarchy-shell is not running').ok, false, 'an unparseable idle status is a failed read, not a false')
 
-
-const pinnedSize = settings.parseTextSize('text size: 16 px\ngtk text-scaling-factor: 1.3636\nterminal font: 12 pt\n')
-assertEqual(pinnedSize.px, 16, 'a pinned text size is read from the first line')
-assertEqual(pinnedSize.isDefault, false, 'a pinned text size is not the default')
-const defaultSize = settings.parseTextSize('text size: 12 (default) px\ngtk text-scaling-factor: 1.0\nterminal font: 9 pt\n')
-assertEqual(defaultSize.px, 12, 'an unpinned text size still reports the size in force')
-assertEqual(defaultSize.isDefault, true, 'an unpinned text size is reported as the default')
+assertEqual(settings.parseTextSize('text size: 16 px\ngtk text-scaling-factor: 1.3636\nterminal font: 12 pt\n').px, 16,
+  'a pinned text size is read from the first line')
+assertEqual(settings.parseTextSize('text size: 12 (default) px\ngtk text-scaling-factor: 1.0\nterminal font: 9 pt\n').px, 12,
+  'an unpinned text size still reports the size in force')
 assertEqual(settings.parseTextSize('command not found').ok, false, 'unreadable text size output is a failed read')
 
 assertEqual(settings.parseMonitorScale('1.6\n').scale, '1.6', 'the focused monitor scale is read from the scaling command')
 assertEqual(settings.parseMonitorScale('').ok, false, 'no scale output is a failed read')
 
+assertEqual(
+  settings.parseActiveProfile('power-saver\t0\nbalanced\t0\nperformance\t1\n'),
+  'performance',
+  'the power profile in force is the one marked active'
+)
+assertEqual(settings.parseActiveProfile('power-saver\t0\nbalanced\t0\n'), '', 'no active profile is no value')
+
+// A css option such as gaps_in reads back as four numbers and is set with one,
+// and hyprctl spells an unset string option "[[EMPTY]]".
+assertEqual(settings.parseOptionValue('windows.gapsIn', '5 5 5 5\n'), '5', 'a four-value gap reads back as the one number that set it')
+assertEqual(settings.parseOptionValue('input.accelProfile', '[[EMPTY]]\n'), '', 'an unset string option reads as unset, not as the word hyprctl prints')
+assertEqual(settings.parseOptionValue('windows.layout', 'dwindle\n'), 'dwindle', 'a string option reads back as itself')
+
+// One answer shape for every read, whatever the command said.
+assertDeepEqual(settings.parseValue('idle.stayAwake', '{"stayAwake":true}'), { ok: true, value: 'true' }, 'a switch reads back as true or false')
+assertDeepEqual(settings.parseValue('windows.blur', 'false\n'), { ok: true, value: 'false' }, 'a Hyprland switch reads back as true or false')
+assertDeepEqual(settings.parseValue('windows.gapsIn', '5 5 5 5\n'), { ok: true, value: '5' }, 'a Hyprland slider reads back as one number')
+assertDeepEqual(settings.parseValue('appearance.theme', 'Tokyo Night\n'), { ok: true, value: 'Tokyo Night' }, 'a name reads back as itself')
+assertEqual(settings.parseValue('appearance.theme', '').ok, false, 'a command that said nothing is a failed read')
+assertEqual(settings.parseValue('input.accelProfile', '[[EMPTY]]\n').ok, true, 'a string option that is legitimately unset is still a successful read')
+assertEqual(settings.parseValue('keys.list', 'SUPER + Q\t→ Close\n').value.length > 0, true, 'the keybinding list keeps every line it was given')
+
+assertDeepEqual(
+  settings.parseLines('SUPER + Q  → Close window\n\nSUPER + S  → Settings\n'),
+  ['SUPER + Q  → Close window', 'SUPER + S  → Settings'],
+  'the keybinding list drops blank lines and keeps the order the menu produced'
+)
+
 // ----------------------------------------------------------------- commands
 
-// Theme, icon-theme and font names carry spaces and quotes. Every command is
-// an argument vector, so a name is one argument and never a fragment of a
-// shell string.
+// Theme, icon-theme, font and wallpaper names carry spaces and quotes. Every
+// command is an argument vector, so a name is one argument and never a
+// fragment of a shell string.
 const hostile = 'Tokyo Night"; rm -rf $HOME #'
 assertDeepEqual(
   settings.writeCommand('appearance.theme', hostile),
@@ -269,28 +387,34 @@ assertDeepEqual(
   'an icon theme name reaches the command as a single unmodified argument'
 )
 assertDeepEqual(
+  settings.writeCommand('appearance.cursorTheme', hostile),
+  ['omarchy-cursor-theme', 'set', hostile],
+  'a cursor theme name reaches the command as a single unmodified argument'
+)
+assertDeepEqual(
   settings.writeCommand('appearance.font', hostile),
   ['omarchy-font-set', hostile],
   'a font name reaches the command as a single unmodified argument'
 )
+assertDeepEqual(
+  settings.writeCommand('wallpaper.image', '/pics/a b".png'),
+  ['omarchy-theme-bg-set', '/pics/a b".png'],
+  'a wallpaper path reaches the command as a single unmodified argument'
+)
 
-assertDeepEqual(settings.readCommand('appearance.theme'), ['omarchy-theme-current'], 'the current theme is read with omarchy-theme-current')
-assertDeepEqual(settings.optionsCommand('appearance.theme'), ['omarchy-theme-list'], 'the theme choices come from omarchy-theme-list')
-assertDeepEqual(settings.readCommand('appearance.iconTheme'), ['omarchy-icon-theme', 'get'], 'the icon theme is read with omarchy-icon-theme get')
-assertDeepEqual(settings.optionsCommand('appearance.iconTheme'), ['omarchy-icon-theme', 'list'], 'the icon theme choices come from omarchy-icon-theme list')
-assertDeepEqual(settings.readCommand('appearance.font'), ['omarchy-font-current'], 'the monospace font is read with omarchy-font-current')
-assertDeepEqual(settings.optionsCommand('appearance.font'), ['omarchy-font-list'], 'the font choices come from omarchy-font-list')
-assertDeepEqual(settings.readCommand('appearance.textSize'), ['omarchy-display-text-size'], 'the text size is read with omarchy-display-text-size')
-assertDeepEqual(settings.writeCommand('appearance.textSize', 16), ['omarchy-display-text-size', '16'], 'the text size is written with omarchy-display-text-size')
-assertDeepEqual(settings.readCommand('display.scale'), ['omarchy-hyprland-monitor-scaling'], 'the monitor scale is read with the scaling command')
-assertDeepEqual(settings.writeCommand('display.scale', '1.6'), ['omarchy-hyprland-monitor-scaling', '1.6'], 'the monitor scale is written with the scaling command')
-assertDeepEqual(settings.writeCommand('bar.position', 'left'), ['omarchy-bar', 'position', 'left'], 'the bar position goes through omarchy-bar')
 assertDeepEqual(settings.writeCommand('bar.transparent', true), ['omarchy-bar', 'transparent', 'true'], 'bar transparency goes through omarchy-bar')
 assertDeepEqual(settings.writeCommand('bar.transparent', false), ['omarchy-bar', 'transparent', 'false'], 'bar transparency can be turned off through omarchy-bar')
 
+// Silencing is the notification service's own do-not-disturb, which is what
+// the bar indicator and the keybinding both drive. Writing a toggle flag
+// instead flipped a file nothing reads.
+assertDeepEqual(settings.parseValue('notifications.silenced', 'on\n'), { ok: true, value: 'true' }, 'the service answers on or off; the panel carries true or false')
+assertDeepEqual(settings.parseValue('notifications.silenced', 'off\n'), { ok: true, value: 'false' }, 'silencing off reads as a switch that is off')
+assertEqual(settings.parseValue('notifications.silenced', '').ok, false, 'no answer from the service is a failed read, not a false')
+assertDeepEqual(settings.writeCommand('notifications.silenced', true), ['omarchy-shell', 'notifications', 'setDnd', 'true'], 'silencing is set on the service that owns it')
+
 // Stay Awake is the idle service's state, not shell.json's, and on means idle
 // off -- so the command is the inverse of the switch.
-assertDeepEqual(settings.readCommand('idle.stayAwake'), ['omarchy-shell', 'idle', 'status'], 'Stay Awake is read over the idle service IPC')
 assertDeepEqual(settings.writeCommand('idle.stayAwake', true), ['omarchy-shell', 'idle', 'disable'], 'turning Stay Awake on disables idle')
 assertDeepEqual(settings.writeCommand('idle.stayAwake', false), ['omarchy-shell', 'idle', 'enable'], 'turning Stay Awake off re-enables idle')
 
@@ -299,11 +423,149 @@ for (const id of ['idle.screenOff', 'idle.lock', 'idle.suspend']) {
   assertDeepEqual(settings.writeCommand(id, 300), [], `${id} is written through shell.json, not through a command`)
 }
 
+// ------------------------------------------------------- the Hyprland rows
+
+// Naming an option rather than a command is what keeps thirty Hyprland
+// settings from being thirty hand-written vectors, so the generated vectors
+// are what has to be pinned.
+const optionRows = settings.rows().filter(row => row.option !== undefined)
+assert(optionRows.length >= 20, 'the panel reaches Hyprland for the settings Hyprland owns', String(optionRows.length))
+assert(
+  optionRows.every(row => /^[a-z]+(:[a-z_-]+)+$/.test(row.option)),
+  'every Hyprland setting names an option the way Hyprland names it',
+  optionRows.filter(row => !/^[a-z]+(:[a-z_-]+)+$/.test(row.option)).map(row => row.id).join(', ')
+)
+assertEqual(
+  new Set(optionRows.map(row => row.option)).size,
+  optionRows.length,
+  'no two settings claim the same Hyprland option'
+)
+assert(
+  optionRows.every(row => {
+    const read = settings.readCommand(row.id)
+    const write = settings.writeCommand(row.id, '1')
+    return read[0] === 'omarchy-hyprland-setting' && read[1] === 'get' && read[2] === row.option &&
+      write[0] === 'omarchy-hyprland-setting' && write[1] === 'set' && write[2] === row.option
+  }),
+  'every Hyprland setting is read and written through the one command that records what it set'
+)
+assertDeepEqual(
+  settings.writeCommand('windows.blur', true),
+  ['omarchy-hyprland-setting', 'set', 'decoration:blur:enabled', 'true'],
+  'a switch is written as the word Hyprland expects, not as a number'
+)
+// hyprctl has no way of being handed nothing, so clearing an option is a reset
+// -- which is also the only way to hand a key back to the config files.
+assertDeepEqual(
+  settings.writeCommand('input.accelProfile', ''),
+  ['omarchy-hyprland-setting', 'reset', 'input:accel_profile'],
+  'choosing the device default drops the override rather than writing an empty string'
+)
+
+// Every vector, spelled out. A command that exists is not the same as a
+// command called the way it takes its arguments: a power profile handed to
+// omarchy-powerprofiles-set without the power source in front of it lands in
+// the wrong argument, and a silencing switch written to a toggle flag nothing
+// reads flips happily while notifications keep arriving. Both shipped. A row
+// added or rewired has to be written down here too, where it can be read
+// against the command it names.
+const expectedReads = {
+  'appearance.theme': ['omarchy-theme-current'],
+  'appearance.iconTheme': ['omarchy-icon-theme', 'get'],
+  'appearance.cursorTheme': ['omarchy-cursor-theme', 'get'],
+  'appearance.cursorSize': ['omarchy-cursor-theme', 'size'],
+  'appearance.font': ['omarchy-font-current'],
+  'appearance.textSize': ['omarchy-display-text-size'],
+  'wallpaper.image': ['omarchy-theme-bg-current', '--path'],
+  'display.scale': ['omarchy-hyprland-monitor-scaling'],
+  'idle.stayAwake': ['omarchy-shell', 'idle', 'status'],
+  'power.profile': ['omarchy-powerprofiles-list', '--active-state'],
+  'notifications.silenced': ['omarchy-shell', 'notifications', 'dndState'],
+  'defaults.browser': ['omarchy-default-browser'],
+  'defaults.editor': ['omarchy-default-editor'],
+  'keys.list': ['omarchy-menu-keybindings', '--print']
+}
+const expectedOptions = {
+  'appearance.theme': ['omarchy-theme-list'],
+  'appearance.iconTheme': ['omarchy-icon-theme', 'list'],
+  'appearance.cursorTheme': ['omarchy-cursor-theme', 'list'],
+  'appearance.font': ['omarchy-font-list'],
+  'wallpaper.image': ['omarchy-theme-bg-list'],
+  'power.profile': ['omarchy-powerprofiles-list'],
+  'defaults.browser': ['omarchy-default-browser', '--list'],
+  'defaults.editor': ['omarchy-default-editor', '--list']
+}
+const expectedWrites = {
+  'idle.stayAwake': ['omarchy-shell', 'idle', 'enable'],
+  'appearance.theme': ['omarchy-theme-set', 'X'],
+  'appearance.iconTheme': ['omarchy-icon-theme', 'set', 'X'],
+  'appearance.cursorTheme': ['omarchy-cursor-theme', 'set', 'X'],
+  'appearance.cursorSize': ['omarchy-cursor-theme', 'size', 'X'],
+  'appearance.font': ['omarchy-font-set', 'X'],
+  'appearance.textSize': ['omarchy-display-text-size', 'X'],
+  'wallpaper.image': ['omarchy-theme-bg-set', 'X'],
+  'wallpaper.next': ['omarchy-theme-bg-next'],
+  'wallpaper.folders': ['omarchy-menu-theme-bg-dir', 'add'],
+  'bar.position': ['omarchy-bar', 'position', 'X'],
+  'bar.transparent': ['omarchy-bar', 'transparent', 'false'],
+  'display.scale': ['omarchy-hyprland-monitor-scaling', 'X'],
+  'power.profile': ['omarchy-powerprofiles-set', 'autodetect', 'X'],
+  'notifications.silenced': ['omarchy-shell', 'notifications', 'setDnd', 'false'],
+  'defaults.browser': ['omarchy-default-browser', 'X'],
+  'defaults.editor': ['omarchy-default-editor', 'X'],
+  'keys.edit': ['omarchy-launch-config-editor', 'hypr/bindings.lua']
+}
+
+for (const id of settings.rowIds()) {
+  const option = settings.row(id).option
+  const read = settings.readCommand(id)
+  const write = settings.writeCommand(id, 'X')
+
+  if (option) {
+    assertDeepEqual(read, ['omarchy-hyprland-setting', 'get', option], `${id} reads its Hyprland option`)
+    assertDeepEqual(write, ['omarchy-hyprland-setting', 'set', option, 'X'], `${id} writes its Hyprland option`)
+    continue
+  }
+
+  assertDeepEqual(read, expectedReads[id] || [], `${id} reads with the arguments its command takes`)
+  assertDeepEqual(write, expectedWrites[id] || [], `${id} writes with the arguments its command takes`)
+  assertDeepEqual(settings.optionsCommand(id), expectedOptions[id] || [], `${id} lists its choices with the arguments its command takes`)
+}
+pass('every command runs with the arguments the command it names actually takes')
+
+assertDeepEqual(
+  settings.rowIds().filter(settings.opensWindow),
+  ['wallpaper.folders', 'keys.edit'],
+  'the rows whose command puts a window on screen are the folder picker and the editor'
+)
+
 assert(settings.isArgumentVector(['omarchy-theme-set', 'Tokyo Night']), 'a full argument vector is usable')
 assert(!settings.isArgumentVector([]), 'an empty vector is not a command')
 assert(!settings.isArgumentVector(['omarchy-theme-set', undefined]), 'a vector with a missing argument is refused rather than run short')
 assert(!settings.isArgumentVector(['omarchy-theme-set', '']), 'a vector with an empty argument is refused')
 assert(!settings.isArgumentVector('omarchy-theme-set "Tokyo Night"'), 'a command string is not an argument vector')
+
+// A control with nothing behind it is a dead row, so every row has to be
+// reachable by one of the two mechanisms.
+assert(
+  settings.rows().every(row =>
+    row.owner === 'shell' ||
+    settings.isArgumentVector(settings.readCommand(row.id)) ||
+    settings.isArgumentVector(settings.writeCommand(row.id, 'probe'))),
+  'no row is a control with nothing behind it',
+  settings.rows().filter(row => row.owner === 'system' &&
+    !settings.isArgumentVector(settings.readCommand(row.id)) &&
+    !settings.isArgumentVector(settings.writeCommand(row.id, 'probe'))).map(row => row.id).join(', ')
+)
+// A row the user can change but the panel cannot read back would show the last
+// thing clicked rather than what took.
+assert(
+  settings.rows().every(row =>
+    row.kind === 'action' ||
+    row.owner === 'shell' ||
+    settings.isArgumentVector(settings.readCommand(row.id))),
+  'every setting the panel can change, it can also read back'
+)
 
 assertEqual(
   settings.commandError(['omarchy-theme-set', 'Nope'], 1, "Theme 'nope' does not exist\n"),
@@ -322,26 +584,58 @@ assert(/PanelController \{/.test(panelSource), 'the panel holds its open state i
 assert(/PanelKeyCatcher \{/.test(panelSource), 'the panel navigates with the kit key catcher')
 assert(/onCloseRequested: root\.dismiss\(\)/.test(panelSource), 'Escape closes the panel')
 assert(/onMoveRequested/.test(panelSource) && /onActivateRequested/.test(panelSource), 'the panel walks and activates its rows from the keyboard')
+assert(/onTabRequested: function\(direction\) \{ root\.moveSection\(direction\) \}/.test(panelSource), 'Tab walks the categories')
 assert(/blocked: root\.popupBlocking/.test(panelSource), 'an open dropdown owns the keyboard instead of double-driving the cursor')
+
+// The panel renders the inventory rather than repeating it. A setting named in
+// Panel.qml is a setting that would have to be added twice.
+const panelCode = panelSource.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n')
+const namedRows = settings.rowIds().filter(id => panelCode.includes('"' + id + '"'))
+assertDeepEqual(namedRows, [], 'the panel names no setting of its own; it draws what the model lists')
+assert(
+  /Repeater \{\s*model: Model\.rowsInSection\(root\.currentSection\)/.test(panelCode),
+  'the rows on screen are the ones the model puts in the category on screen'
+)
+assert(
+  /Repeater \{\s*model: Model\.sections\(\)/.test(panelCode),
+  'the categories down the side are the ones the model declares'
+)
 
 // Every command lives in Model.js. The panel builds none of its own, so there
 // is nowhere in it for a value to be interpolated into one.
-const panelCode = panelSource.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n')
 assert(!/\[\s*"omarchy-/.test(panelCode), 'the panel writes no command vector of its own')
+// Two hops now: a reader holds the vector the model built and binds its
+// command to it, and the write process is handed one straight from the queue.
+// Both ends have to trace back to Model.js and nowhere else.
 const commandBindings = panelCode.match(/^\s*(?:\w+\.)?command\s*[:=][^\n]*/gm) || []
-assert(commandBindings.length > 0, 'the panel runs commands')
+const vectorBindings = panelCode.match(/^\s*vector\s*:[^\n]*/gm) || []
+assert(commandBindings.length > 0 && vectorBindings.length > 0, 'the panel runs commands')
 assert(
-  commandBindings.every(line => /Model\.(read|options|write)Command|next\.command/.test(line)),
-  'every command the panel runs is one the model built',
+  commandBindings.every(line => /reader\.vector|next\.command/.test(line)),
+  'the panel only ever runs a vector it was handed',
   commandBindings.join('\n')
+)
+assert(
+  vectorBindings.every(line => /Model\.(read|options)Command/.test(line)),
+  'every vector a reader is handed is one the model built',
+  vectorBindings.join('\n')
+)
+assert(
+  /root\.writeQueue = root\.writeQueue\.concat\(\[\{ rowId: String\(rowId\), command: command \}\]\)/.test(panelCode) &&
+  /var command = Model\.writeCommand\(rowId, value\)/.test(panelCode),
+  'the only thing the write queue ever carries is a vector the model built'
 )
 assert(!/\bbash\b/.test(panelCode), 'the panel runs no shell, so nothing it runs can be a string')
 assert(!/\/bin\//.test(panelCode), 'the panel resolves commands on PATH rather than through a path')
 assert(!/Quickshell\.shellDir/.test(panelSource), 'the panel does not derive paths from the shell directory')
 assert(!/#[0-9a-fA-F]{3,8}\b/.test(panelSource), 'the panel hardcodes no colour')
 
-// Reading is asynchronous and writing is honest.
+// Reading is asynchronous, lazy, and writing is honest.
 assert(/component Reader: Process \{/.test(panelSource), 'every system-owned value is read by running a process')
+assert(
+  /function refreshSection\(sectionId\)/.test(panelSource) && !/function refreshAll\(/.test(panelSource),
+  'the panel reads the category on screen rather than every command it knows'
+)
 assert(
   /function finishWrite\(\) \{[\s\S]*?root\.refreshRow\(rowId\)/.test(panelSource),
   'a write is followed by a re-read rather than by an assumption that it took'
@@ -358,23 +652,58 @@ assert(
   /readonly property var shellConfig: root\.shell && root\.shell\.shellConfig/.test(panelSource),
   'shell-owned values are read from the live shell config, never from a private copy'
 )
+assert(
+  /if \(Model\.opensWindow\(rowId\)\) root\.dismiss\(\)/.test(panelSource),
+  'the panel gets out of the way before running a command that opens a window of its own'
+)
+// A slider that wrote on every frame of a drag would run a command per pixel.
+assert(
+  /onReleased: function\(v\) \{[\s\S]{0,200}?root\.apply\(/.test(panelSource) && !/onMoved: function\(v\) \{[\s\S]{0,120}?root\.apply\(/.test(panelSource),
+  'a slider writes when it is let go, not on every pixel of the drag'
+)
 
 // Exercise error persistence through the mandatory read after a failed write.
 const vm = require('vm')
-const state = { errors: {}, writeRow: 'appearance.font', writeProcess: { code: 1, command: ['omarchy-font-set', 'bad'], errorText: 'font unavailable' }, Model: settings, refreshRow: () => {}, pumpWrites: () => {}, Qt: { callLater: () => {} } }
+const state = {
+  errors: {},
+  values: {},
+  optionLists: {},
+  writeRow: 'appearance.font',
+  writeProcess: { code: 1, command: ['omarchy-font-set', 'bad'], errorText: 'font unavailable' },
+  Model: settings,
+  refreshRow: () => {},
+  pumpWrites: () => {},
+  Qt: { callLater: () => {} }
+}
 state.root = state
 vm.createContext(state)
-for (const name of ['errorFor', 'setError', 'clearError', 'finishRead', 'finishWrite']) {
+for (const name of ['errorFor', 'setError', 'clearError', 'valueOf', 'isLoaded', 'storeValue', 'storeOptions', 'finishRead', 'finishWrite']) {
   const fn = panelSource.match(new RegExp('  function ' + name + '\\([^]*?\\n  }'))
   vm.runInContext(fn[0], state)
 }
 state.finishWrite()
-state.finishRead({ rowId: 'appearance.font', code: 0, outputText: 'previous font', apply: () => {} })
+state.finishRead({ rowId: 'appearance.font', wantsOptions: false, code: 0, outputText: 'previous font', vector: ['omarchy-font-current'] })
 assert(state.errorFor('appearance.font').includes('font unavailable'), 'successful reread cannot erase a failed write error')
+assertEqual(state.values['appearance.font'], 'previous font', 'a successful read stores what the command answered')
 state.writeRow = 'appearance.font'
 state.writeProcess.code = 0
 state.finishWrite()
 assertEqual(state.errorFor('appearance.font'), '', 'a successful retry clears the write error')
+
+// A row is showing a value exactly when its command has answered, and an
+// answer of "" is an answer: an unset Hyprland option reads as nothing, and a
+// row that called that "still reading" would sit on a placeholder forever.
+assertEqual(state.isLoaded('windows.blur'), false, 'a row that has not been read yet says so')
+state.storeValue('windows.blur', 'false')
+assertEqual(state.isLoaded('windows.blur'), true, 'a row that has been read is done reading')
+state.storeValue('input.accelProfile', '')
+assertEqual(state.isLoaded('input.accelProfile'), true, 'an option that is legitimately unset has still been read')
+assertEqual(state.valueOf('input.accelProfile'), '', 'an unset option reads back as unset')
+
+// A command that exits non-zero must not leave the old value on screen as if
+// it were still true.
+state.finishRead({ rowId: 'appearance.theme', wantsOptions: false, code: 127, vector: ['omarchy-theme-current'], errorText: '' })
+assert(state.errorFor('appearance.theme').includes('omarchy-theme-current'), 'a failed read names the command that failed')
 
 // ------------------------------------------------------------------ the menu
 
@@ -387,8 +716,8 @@ assert(
 )
 assert(!settingsRow.includes('aliases'), 'a new menu entry ships no aliases')
 
-// The panel is reachable but not imposed: it is not on the default bar and it
-// takes no keybinding.
+// Reachable from the menu and from SUPER + S, but not imposed: it is not on
+// the default bar.
 const shippedLayout = JSON.stringify(defaultShellConfig.bar.layout)
 assert(!shippedLayout.includes('omarchy.settings'), 'the settings panel is not put on the default bar')
 JS
@@ -418,96 +747,3 @@ pass "every command the settings panel runs exists in bin/"
 if rg -q 'omarchy\.settings' "$ROOT/config/omarchy/shell.json"; then
   fail "the settings panel is not written into the shipped shell.json"
 fi
-pass "the settings panel needs no shell.json entry"
-
-if rg -q 'omarchy\.settings' "$ROOT/config/hypr" "$ROOT/default/hypr"; then
-  fail "the settings panel takes no keybinding"
-fi
-pass "the settings panel takes no keybinding"
-
-# The font setting updates XML as data and preserves unrelated rules/settings.
-(
-  fixture=$(mktemp -d)
-  trap 'rm -rf "$fixture"' EXIT
-  mkdir -p "$fixture/bin" "$fixture/config/fontconfig" "$fixture/config/kitty"
-  cat >"$fixture/bin/fc-list" <<'STUB'
-#!/bin/bash
-printf '%s\n' 'Fixture & <Mono>,Fixture Mono Alias'
-STUB
-  for command in omarchy-restart-terminal omarchy-restart-shell omarchy-hook; do
-    printf '#!/bin/bash\nexit 0\n' >"$fixture/bin/$command"
-  done
-  chmod +x "$fixture/bin"/*
-  export PATH="$fixture/bin:$PATH" XDG_CONFIG_HOME="$fixture/config"
-  unset KITTY_CONFIG_DIRECTORY
-  config="$XDG_CONFIG_HOME/fontconfig/fonts.conf"
-  cat >"$config" <<'XML'
-<?xml version="1.0"?>
-<fontconfig>
-  <!-- Keep this preference. -->
-  <match target="font"><edit name="hintstyle"><const>hintslight</const></edit></match>
-  <match target="pattern"><test name="family" compare="not_eq"><string>monospace</string></test><edit name="family" mode="prepend_first"><string>Unrelated Family</string></edit></match>
-</fontconfig>
-XML
-  printf 'font_size 14\nfont_family Old Font\nmap ctrl+f show_scrollback\n' >"$fixture/kitty.conf"
-  ln -s "$fixture/kitty.conf" "$XDG_CONFIG_HOME/kitty/kitty.conf"
-  "$ROOT/bin/omarchy-font-set" 'Fixture & <Mono>'
-  CONFIG="$config" KITTY="$fixture/kitty.conf" python3 - <<'PYTHON'
-import os
-import xml.etree.ElementTree as ET
-from pathlib import Path
-path = Path(os.environ["CONFIG"])
-assert "Keep this preference." in path.read_text()
-root = ET.parse(path).getroot()
-assert root.find("match[@target='font']/edit/const").text == "hintslight"
-assert root.find("match/test[@compare='not_eq']/../edit/string").text == "Unrelated Family"
-rules = [m for m in root.findall("match") if m.findtext("test/string") == "monospace" and m.find("test").get("compare", "eq") == "eq"]
-assert len(rules) == 1
-assert rules[0].findtext("edit/string") == "Fixture & <Mono>"
-assert Path(os.environ["KITTY"]).read_text() == "font_size 14\nfont_family Fixture & <Mono>\nmap ctrl+f show_scrollback\n"
-PYTHON
-  [[ -L $XDG_CONFIG_HOME/kitty/kitty.conf ]] || fail "font changes preserve kitty config symlinks"
-  "$ROOT/bin/omarchy-font-set" 'Fixture Mono Alias'
-  [[ $(rg -o '<test name="family" qual="any">' "$config" | wc -l) == 1 ]] ||
-    fail "repeated font changes reuse the monospace preference"
-  printf '<fontconfig><broken>' >"$config"
-  cp "$config" "$fixture/before-fontconfig"
-  cp "$fixture/kitty.conf" "$fixture/before-kitty"
-  if "$ROOT/bin/omarchy-font-set" 'Fixture & <Mono>' 2>/dev/null; then
-    fail "invalid fontconfig XML is rejected"
-  fi
-  cmp -s "$config" "$fixture/before-fontconfig" || fail "invalid XML is not overwritten"
-  cmp -s "$fixture/kitty.conf" "$fixture/before-kitty" || fail "invalid XML does not partially change kitty"
-  pass "font changes preserve unrelated XML, terminal settings and symlinks, and reject malformed config"
-)
-
-run_node_test <<'JS'
-const fs = require('fs')
-const vm = require('vm')
-const source = fs.readFileSync(root + '/shell/plugins/panels/settings/Panel.qml', 'utf8')
-const block = source.slice(source.indexOf('  component Reader: Process {'), source.indexOf('\n  Reader {'))
-const reads = []
-const deferred = []
-const reader = { running: false, pendingResult: true, startConfirmed: false, rerun: false, resultExited: false, outDone: false, errDone: false, root: { finishRead: value => reads.push(value.code) }, Qt: { callLater: fn => deferred.push(fn) } }
-reader.reader = reader
-vm.createContext(reader)
-for (const name of ['request', 'pump', 'settle']) vm.runInContext(block.match(new RegExp('    function ' + name + '\\([^]*?\\n    }'))[0], reader)
-const recovery = block.match(/onRunningChanged: if \(!running\) Qt\.callLater\((function\(\) \{[^]*?\n    \})\)/)
-vm.runInContext('recover = ' + recovery[1], reader)
-reader.recover()
-assertDeepEqual(reads, [127], 'a settings reader reports failed startup without waiting for absent collector signals')
-assertEqual(reader.pendingResult, false, 'failed reader startup releases its completion gate')
-reader.pendingResult = true
-reader.startConfirmed = true
-reader.resultExited = true
-reader.outDone = reader.errDone = false
-reader.rerun = true
-reader.settle()
-reader.pump()
-assertEqual(reader.running, false, 'a settings reread waits for predecessor collectors after exit')
-reader.outDone = reader.errDone = true
-reader.settle()
-deferred.splice(0).forEach(fn => fn())
-assertEqual(reader.running, true, 'a superseding settings read starts after the old result fully drains')
-assertDeepEqual(reads, [127], 'a superseded result is never published')
-JS

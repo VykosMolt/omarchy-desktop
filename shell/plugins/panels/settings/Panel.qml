@@ -7,42 +7,33 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// The desktop's settings panel: the knobs this session can actually drive,
-// grouped into sections and reachable with
+// The desktop's settings panel: every knob this session can actually drive,
+// grouped into categories down the left and reachable with
 //   omarchy-shell shell toggle omarchy.settings
+// or SUPER + S.
 //
 // Standalone panel plugin, so the shell's panel loader owns the lifecycle and
 // calls open()/close() -- there is no bar button and no IpcHandler of its own,
 // the way every other kind: "panel" plugin here works. PanelController still
 // holds the open state so the panel matches the kit's panels, and
 // PanelKeyCatcher provides the same j/k/h/l/Enter/Esc navigation the bar
-// panels use.
+// panels use, with Tab walking the categories.
 //
-// Two mechanisms back these settings and no third one:
-//
-//   shell-owned   the value lives in shell.json. It is read from
-//                 shell.shellConfig -- which the shell keeps current, so the
-//                 panel is always showing the file, never a cached copy of it
-//                 -- and written either through shell.mutateShellConfig or
-//                 through the command that owns the setting's validation.
-//   system-owned  the value lives outside the shell and is read and written by
-//                 running one of the port's commands.
+// Nothing here is hand-wired to a particular setting. Model.js names the rows,
+// which control each one draws, and which command backs it; this file renders
+// whatever it finds and runs whatever it is handed, so a new setting is a
+// Model.js entry and nothing else.
 //
 // Every read is a Process, so the panel paints immediately and each value
-// arrives when its command answers; nothing here ever blocks. Every write is
-// followed by a re-read (system-owned) or lands in shell.json and comes back
-// through shellConfig (shell-owned), so what the panel shows is what actually
-// took. A command that fails puts its own message on the row instead of being
-// swallowed.
-//
-// Model.js holds every rule worth testing -- the setting inventory and its
-// ownership, the duration choices and their labels, the output parsers, and
-// each command's argument vector. This file is presentation and wiring.
+// arrives when its command answers; only the category on screen is read, so
+// opening the panel never waits on the commands behind the other ten. Every
+// write is followed by a re-read, or lands in shell.json and comes back through
+// shellConfig, so what the panel shows is what actually took -- and a command
+// that fails puts its own message on the row instead of being swallowed.
 Item {
   id: root
 
   // ---- host injections ----------------------------------------------------
-  property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var shell: null
   property var manifest: null
 
@@ -56,9 +47,7 @@ Item {
   function open(payloadJson) {
     panelController.show()
     root.cursorActive = false
-    root.selectedRow = Model.rowIds()[0]
-    root.syncGroupIndex()
-    refreshAll()
+    root.selectSection(Model.sectionIds()[0])
     // The window is instantiated hidden, so a `focus: true` inside it is
     // evaluated before the surface maps and Escape would land nowhere.
     Qt.callLater(function() {
@@ -68,27 +57,14 @@ Item {
 
   // Host-initiated close (`omarchy-shell shell hide`). The host already knows.
   function close() {
-    root.closeDropdowns()
     panelController.hide()
   }
 
   // User-initiated close. Tell the shell so its openPanelIds map stays
   // consistent and the next toggle opens rather than closes.
   function dismiss() {
-    root.closeDropdowns()
     panelController.hide()
     if (root.shell && typeof root.shell.hide === "function") root.shell.hide(root.pluginId)
-  }
-
-  function closeDropdowns() {
-    var dropdowns = [themeDropdown, iconThemeDropdown, fontDropdown, textSizeDropdown,
-      monitorScaleDropdown, screenOffDropdown, lockDropdown, suspendDropdown]
-    for (var i = 0; i < dropdowns.length; i++) dropdowns[i].close()
-  }
-
-  function toggle() {
-    if (root.opened) dismiss()
-    else open("{}")
   }
 
   // ---- surface ------------------------------------------------------------
@@ -105,36 +81,53 @@ Item {
   readonly property string fontFamily: Style.font.family
   readonly property color dimForeground: Qt.darker(foreground, 1.4)
 
-  // ---- shell-owned values -------------------------------------------------
-  // Read straight off the live config the shell holds, so an edit made
+  // ---- values -------------------------------------------------------------
+  // A shell-owned row reads straight off the live config, so an edit made
   // anywhere else -- omarchy-bar, a hand-edited shell.json -- shows up here
-  // without the panel polling for it.
+  // without the panel polling for it. A system-owned row carries what its
+  // command last answered.
   readonly property var shellConfig: root.shell && root.shell.shellConfig ? root.shell.shellConfig : ({})
-  readonly property int screenOffSeconds: Model.idleSeconds(shellConfig, "screenOff")
-  readonly property int lockSeconds: Model.idleSeconds(shellConfig, "lock")
-  readonly property int suspendSeconds: Model.idleSeconds(shellConfig, "suspend")
-  readonly property string barPositionValue: Model.barPosition(shellConfig)
-  readonly property bool barTransparentValue: Model.barTransparent(shellConfig)
-  readonly property string idleSummary: Model.idleSummary(shellConfig, root.stayAwakeLoaded && root.stayAwake)
+  property var values: ({})
+  property var optionLists: ({})
 
-  // ---- system-owned values ------------------------------------------------
-  // Each starts unloaded and its row shows a placeholder until its command
-  // answers.
-  property bool stayAwake: false
-  property bool stayAwakeLoaded: false
-  property string themeName: ""
-  property bool themeLoaded: false
-  property var themeOptions: []
-  property string iconThemeName: ""
-  property bool iconThemeLoaded: false
-  property var iconThemeOptions: []
-  property string fontName: ""
-  property bool fontLoaded: false
-  property var fontOptions: []
-  property int textSizePx: 0
-  property bool textSizeLoaded: false
-  property string monitorScale: ""
-  property bool monitorScaleLoaded: false
+  function valueOf(rowId) {
+    if (Model.ownerOf(rowId) === "shell") return Model.shellValue(rowId, root.shellConfig)
+    var stored = root.values[String(rowId)]
+    return stored === undefined ? "" : String(stored)
+  }
+
+  function switchedOn(rowId) {
+    return root.valueOf(rowId) === "true"
+  }
+
+  // Shell-owned values are in memory the moment the panel paints, and a button
+  // has nothing to read; everything else shows a placeholder until its command
+  // answers, which is exactly when it first has an entry here. A legitimately
+  // empty answer -- an unset Hyprland option -- still counts as one.
+  function isLoaded(rowId) {
+    if (Model.ownerOf(rowId) === "shell") return true
+    if (Model.kindOf(rowId) === "action") return true
+    return root.values[String(rowId)] !== undefined
+  }
+
+  function optionsOf(rowId) {
+    var stored = root.optionLists[String(rowId)]
+    return Model.displayOptions(rowId, root.valueOf(rowId), stored === undefined ? [] : stored)
+  }
+
+  function storeValue(rowId, value) {
+    var next = ({})
+    for (var k in root.values) next[k] = root.values[k]
+    next[String(rowId)] = String(value)
+    root.values = next
+  }
+
+  function storeOptions(rowId, options) {
+    var next = ({})
+    for (var k in root.optionLists) next[k] = root.optionLists[k]
+    next[String(rowId)] = options
+    root.optionLists = next
+  }
 
   // ---- failures -----------------------------------------------------------
   // rowId -> message. A row shows whatever its read, its option list, or its
@@ -161,19 +154,22 @@ Item {
   }
 
   // ---- cursor -------------------------------------------------------------
-  // One highlight for the whole panel, walking every row of every section.
-  // Mouse hover and the keyboard both move this same state, so the two never
-  // disagree. Same recipe as the bar panels.
-  property string selectedRow: Model.rowIds()[0]
+  // One highlight, walking the rows of the category on screen. Mouse hover and
+  // the keyboard both move this same state, so the two never disagree. Tab
+  // moves between categories, which is why j/k can stay inside one pane.
+  property string currentSection: Model.sectionIds()[0]
+  property string selectedRow: Model.firstRowIn(Model.sectionIds()[0])
   property bool cursorActive: false
-  property int groupIndex: 0
 
-  readonly property bool popupBlocking: themeDropdown.popupOpen || iconThemeDropdown.popupOpen
-    || fontDropdown.popupOpen || textSizeDropdown.popupOpen || monitorScaleDropdown.popupOpen
-    || screenOffDropdown.popupOpen || lockDropdown.popupOpen || suspendDropdown.popupOpen
+  // The row under the cursor registers itself, so activating or stepping a
+  // value never has to search the delegates for the control it means.
+  property var activeRow: null
 
-  // A dropdown's popup is its own surface, so when it closes the panel has to
-  // take the keyboard back or j/k lands nowhere.
+  // A dropdown's popup is its own surface; while one is open it owns the
+  // keyboard, and the panel's own j/k has to stand down or it would drive both.
+  property int openPopups: 0
+  readonly property bool popupBlocking: root.openPopups > 0
+
   onPopupBlockingChanged: {
     if (popupBlocking || !opened) return
     Qt.callLater(function() {
@@ -181,48 +177,37 @@ Item {
     })
   }
 
+  function selectSection(sectionId) {
+    root.currentSection = String(sectionId)
+    root.selectedRow = Model.firstRowIn(root.currentSection)
+    root.activeRow = null
+    root.refreshSection(root.currentSection)
+  }
+
+  function moveSection(delta) {
+    var index = Model.sectionIndex(root.currentSection)
+    if (index < 0) index = 0
+    root.selectSection(Model.sectionIds()[Model.moveSection(index, delta)])
+  }
+
   function focusRow(rowId) {
     root.cursorActive = true
     root.selectedRow = String(rowId)
-    if (rowId === "bar.position") root.syncGroupIndex()
-  }
-
-  function syncGroupIndex() {
-    var index = Model.barPositionValues().indexOf(root.barPositionValue)
-    root.groupIndex = index < 0 ? 0 : index
   }
 
   function moveCursor(delta) {
     var index = Model.rowIndex(root.selectedRow)
     if (index < 0) index = 0
-    root.selectedRow = Model.rowIds()[Model.moveRow(index, delta)]
-    if (root.selectedRow === "bar.position") root.syncGroupIndex()
-  }
-
-  function moveWithinRow(delta) {
-    if (root.selectedRow !== "bar.position") return
-    var values = Model.barPositionValues()
-    var next = root.groupIndex + delta
-    root.groupIndex = Math.max(0, Math.min(values.length - 1, next))
+    var ids = Model.rowIdsInSection(root.currentSection)
+    root.selectedRow = ids[Model.moveRow(root.currentSection, index, delta)]
   }
 
   function activateRow() {
-    switch (root.selectedRow) {
-      case "idle.screenOff": screenOffDropdown.toggle(); return
-      case "idle.lock": lockDropdown.toggle(); return
-      case "idle.suspend": suspendDropdown.toggle(); return
-      case "idle.stayAwake": root.setStayAwake(!root.stayAwake); return
-      case "appearance.theme": themeDropdown.toggle(); return
-      case "appearance.iconTheme": iconThemeDropdown.toggle(); return
-      case "appearance.font": fontDropdown.toggle(); return
-      case "appearance.textSize": textSizeDropdown.toggle(); return
-      case "bar.position":
-        var values = Model.barPositionValues()
-        if (root.groupIndex >= 0 && root.groupIndex < values.length) root.setBarPosition(values[root.groupIndex])
-        return
-      case "bar.transparent": root.setBarTransparent(!root.barTransparentValue); return
-      case "display.scale": monitorScaleDropdown.toggle(); return
-    }
+    if (root.activeRow) root.activeRow.activate()
+  }
+
+  function stepRow(delta) {
+    if (root.activeRow) root.activeRow.step(delta)
   }
 
   // Keep the highlighted row on screen as j/k walks past the fold.
@@ -240,72 +225,82 @@ Item {
   }
 
   // ---- reading ------------------------------------------------------------
-  function readerFor(rowId) {
-    switch (String(rowId)) {
-      case "idle.stayAwake": return stayAwakeReader
-      case "appearance.theme": return themeReader
-      case "appearance.iconTheme": return iconThemeReader
-      case "appearance.font": return fontReader
-      case "appearance.textSize": return textSizeReader
-      case "display.scale": return monitorScaleReader
+  // A read already in flight was started before whatever prompted this one, so
+  // its answer is stale by definition: queue another rather than settle for it.
+  // Asked for by name rather than by position: an Instantiator's own order is
+  // its model's, but nothing here should have to know that to find a reader.
+  function readerFor(pool, rowId) {
+    for (var i = 0; i < pool.count; i++) {
+      var reader = pool.objectAt(i)
+      if (reader && reader.rowId === String(rowId)) return reader
     }
     return null
   }
 
-  // A read already in flight was started before whatever prompted this one, so
-  // its answer is stale by definition: queue another rather than settle for it.
   function refreshRow(rowId) {
-    var reader = readerFor(rowId)
-    if (!reader) return
-    reader.request()
+    var reader = root.readerFor(valueReaders, rowId)
+    if (reader) reader.request()
   }
 
-  function refreshAll() {
-    var ids = Model.rowIds()
+  // Only what is on screen. Reading every category at open would run forty
+  // commands -- one of them the keybinding scan, which walks the whole Hyprland
+  // config -- to fill rows nobody is looking at.
+  function refreshSection(sectionId) {
+    var ids = Model.rowIdsInSection(sectionId)
     for (var i = 0; i < ids.length; i++) {
-      if (Model.ownerOf(ids[i]) === "system") refreshRow(ids[i])
+      root.refreshRow(ids[i])
+      var options = root.readerFor(optionReaders, ids[i])
+      if (options) options.request()
     }
-    themeOptionsReader.request()
-    iconThemeOptionsReader.request()
-    fontOptionsReader.request()
   }
 
   function finishRead(reader) {
-    if (reader.code === 0) {
-      root.clearError(reader.rowId)
-      if (reader.apply) reader.apply(reader.outputText)
+    var key = reader.rowId + (reader.wantsOptions ? ".options" : "")
+
+    if (reader.code !== 0) {
+      root.setError(key, Model.commandError(reader.vector, reader.code, reader.errorText))
       return
     }
-    root.setError(reader.rowId, Model.commandError(reader.command, reader.code, reader.errorText))
+    root.clearError(key)
+
+    if (reader.wantsOptions) {
+      root.storeOptions(reader.rowId, Model.parseTabbedOptions(reader.outputText))
+      return
+    }
+
+    var parsed = Model.parseValue(reader.rowId, reader.outputText)
+    if (!parsed.ok) {
+      root.setError(reader.rowId, Model.commandName(reader.vector) + " did not answer with a value")
+      return
+    }
+    root.storeValue(reader.rowId, parsed.value)
   }
 
   // ---- writing ------------------------------------------------------------
-  // Shell-owned, written straight into shell.json. The displayed value is
-  // bound to shell.shellConfig, which mutateShellConfig replaces, so the row
-  // shows the file rather than the request.
-  function setIdleStage(stage, secondsText) {
-    var rowId = "idle." + stage
+  // The one entry point for changing anything. A shell-owned row written
+  // through config goes straight into shell.json and comes back through
+  // shellConfig; everything else runs its command and is then re-read.
+  function apply(rowId, value) {
+    if (Model.writeViaOf(rowId) === "config") {
+      root.writeShellConfig(rowId, value)
+      return
+    }
+    // Whatever this one opens needs the keyboard the panel is holding.
+    if (Model.opensWindow(rowId)) root.dismiss()
+    root.runWrite(rowId, value)
+  }
+
+  function writeShellConfig(rowId, value) {
+    var found = Model.row(rowId)
+    if (!found || !found.configPath) return
     if (!root.shell || typeof root.shell.mutateShellConfig !== "function") {
       root.setError(rowId, "the shell cannot write shell.json right now")
       return
     }
-    var seconds = Model.secondsFromOption(secondsText)
+    var stage = found.configPath[found.configPath.length - 1]
+    var seconds = Model.secondsFromConfig(value, 0)
     root.clearError(rowId)
     root.shell.mutateShellConfig(function(config) { Model.applyIdleSeconds(config, stage, seconds) })
-  }
-
-  // Shell-owned, written through omarchy-bar so the bar's own validation and
-  // live patching run rather than being bypassed by a raw file write.
-  function setBarPosition(position) {
-    root.runWrite("bar.position", position)
-  }
-
-  function setBarTransparent(value) {
-    root.runWrite("bar.transparent", value === true)
-  }
-
-  function setStayAwake(value) {
-    root.runWrite("idle.stayAwake", value === true)
   }
 
   // One command at a time, in the order the user asked for them. Several of
@@ -313,8 +308,6 @@ Item {
   // theme switch and a font switch end up fighting over the same shell.
   property var writeQueue: []
   property string writeRow: ""
-
-  readonly property bool busy: root.writeRow !== ""
 
   function busyFor(rowId) {
     return root.writeRow === String(rowId)
@@ -366,7 +359,11 @@ Item {
     id: reader
 
     property string rowId: ""
-    property var apply: null
+    property bool wantsOptions: false
+    // The vector the model built, kept as the JS array it is. Reading it back
+    // off Process.command gives a QML list, which is not a JS array, so a
+    // guard that checked that would refuse every command there is.
+    property var vector: []
     property bool rerun: false
     property string outputText: ""
     property string errorText: ""
@@ -377,7 +374,10 @@ Item {
     property bool outDone: false
     property bool errDone: false
 
+    command: reader.vector
+
     function request() {
+      if (!Model.isArgumentVector(reader.vector)) return
       reader.rerun = true
       reader.pump()
     }
@@ -426,99 +426,45 @@ Item {
     onExited: function(exitCode) { reader.code = exitCode; reader.resultExited = true; reader.settle() }
   }
 
-  Reader {
-    id: stayAwakeReader
-    rowId: "idle.stayAwake"
-    command: Model.readCommand("idle.stayAwake")
-    apply: function(text) {
-      var status = Model.parseIdleStatus(text)
-      if (!status.ok) {
-        root.setError("idle.stayAwake", "could not read the idle service's status")
-        return
-      }
-      root.stayAwake = status.stayAwake
-      root.stayAwakeLoaded = true
+  // One reader per row that has something to read, and one per row that has a
+  // list to offer. Built from the inventory rather than declared row by row, so
+  // a new setting never needs a process of its own written out here.
+  readonly property var valueRowIds: {
+    var out = []
+    var ids = Model.rowIds()
+    for (var i = 0; i < ids.length; i++) {
+      if (Model.isArgumentVector(Model.readCommand(ids[i]))) out.push(ids[i])
+    }
+    return out
+  }
+
+  readonly property var optionRowIds: {
+    var out = []
+    var ids = Model.rowIds()
+    for (var i = 0; i < ids.length; i++) {
+      if (Model.isArgumentVector(Model.optionsCommand(ids[i]))) out.push(ids[i])
+    }
+    return out
+  }
+
+  Instantiator {
+    id: valueReaders
+    model: root.valueRowIds
+    delegate: Reader {
+      required property string modelData
+      rowId: modelData
+      vector: Model.readCommand(modelData)
     }
   }
 
-  Reader {
-    id: themeReader
-    rowId: "appearance.theme"
-    command: Model.readCommand("appearance.theme")
-    apply: function(text) {
-      root.themeName = Model.parseFirstLine(text)
-      root.themeLoaded = true
-    }
-  }
-
-  Reader {
-    id: themeOptionsReader
-    rowId: "appearance.theme.options"
-    command: Model.optionsCommand("appearance.theme")
-    apply: function(text) { root.themeOptions = Model.parseLines(text) }
-  }
-
-  Reader {
-    id: iconThemeReader
-    rowId: "appearance.iconTheme"
-    command: Model.readCommand("appearance.iconTheme")
-    apply: function(text) {
-      root.iconThemeName = Model.parseFirstLine(text)
-      root.iconThemeLoaded = true
-    }
-  }
-
-  Reader {
-    id: iconThemeOptionsReader
-    rowId: "appearance.iconTheme.options"
-    command: Model.optionsCommand("appearance.iconTheme")
-    apply: function(text) { root.iconThemeOptions = Model.parseLines(text) }
-  }
-
-  Reader {
-    id: fontReader
-    rowId: "appearance.font"
-    command: Model.readCommand("appearance.font")
-    apply: function(text) {
-      root.fontName = Model.parseFirstLine(text)
-      root.fontLoaded = true
-    }
-  }
-
-  Reader {
-    id: fontOptionsReader
-    rowId: "appearance.font.options"
-    command: Model.optionsCommand("appearance.font")
-    apply: function(text) { root.fontOptions = Model.parseLines(text) }
-  }
-
-  Reader {
-    id: textSizeReader
-    rowId: "appearance.textSize"
-    command: Model.readCommand("appearance.textSize")
-    apply: function(text) {
-      var size = Model.parseTextSize(text)
-      if (!size.ok) {
-        root.setError("appearance.textSize", "could not read the current text size")
-        return
-      }
-      root.textSizePx = size.px
-      root.textSizeLoaded = true
-    }
-  }
-
-  Reader {
-    id: monitorScaleReader
-    rowId: "display.scale"
-    command: Model.readCommand("display.scale")
-    apply: function(text) {
-      var scale = Model.parseMonitorScale(text)
-      if (!scale.ok) {
-        root.setError("display.scale", "could not read the focused monitor's scale")
-        return
-      }
-      root.monitorScale = scale.scale
-      root.monitorScaleLoaded = true
+  Instantiator {
+    id: optionReaders
+    model: root.optionRowIds
+    delegate: Reader {
+      required property string modelData
+      rowId: modelData
+      wantsOptions: true
+      vector: Model.optionsCommand(modelData)
     }
   }
 
@@ -567,8 +513,8 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
-    readonly property int cardWidth: Math.min(Style.space(620), panel.width - Style.gapsOut * 2)
-    readonly property int cardHeight: Math.min(Style.space(700), panel.height - Style.gapsOut * 2)
+    readonly property int cardWidth: Math.min(Style.space(880), panel.width - Style.gapsOut * 2)
+    readonly property int cardHeight: Math.min(Style.space(660), panel.height - Style.gapsOut * 2)
 
     Rectangle {
       anchors.fill: parent
@@ -600,392 +546,195 @@ Item {
         anchors.rightMargin: card.contentRightInset
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
-        // A dropdown's popup owns the keyboard while it is open; without this
-        // j/k would drive the popup and the panel cursor at once.
         blocked: root.popupBlocking
 
         onMoveRequested: function(dx, dy) {
           if (!root.cursorActive) { root.cursorActive = true; return }
           if (dy !== 0) root.moveCursor(dy)
-          else if (dx !== 0) root.moveWithinRow(dx)
+          else if (dx !== 0) root.stepRow(dx)
         }
+        onTabRequested: function(direction) { root.moveSection(direction) }
         onActivateRequested: {
           if (!root.cursorActive) { root.cursorActive = true; return }
           root.activateRow()
         }
         onCloseRequested: root.dismiss()
 
-        ScrollView {
-          id: scrollArea
+        Row {
           anchors.fill: parent
-          clip: true
-          ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+          anchors.bottomMargin: hintLine.implicitHeight + Style.spacing.md
+          spacing: Style.spacing.panelGap
 
+          // ---- categories --------------------------------------------
           Column {
-            id: content
-            width: scrollArea.availableWidth
-            spacing: Style.spacing.panelGap
+            id: sidebar
+            width: Style.space(190)
+            height: parent.height
+            spacing: Style.spacing.xxs
 
-            // ---- header ------------------------------------------------
-            Column {
-              width: parent.width
-              spacing: Style.spacing.labelGap
-
-              Text {
-                textFormat: Text.PlainText
-                text: "Settings"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-                font.bold: true
-              }
-
-              Text {
-                textFormat: Text.PlainText
-                width: parent.width
-                wrapMode: Text.WordWrap
-                text: "j/k or arrows move, h/l pick within a row, Enter opens or toggles, Esc closes."
-                color: root.dimForeground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+            Text {
+              textFormat: Text.PlainText
+              text: "Settings"
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.heading
+              font.bold: true
+              bottomPadding: Style.spacing.md
             }
 
-            // ---- power & lock ------------------------------------------
-            SectionHeader { sectionId: "power" }
+            Repeater {
+              model: Model.sections()
+
+              CategoryButton {
+                required property var modelData
+                info: modelData
+                width: sidebar.width
+              }
+            }
+          }
+
+          Rectangle {
+            width: Style.spacing.hairline
+            height: parent.height
+            color: root.borderColor
+            opacity: 0.5
+          }
+
+          // ---- the category on screen --------------------------------
+          Column {
+            id: content
+            width: parent.width - sidebar.width - Style.spacing.hairline - Style.spacing.panelGap * 2
+            height: parent.height
+            spacing: Style.spacing.labelGap
+
+            readonly property var info: Model.section(root.currentSection)
+
+            PanelSectionHeader {
+              text: content.info ? String(content.info.title) : ""
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
 
             Text {
               textFormat: Text.PlainText
               width: parent.width
               wrapMode: Text.WordWrap
-              text: root.idleSummary
+              visible: text !== ""
+              text: content.info ? String(content.info.caption || "") : ""
+              color: root.dimForeground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              bottomPadding: Style.spacing.xs
+            }
+
+            // A category whose rows do not add up to what will actually
+            // happen gets one line saying what will. Only the idle stages
+            // need it, and the model is what decides that.
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              wrapMode: Text.WordWrap
+              visible: text !== ""
+              text: Model.sectionSummary(root.currentSection, root.shellConfig, root.values)
               color: root.foreground
               opacity: 0.85
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
+              bottomPadding: Style.spacing.xs
             }
 
-            SettingRow {
-              rowId: "idle.screenOff"
+            ScrollView {
+              id: scrollArea
+              width: parent.width
+              height: parent.height - y
+              clip: true
+              ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-              Dropdown {
-                id: screenOffDropdown
-                width: root.controlWidth
-                showLabel: false
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: Model.durationOptions(root.screenOffSeconds)
-                value: String(root.screenOffSeconds)
-                hasCursor: root.cursorActive && root.selectedRow === "idle.screenOff"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("idle.screenOff") }
-                onChanged: function(v) {
-                  root.setIdleStage("screenOff", v)
-                  // Dropdown assigns its own `value` before it emits, which
-                  // drops the binding; put it back so the row keeps showing
-                  // shell.json rather than the last thing clicked.
-                  value = Qt.binding(function() { return String(root.screenOffSeconds) })
+              Column {
+                width: scrollArea.availableWidth
+                spacing: Style.spacing.xxs
+
+                Repeater {
+                  model: Model.rowsInSection(root.currentSection)
+
+                  SettingRow {
+                    required property var modelData
+                    info: modelData
+                    width: scrollArea.availableWidth
+                  }
                 }
               }
             }
-
-            SettingRow {
-              rowId: "idle.lock"
-
-              Dropdown {
-                id: lockDropdown
-                width: root.controlWidth
-                showLabel: false
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: Model.durationOptions(root.lockSeconds)
-                value: String(root.lockSeconds)
-                hasCursor: root.cursorActive && root.selectedRow === "idle.lock"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("idle.lock") }
-                onChanged: function(v) {
-                  root.setIdleStage("lock", v)
-                  value = Qt.binding(function() { return String(root.lockSeconds) })
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "idle.suspend"
-
-              Dropdown {
-                id: suspendDropdown
-                width: root.controlWidth
-                showLabel: false
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: Model.durationOptions(root.suspendSeconds)
-                value: String(root.suspendSeconds)
-                hasCursor: root.cursorActive && root.selectedRow === "idle.suspend"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("idle.suspend") }
-                onChanged: function(v) {
-                  root.setIdleStage("suspend", v)
-                  value = Qt.binding(function() { return String(root.suspendSeconds) })
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "idle.stayAwake"
-              loaded: root.stayAwakeLoaded
-
-              ToggleSwitch {
-                checked: root.stayAwake
-                busy: root.busyFor("idle.stayAwake")
-                foreground: root.foreground
-                accent: root.accent
-                hasCursor: root.cursorActive && root.selectedRow === "idle.stayAwake"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("idle.stayAwake") }
-                onToggled: {
-                  root.focusRow("idle.stayAwake")
-                  root.setStayAwake(!root.stayAwake)
-                }
-              }
-            }
-
-            // ---- appearance --------------------------------------------
-            SectionHeader { sectionId: "appearance" }
-
-            SettingRow {
-              rowId: "appearance.theme"
-              loaded: root.themeLoaded
-
-              SearchableDropdown {
-                id: themeDropdown
-                width: root.controlWidth
-                showLabel: false
-                placeholderText: "Search themes…"
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: root.themeOptions
-                value: root.themeName
-                hasCursor: root.cursorActive && root.selectedRow === "appearance.theme"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("appearance.theme") }
-                onChanged: function(v) {
-                  root.runWrite("appearance.theme", v)
-                  value = Qt.binding(function() { return root.themeName })
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "appearance.iconTheme"
-              loaded: root.iconThemeLoaded
-
-              SearchableDropdown {
-                id: iconThemeDropdown
-                width: root.controlWidth
-                showLabel: false
-                placeholderText: "Search icon themes…"
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: root.iconThemeOptions
-                value: root.iconThemeName
-                hasCursor: root.cursorActive && root.selectedRow === "appearance.iconTheme"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("appearance.iconTheme") }
-                onChanged: function(v) {
-                  root.runWrite("appearance.iconTheme", v)
-                  value = Qt.binding(function() { return root.iconThemeName })
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "appearance.font"
-              loaded: root.fontLoaded
-
-              SearchableDropdown {
-                id: fontDropdown
-                width: root.controlWidth
-                showLabel: false
-                placeholderText: "Search fonts…"
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: root.fontOptions
-                value: root.fontName
-                hasCursor: root.cursorActive && root.selectedRow === "appearance.font"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("appearance.font") }
-                onChanged: function(v) {
-                  root.runWrite("appearance.font", v)
-                  value = Qt.binding(function() { return root.fontName })
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "appearance.textSize"
-              loaded: root.textSizeLoaded
-
-              Dropdown {
-                id: textSizeDropdown
-                width: root.controlWidth
-                showLabel: false
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: Model.textSizeOptions(root.textSizePx)
-                value: String(root.textSizePx)
-                hasCursor: root.cursorActive && root.selectedRow === "appearance.textSize"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("appearance.textSize") }
-                onChanged: function(v) {
-                  root.runWrite("appearance.textSize", v)
-                  value = Qt.binding(function() { return String(root.textSizePx) })
-                }
-              }
-            }
-
-            // ---- bar ---------------------------------------------------
-            SectionHeader { sectionId: "bar" }
-
-            SettingRow {
-              rowId: "bar.position"
-
-              ButtonGroup {
-                id: barPositionGroup
-                focusable: false
-                fontFamily: root.fontFamily
-                fontSize: Style.font.bodySmall
-                foreground: root.foreground
-                background: root.background
-                accent: root.accent
-                options: Model.barPositionOptions()
-                value: root.barPositionValue
-                cursorIndex: root.cursorActive && root.selectedRow === "bar.position" ? root.groupIndex : -1
-                onChanged: function(v) { root.setBarPosition(v) }
-                onHovered: function(index, isHovered) {
-                  if (!isHovered) return
-                  root.focusRow("bar.position")
-                  root.groupIndex = index
-                }
-              }
-            }
-
-            SettingRow {
-              rowId: "bar.transparent"
-
-              ToggleSwitch {
-                checked: root.barTransparentValue
-                busy: root.busyFor("bar.transparent")
-                foreground: root.foreground
-                accent: root.accent
-                hasCursor: root.cursorActive && root.selectedRow === "bar.transparent"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("bar.transparent") }
-                onToggled: {
-                  root.focusRow("bar.transparent")
-                  root.setBarTransparent(!root.barTransparentValue)
-                }
-              }
-            }
-
-            // ---- display -----------------------------------------------
-            SectionHeader { sectionId: "display" }
-
-            SettingRow {
-              rowId: "display.scale"
-              loaded: root.monitorScaleLoaded
-
-              Dropdown {
-                id: monitorScaleDropdown
-                width: root.controlWidth
-                showLabel: false
-                fontFamily: root.fontFamily
-                foreground: root.foreground
-                background: root.background
-                popupBorder: root.borderColor
-                accent: root.accent
-                options: Model.monitorScaleOptions(root.monitorScale)
-                value: root.monitorScale
-                hasCursor: root.cursorActive && root.selectedRow === "display.scale"
-                onHovered: function(isHovered) { if (isHovered) root.focusRow("display.scale") }
-                onChanged: function(v) {
-                  root.runWrite("display.scale", v)
-                  value = Qt.binding(function() { return root.monitorScale })
-                }
-              }
-            }
-
           }
+        }
+
+        Text {
+          id: hintLine
+          textFormat: Text.PlainText
+          anchors.bottom: parent.bottom
+          anchors.right: parent.right
+          text: "Tab changes category · j/k moves · h/l adjusts · Enter opens · Esc closes"
+          color: root.dimForeground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
         }
       }
     }
   }
 
   // Controls sit on the right of their row; the label takes what is left.
-  readonly property int controlWidth: Math.max(Style.space(150), Math.min(Style.spacing.dropdownWidth, Math.round(panel.cardWidth * 0.45)))
+  readonly property int controlWidth: Math.max(Style.space(150), Math.min(Style.spacing.dropdownWidth, Math.round(panel.cardWidth * 0.32)))
 
-  // ---- row chrome ---------------------------------------------------------
-  component SectionHeader: Column {
-    id: sectionHeader
+  // ---- chrome -------------------------------------------------------------
+  component CategoryButton: Button {
+    id: categoryButton
 
-    property string sectionId: ""
-    readonly property var info: Model.section(sectionId)
+    property var info: null
+    readonly property string sectionId: info ? String(info.id) : ""
 
-    width: parent ? parent.width : 0
-    spacing: Style.spacing.labelGap
-    topPadding: Style.spacing.md
-
-    PanelSeparator { foreground: root.foreground }
-
-    Item { width: Style.spacing.hairline; height: Style.spacing.xs }
-
-    PanelSectionHeader {
-      text: sectionHeader.info ? sectionHeader.info.title : ""
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-
-    Text {
-      textFormat: Text.PlainText
-      width: sectionHeader.width
-      wrapMode: Text.WordWrap
-      visible: text !== ""
-      text: sectionHeader.info ? String(sectionHeader.info.caption || "") : ""
-      color: root.dimForeground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-    }
+    text: info ? String(info.name) : ""
+    leftAlign: true
+    elideLabel: true
+    fontFamily: root.fontFamily
+    fontSize: Style.font.body
+    foreground: root.foreground
+    background: root.background
+    accent: root.accent
+    selected: root.currentSection === categoryButton.sectionId
+    onClicked: root.selectSection(categoryButton.sectionId)
   }
 
   component SettingRow: Column {
     id: settingRow
 
-    property string rowId: ""
-    readonly property var info: Model.row(rowId)
-    // A shell-owned value is in memory the moment the panel paints; a
-    // system-owned one shows a placeholder until its command answers.
-    property bool loaded: true
+    property var info: null
+    readonly property string rowId: info ? String(info.id) : ""
+    readonly property string kind: info ? String(info.kind) : ""
+    readonly property string value: root.valueOf(settingRow.rowId)
+    readonly property bool ready: root.isLoaded(settingRow.rowId)
     readonly property bool hasCursor: root.cursorActive && root.selectedRow === settingRow.rowId
     readonly property string errorText: root.errorFor(settingRow.rowId)
+    readonly property var control: controlLoader.item
 
-    default property alias controlData: controlHolder.data
-
-    width: parent ? parent.width : 0
     spacing: Style.spacing.xxs
 
-    onHasCursorChanged: if (hasCursor) root.ensureRowVisible(this)
+    // Enter on this row: open its dropdown, flip its switch, run its command.
+    function activate() {
+      if (settingRow.control && typeof settingRow.control.activate === "function") settingRow.control.activate()
+    }
+
+    // h/l on this row: walk the chips of a group or nudge a slider. A row with
+    // nothing to step ignores it rather than moving the cursor somewhere the
+    // user did not ask for.
+    function step(delta) {
+      if (settingRow.control && typeof settingRow.control.step === "function") settingRow.control.step(delta)
+    }
+
+    onHasCursorChanged: {
+      if (!hasCursor) return
+      root.activeRow = settingRow
+      root.ensureRowVisible(this)
+    }
 
     CursorSurface {
       id: surface
@@ -993,6 +742,7 @@ Item {
       implicitHeight: Math.max(rowLabel.implicitHeight, controlHolder.childrenRect.height, Style.spacing.controlHeight)
         + Style.spacing.controlGap * 2
       height: implicitHeight
+      visible: settingRow.kind !== "list"
       hasCursor: settingRow.hasCursor
       foreground: root.foreground
       accent: root.accent
@@ -1023,8 +773,23 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         width: childrenRect.width
         height: childrenRect.height
-        visible: settingRow.loaded
-        enabled: settingRow.loaded
+        visible: settingRow.ready
+        enabled: settingRow.ready
+
+        Loader {
+          id: controlLoader
+          active: settingRow.kind !== "list"
+          sourceComponent: {
+            switch (settingRow.kind) {
+              case "switch": return switchControl
+              case "group": return groupControl
+              case "slider": return sliderControl
+              case "action": return actionControl
+              case "search": return searchControl
+            }
+            return dropdownControl
+          }
+        }
       }
 
       Text {
@@ -1032,11 +797,47 @@ Item {
         anchors.right: parent.right
         anchors.rightMargin: Style.spacing.rowPaddingX
         anchors.verticalCenter: parent.verticalCenter
-        visible: !settingRow.loaded
+        visible: !settingRow.ready
         text: "reading…"
         color: root.dimForeground
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
+      }
+    }
+
+    // A list is the row: a chord and what it does, as many times as the
+    // session has bindings. It has no control and nothing to set.
+    Loader {
+      width: parent.width
+      active: settingRow.kind === "list"
+      sourceComponent: Column {
+        spacing: Style.spacing.xxs
+
+        Repeater {
+          model: Model.parseLines(settingRow.value)
+
+          Text {
+            required property string modelData
+            textFormat: Text.PlainText
+            width: settingRow.width
+            leftPadding: Style.spacing.rowPaddingX
+            text: modelData
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            elide: Text.ElideRight
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          visible: !settingRow.ready
+          leftPadding: Style.spacing.rowPaddingX
+          text: "reading…"
+          color: root.dimForeground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
       }
     }
 
@@ -1062,6 +863,198 @@ Item {
       color: root.urgent
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
+    }
+
+    // ---- controls ------------------------------------------------------
+    // One component per kind, each answering activate() and step() so the
+    // keyboard never has to know which kind it is driving.
+    Component {
+      id: switchControl
+
+      ToggleSwitch {
+        function activate() { flip() }
+        function step(delta) { if ((delta > 0) !== root.switchedOn(settingRow.rowId)) flip() }
+        function flip() {
+          root.focusRow(settingRow.rowId)
+          root.apply(settingRow.rowId, !root.switchedOn(settingRow.rowId))
+        }
+
+        checked: root.switchedOn(settingRow.rowId)
+        busy: root.busyFor(settingRow.rowId)
+        foreground: root.foreground
+        accent: root.accent
+        hasCursor: settingRow.hasCursor
+        onHovered: function(isHovered) { if (isHovered) root.focusRow(settingRow.rowId) }
+        onToggled: flip()
+      }
+    }
+
+    Component {
+      id: groupControl
+
+      ButtonGroup {
+        id: group
+
+        // The chip the cursor is on, which is not the chosen one until Enter.
+        property int cursorAt: Math.max(0, indexOfValue(settingRow.value))
+
+        function indexOfValue(value) {
+          for (var i = 0; i < group.options.length; i++) {
+            if (String(group.options[i].value) === String(value)) return i
+          }
+          return -1
+        }
+
+        function activate() {
+          if (group.cursorAt < 0 || group.cursorAt >= group.options.length) return
+          root.apply(settingRow.rowId, group.options[group.cursorAt].value)
+        }
+
+        function step(delta) {
+          group.cursorAt = Math.max(0, Math.min(group.options.length - 1, group.cursorAt + delta))
+        }
+
+        focusable: false
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        foreground: root.foreground
+        background: root.background
+        accent: root.accent
+        options: root.optionsOf(settingRow.rowId)
+        value: settingRow.value
+        cursorIndex: settingRow.hasCursor ? group.cursorAt : -1
+        onChanged: function(v) { root.apply(settingRow.rowId, v) }
+        onHovered: function(index, isHovered) {
+          if (!isHovered) return
+          root.focusRow(settingRow.rowId)
+          group.cursorAt = index
+        }
+      }
+    }
+
+    Component {
+      id: sliderControl
+
+      Row {
+        id: sliderRow
+
+        function step(delta) {
+          var spec = Model.sliderSpec(settingRow.rowId)
+          if (!spec) return
+          root.focusRow(settingRow.rowId)
+          root.apply(settingRow.rowId, Model.sliderValue(settingRow.rowId, Number(settingRow.value) + delta * spec.step))
+        }
+
+        readonly property var spec: Model.sliderSpec(settingRow.rowId)
+
+        spacing: Style.spacing.controlGap
+
+        Text {
+          textFormat: Text.PlainText
+          anchors.verticalCenter: parent.verticalCenter
+          horizontalAlignment: Text.AlignRight
+          width: Style.space(52)
+          text: Model.sliderLabel(settingRow.rowId, settingRow.value)
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        PanelSlider {
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.controlWidth - Style.space(52) - Style.spacing.controlGap
+          bar: root
+          minimum: sliderRow.spec ? sliderRow.spec.minimum : 0
+          maximum: sliderRow.spec ? sliderRow.spec.maximum : 1
+          step: sliderRow.spec ? sliderRow.spec.step : 0.05
+          integer: sliderRow.spec ? sliderRow.spec.integer : false
+          value: Number(settingRow.value)
+          // Only on release: a Hyprland option set on every pixel of a drag
+          // would run a command per frame.
+          onReleased: function(v) {
+            root.focusRow(settingRow.rowId)
+            root.apply(settingRow.rowId, Model.sliderValue(settingRow.rowId, v))
+          }
+        }
+      }
+    }
+
+    Component {
+      id: actionControl
+
+      Button {
+        function activate() { run() }
+        function run() {
+          root.focusRow(settingRow.rowId)
+          root.apply(settingRow.rowId, "")
+        }
+
+        text: settingRow.info && settingRow.info.actionLabel ? String(settingRow.info.actionLabel) : "Run"
+        bordered: true
+        focusable: false
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        foreground: root.foreground
+        background: root.background
+        accent: root.accent
+        hasCursor: settingRow.hasCursor
+        onHovered: function(isHovered) { if (isHovered) root.focusRow(settingRow.rowId) }
+        onClicked: run()
+      }
+    }
+
+    Component {
+      id: dropdownControl
+
+      Dropdown {
+        function activate() { toggle() }
+
+        width: root.controlWidth
+        showLabel: false
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        background: root.background
+        popupBorder: root.borderColor
+        accent: root.accent
+        options: root.optionsOf(settingRow.rowId)
+        value: settingRow.value
+        hasCursor: settingRow.hasCursor
+        onPopupOpenChanged: root.openPopups += popupOpen ? 1 : -1
+        onHovered: function(isHovered) { if (isHovered) root.focusRow(settingRow.rowId) }
+        onChanged: function(v) {
+          root.apply(settingRow.rowId, v)
+          // Dropdown assigns its own `value` before it emits, which drops the
+          // binding; put it back so the row keeps showing the setting rather
+          // than the last thing clicked.
+          value = Qt.binding(function() { return settingRow.value })
+        }
+      }
+    }
+
+    Component {
+      id: searchControl
+
+      SearchableDropdown {
+        function activate() { toggle() }
+
+        width: root.controlWidth
+        showLabel: false
+        placeholderText: "Search…"
+        fontFamily: root.fontFamily
+        foreground: root.foreground
+        background: root.background
+        popupBorder: root.borderColor
+        accent: root.accent
+        options: root.optionsOf(settingRow.rowId)
+        value: settingRow.value
+        hasCursor: settingRow.hasCursor
+        onPopupOpenChanged: root.openPopups += popupOpen ? 1 : -1
+        onHovered: function(isHovered) { if (isHovered) root.focusRow(settingRow.rowId) }
+        onChanged: function(v) {
+          root.apply(settingRow.rowId, v)
+          value = Qt.binding(function() { return settingRow.value })
+        }
+      }
     }
   }
 }

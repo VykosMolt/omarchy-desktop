@@ -1,0 +1,233 @@
+#!/bin/bash
+
+# omarchy:summary=Show, list, or set the cursor theme and size used by the session and its apps
+# omarchy:args=[get|list|set <name>|size [pixels]]
+# omarchy:examples=omarchy cursor theme list|omarchy cursor theme set Breeze_Light|omarchy cursor theme size 24
+
+# Same bargain as omarchy-icon-theme: the cursor is the user's own choice and a
+# colour theme never touches it, but when the user picks one here it has to
+# reach every toolkit, which means writing the files each of them reads. The
+# running compositor is told directly so the pointer changes now rather than at
+# the next login. Nothing outside $HOME is written.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+CURSOR_ROOTS=(
+  /usr/share/icons
+  /usr/local/share/icons
+  "${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+  "$HOME/.icons"
+)
+
+usage() {
+  echo "Usage: omarchy-cursor-theme [get|list|set <name>|size [pixels]]"
+}
+
+# A cursor theme is a theme with cursors in it. index.theme is not enough --
+# every icon theme has one -- and a theme that only inherits still ships the
+# directory, so the directory is the test.
+list_themes() {
+  local root theme_dir name
+
+  for root in "${CURSOR_ROOTS[@]}"; do
+    [[ -d $root ]] || continue
+
+    for theme_dir in "$root"/*/; do
+      [[ -d "${theme_dir}cursors" ]] || continue
+      name=${theme_dir%/}
+      name=${name##*/}
+      printf '%s\n' "$name"
+    done
+  done | sort -u
+}
+
+theme_is_installed() {
+  local name="$1"
+
+  [[ -n $name && $name != .* && $name != */* ]] || return 1
+  list_themes | grep -qxF -- "$name"
+}
+
+gsettings_value() {
+  local key="$1" value
+
+  [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || return 1
+  omarchy-cmd-present gsettings || return 1
+
+  value=$(gsettings get org.gnome.desktop.interface "$key" 2>/dev/null) || return 1
+  value=${value#\'}
+  value=${value%\'}
+
+  [[ -n $value ]] || return 1
+  printf '%s\n' "$value"
+}
+
+get_theme() {
+  local value
+
+  # "default" is Xcursor's own placeholder, not a theme anybody picked, so it
+  # does not settle the question -- the toolkit configs below still can.
+  value=$(gsettings_value cursor-theme) || value=""
+  if [[ -n $value && $value != "default" ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  for value in \
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-3.0/settings.ini" Settings gtk-cursor-theme-name)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-4.0/settings.ini" Settings gtk-cursor-theme-name)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/kcminputrc" Mouse cursorTheme)"; do
+    if [[ -n $value ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+
+  echo "Adwaita"
+}
+
+get_size() {
+  local value
+
+  value=$(gsettings_value cursor-size) || value=""
+  if [[ $value =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  for value in \
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-3.0/settings.ini" Settings gtk-cursor-theme-size)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-4.0/settings.ini" Settings gtk-cursor-theme-size)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/kcminputrc" Mouse cursorSize)"; do
+    if [[ $value =~ ^[0-9]+$ ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+
+  # What default/hypr/envs.lua hands the session when nothing has been chosen.
+  echo 24
+}
+
+# Xwayland and anything reading Xcursor directly go through ~/.icons/default,
+# which names the theme by inheritance rather than by a key.
+write_xcursor_default() {
+  local name="$1"
+  local file="$HOME/.icons/default/index.theme"
+
+  omarchy_ini_set "$file" "Icon Theme" Name "Default" || return 1
+  omarchy_ini_set "$file" "Icon Theme" Inherits "$name"
+}
+
+tell_compositor() {
+  local name="$1"
+  local size="$2"
+  local prefix
+
+  omarchy-cmd-present hyprctl || return 0
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || return 0
+
+  hyprctl setcursor "$name" "$size" >/dev/null 2>&1 || true
+
+  # Only reaches apps started from here on; the ones already running keep the
+  # cursor they were handed, which is what every desktop does. Both prefixes:
+  # Xcursor is what most toolkits read and hyprcursor is what Hyprland's own
+  # clients prefer.
+  for prefix in XCURSOR HYPRCURSOR; do
+    hyprctl setenv "${prefix}_THEME" "$name" >/dev/null 2>&1 || true
+    hyprctl setenv "${prefix}_SIZE" "$size" >/dev/null 2>&1 || true
+  done
+}
+
+apply() {
+  local name="$1"
+  local size="$2"
+  local updated=()
+  local file
+
+  if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
+    if gsettings set org.gnome.desktop.interface cursor-theme "$name" 2>/dev/null &&
+      gsettings set org.gnome.desktop.interface cursor-size "$size" 2>/dev/null; then
+      updated+=("gsettings org.gnome.desktop.interface cursor-theme")
+    fi
+  fi
+
+  for file in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
+    if omarchy_ini_set "$file" Settings gtk-cursor-theme-name "$name" &&
+      omarchy_ini_set "$file" Settings gtk-cursor-theme-size "$size"; then
+      updated+=("$file")
+    fi
+  done
+
+  if omarchy_ini_set "$CONFIG_HOME/kcminputrc" Mouse cursorTheme "$name" &&
+    omarchy_ini_set "$CONFIG_HOME/kcminputrc" Mouse cursorSize "$size"; then
+    updated+=("$CONFIG_HOME/kcminputrc")
+  fi
+
+  if write_xcursor_default "$name"; then
+    updated+=("$HOME/.icons/default/index.theme")
+  fi
+
+  if (( ${#updated[@]} == 0 )); then
+    echo "Nothing accepted the cursor theme: $name" >&2
+    return 1
+  fi
+
+  tell_compositor "$name" "$size"
+
+  printf '%s\n' "${updated[@]}"
+}
+
+set_theme() {
+  local name="$1"
+
+  if ! theme_is_installed "$name"; then
+    echo "Cursor theme is not installed: $name" >&2
+    return 1
+  fi
+
+  apply "$name" "$(get_size)"
+}
+
+set_size() {
+  local size="$1"
+
+  if [[ ! $size =~ ^[0-9]+$ ]] || (( size < 8 || size > 128 )); then
+    echo "Cursor size must be a whole number of pixels between 8 and 128: $size" >&2
+    return 1
+  fi
+
+  apply "$(get_theme)" "$size"
+}
+
+case "${1:-get}" in
+  get)
+    get_theme
+    ;;
+  list)
+    list_themes
+    ;;
+  set)
+    if (( $# < 2 )); then
+      usage >&2
+      exit 1
+    fi
+    set_theme "$2"
+    ;;
+  size)
+    if (( $# < 2 )); then
+      get_size
+    else
+      set_size "$2"
+    fi
+    ;;
+  --help | -h)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

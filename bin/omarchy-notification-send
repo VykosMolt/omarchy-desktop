@@ -202,6 +202,18 @@ notify_cmd=(
   "$expire_timeout"
 )
 
+# A toast lands on the user's screen as surely as a menu does, and it goes over
+# the session bus, which no sandboxed HOME touches: during this port's
+# development a command run by hand only to read what it did announced a new
+# default browser on the user's desktop. OMARCHY_NO_UI=1 is how a suite or an
+# analysis run says not to draw. The action that asked for the notification
+# still succeeded, so this exits cleanly rather than failing its caller -- and
+# with -p there is no toast to have an id, so there is nothing to print.
+if [[ ${OMARCHY_NO_UI:-0} == 1 ]]; then
+  echo "${0##*/}: not notifying because OMARCHY_NO_UI=1 is set." >&2
+  exit 0
+fi
+
 if ((print_id)); then
   # busctl prints the UINT32 return as "u <id>"; emit just the id.
   out=$("${notify_cmd[@]}")

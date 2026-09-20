@@ -1,0 +1,263 @@
+#!/bin/bash
+
+# omarchy:summary=Read and write Hyprland options, keeping what you set across a reload
+# omarchy:group=hyprland
+# omarchy:args=get <option> | set <option> <value> | reset <option> | list [--tsv]
+# omarchy:examples=omarchy hyprland setting set decoration:rounding 8 | omarchy hyprland setting get animations:enabled
+
+# Hyprland already owns these values, so this command never keeps a second copy
+# of the truth: a read asks the running compositor, and a write goes through
+# hyprctl and is only recorded once the compositor accepted it. The record is
+# what survives a reload -- default/hypr/settings.lua replays it after every
+# other config file has had its say, so a value picked in the settings panel is
+# still there on the next login.
+#
+# Writes go through `hyprctl eval`, not `hyprctl keyword`. This session's config
+# is Lua, and Hyprland's Lua provider answers every keyword with "keyword can't
+# work with non-legacy parsers. Use eval." -- so a keyword write here sets
+# nothing at all. eval takes Lua source, which is the one place in this command
+# where a value stops being an argument and becomes text, so the expression is
+# assembled a piece at a time and every name and value is escaped on the way in.
+
+set -euo pipefail
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+
+STORE="$OMARCHY_CONFIG_HOME/hyprland.json"
+
+fail() {
+  echo "${0##*/}: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<USAGE
+Usage: omarchy-hyprland-setting <command> [args...]
+
+  get <option>            Print the option's current value
+  set <option> <value>    Apply the value now and keep it across a reload
+  reset <option>          Forget the kept value and reload Hyprland
+  list [--tsv]            Print kept options, one per line
+
+Options are named the way Hyprland names them: decoration:rounding,
+input:touchpad:natural_scroll, general:gaps_in.
+USAGE
+}
+
+# ---------------------------------------------------------------- compositor
+
+# hyprctl answers an unknown option with "no such option" on stdout and still
+# exits 0, so the shape of the answer is the only thing that can be trusted.
+option_json() {
+  local key="$1" answer
+
+  answer=$(hyprctl getoption "$key" -j 2>/dev/null) || return 1
+  jq -e 'if type == "object" and has("option") then . else empty end' <<<"$answer" 2>/dev/null
+}
+
+# Which of hyprctl's value fields this option answers with. That is also the
+# type the value has to be recorded as, so the Lua side hands Hyprland a
+# boolean rather than the string "true". Anything that is not a number, a bool
+# or a css quad is recorded as the string it reads as; hyprctl is what decides
+# whether it will take it back.
+option_kind() {
+  jq -r '
+    if has("bool") then "bool"
+    elif has("int") then "int"
+    elif has("float") then "float"
+    elif has("css") then "css"
+    else "str" end
+  '
+}
+
+# hyprctl prints a float as 1.000000; arithmetic on it gives back the number a
+# reader would have typed.
+option_value() {
+  jq -r '
+    if has("bool") then (.bool | tostring)
+    elif has("int") then (.int | tostring)
+    elif has("float") then ((.float + 0) | tostring)
+    elif has("css") then .css
+    elif has("str") then .str
+    else empty end
+  '
+}
+
+# A css option (gaps_in and friends) reads back as "5 5 5 5" but is set with a
+# single number, so a plain number is recorded as one and anything else as the
+# string it is.
+json_value() {
+  local kind="$1" value="$2"
+
+  case "$kind" in
+    bool)
+      case "${value,,}" in
+        true | 1 | on | yes) echo true ;;
+        false | 0 | off | no) echo false ;;
+        *) return 1 ;;
+      esac
+      ;;
+    int | float)
+      jq -ne --arg value "$value" '$value | tonumber' 2>/dev/null || return 1
+      ;;
+    css)
+      if [[ $value =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+        jq -ne --arg value "$value" '$value | tonumber'
+      else
+        jq -ne --arg value "$value" '$value'
+      fi
+      ;;
+    *)
+      jq -ne --arg value "$value" '$value'
+      ;;
+  esac
+}
+
+# ------------------------------------------------------------------ lua
+
+# A table key. The two sides of hyprctl do not spell these the same way: the
+# option input:touchpad:tap-to-click reads back under that name, and the Lua
+# provider knows it as tap_to_click and answers the dashed one with "unknown
+# config key". A name that is still not an identifier after that is bracketed
+# rather than guessed at.
+lua_name() {
+  local name=${1//-/_}
+
+  if [[ $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    printf '%s' "$name"
+  else
+    printf '[%s]' "$(jq -Rn --arg name "$1" '$name')"
+  fi
+}
+
+# The value as Lua source. It is already recorded as JSON of the right type,
+# and JSON's own escaping of a string is valid Lua for the text these carry.
+lua_literal() {
+  jq -r 'if type == "string" then @json else tostring end' <<<"$1"
+}
+
+# "decoration:blur:enabled" plus true becomes
+#   hl.config({ decoration = { blur = { enabled = true } } })
+config_expression() {
+  local key="$1"
+  local json="$2"
+  local -a parts
+  local expression index
+
+  IFS=: read -r -a parts <<<"$key"
+  (( ${#parts[@]} > 0 )) || return 1
+
+  expression=$(lua_literal "$json")
+  for (( index = ${#parts[@]} - 1; index >= 0; index-- )); do
+    expression="{ $(lua_name "${parts[index]}") = $expression }"
+  done
+
+  printf 'hl.config(%s)' "$expression"
+}
+
+# --------------------------------------------------------------------- store
+
+read_store() {
+  if [[ -s $STORE ]] && jq -e 'type == "object"' "$STORE" >/dev/null 2>&1; then
+    cat "$STORE"
+  else
+    echo '{}'
+  fi
+}
+
+STORE_TMP=""
+cleanup_store_tmp() {
+  if [[ -n $STORE_TMP ]]; then rm -f -- "$STORE_TMP"; fi
+}
+trap cleanup_store_tmp EXIT
+
+write_store() {
+  local program="$1"
+  shift
+
+  local store_lock_fd
+  mkdir -p -- "${STORE%/*}"
+  exec {store_lock_fd}>"$STORE.lock"
+  flock "$store_lock_fd" || fail "could not lock $STORE"
+
+  STORE_TMP=$(mktemp "$STORE.XXXXXX")
+  read_store | jq -S -e "$@" "$program" >"$STORE_TMP" || fail "could not update $STORE"
+  mv -- "$STORE_TMP" "$STORE"
+  STORE_TMP=""
+
+  exec {store_lock_fd}>&-
+}
+
+# ------------------------------------------------------------------ commands
+
+do_get() {
+  local key="$1" answer
+
+  answer=$(option_json "$key") || fail "no such Hyprland option: $key"
+  option_value <<<"$answer"
+}
+
+do_set() {
+  local key="$1" value="$2" answer kind json expression result
+
+  answer=$(option_json "$key") || fail "no such Hyprland option: $key"
+  kind=$(option_kind <<<"$answer")
+  json=$(json_value "$kind" "$value") || fail "$key does not take: $value"
+
+  expression=$(config_expression "$key" "$json") || fail "could not build a setting for: $key"
+
+  # hyprctl reports a rejected value in its output rather than its exit status,
+  # so a write is only recorded once the compositor said ok. It refuses an
+  # unknown key, a value of the wrong type and a syntax error alike, and leaves
+  # the option as it was in every case.
+  result=$(hyprctl eval "$expression" 2>&1) || fail "hyprctl could not set $key: $result"
+  [[ $result == "ok" ]] || fail "hyprctl refused $key: ${result#error: }"
+
+  write_store '.[$key] = $value' --arg key "$key" --argjson value "$json"
+}
+
+do_reset() {
+  local key="$1"
+
+  write_store 'del(.[$key])' --arg key "$key"
+  hyprctl reload >/dev/null || fail "could not reload Hyprland"
+}
+
+# --tsv is what default/hypr/settings.lua reads: one option per line, with the
+# type spelled out so Lua never has to guess it back off the text.
+do_list() {
+  if [[ ${1:-} == "--tsv" ]]; then
+    read_store | jq -r '
+      to_entries[]
+      | [.key, (.value | type), (.value | tostring)]
+      | @tsv
+    '
+  else
+    read_store | jq -r 'to_entries[] | "\(.key) \(.value | tostring)"'
+  fi
+}
+
+case "${1:-}" in
+  get)
+    (( $# == 2 )) || { usage >&2; exit 1; }
+    do_get "$2"
+    ;;
+  set)
+    (( $# >= 3 )) || { usage >&2; exit 1; }
+    do_set "$2" "${*:3}"
+    ;;
+  reset)
+    (( $# == 2 )) || { usage >&2; exit 1; }
+    do_reset "$2"
+    ;;
+  list)
+    do_list "${2:-}"
+    ;;
+  --help | -h)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

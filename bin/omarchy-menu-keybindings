@@ -346,9 +346,7 @@ static_bindings() {
 # for interchangeably belong on one row.
 alternative_chord_actions() {
   cat <<'ACTIONS'
-Close window
 Calculator
-Toggle scratchpad
 Move window to scratchpad
 ACTIONS
 }

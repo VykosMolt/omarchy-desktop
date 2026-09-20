@@ -1,12 +1,38 @@
 #!/bin/bash
 
 # omarchy:summary=Set the default editor used by omarchy-launch-editor
-# omarchy:args=[code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
-# omarchy:examples=omarchy default editor | omarchy default editor code | omarchy default editor helix
+# omarchy:args=[--list|code|cursor|zed|sublime_text|helix|vim|emacs|nvim]
+# omarchy:examples=omarchy default editor --list | omarchy default editor code
+
+# One table, read by both the picker and the setter, so an editor can never be
+# offered in a list it cannot then be set from: id, command, name, and the
+# glyph the notification carries.
+editors() {
+  cat <<'EDITORS'
+code	code	VSCode	
+cursor	cursor	Cursor	
+zed	zeditor	Zed	
+sublime_text	sublime_text	Sublime Text	
+helix	helix	Helix	
+vim	vim	Vim	
+emacs	emacs	Emacs	
+nvim	nvim	Neovim	
+EDITORS
+}
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 editor_file="$OMARCHY_STATE_HOME/defaults/editor"
+
+# Only the editors this machine can actually switch to.
+if [[ ${1:-} == "--list" ]]; then
+  while IFS=$'\t' read -r id command name _glyph; do
+    if omarchy-cmd-present "$command"; then
+      printf '%s\t%s\n' "$id" "$name"
+    fi
+  done < <(editors)
+  exit 0
+fi
 
 if (($# == 0)); then
   if [[ -f $editor_file ]]; then
@@ -17,20 +43,26 @@ if (($# == 0)); then
   exit 0
 fi
 
-case "$1" in
-code) selection="code"; editor="code"; name="VSCode"; glyph= ;;
-cursor) selection="cursor"; editor="cursor"; name="Cursor"; glyph= ;;
-zed | zeditor) selection="zed"; editor="zeditor"; name="Zed"; glyph= ;;
-sublime_text) selection="sublime_text"; editor="sublime_text"; name="Sublime Text"; glyph= ;;
-helix) selection="helix"; editor="helix"; name="Helix"; glyph= ;;
-vim) selection="vim"; editor="vim"; name="Vim"; glyph= ;;
-emacs) selection="emacs"; editor="emacs"; name="Emacs"; glyph= ;;
-nvim) selection="nvim"; editor="nvim"; name="Neovim"; glyph= ;;
-*)
+# zeditor is what the package calls itself; zed is what a person types.
+selection="$1"
+if [[ $selection == "zeditor" ]]; then
+  selection="zed"
+fi
+
+editor=""
+while IFS=$'\t' read -r id candidate_command candidate_name candidate_glyph; do
+  if [[ $id == "$selection" ]]; then
+    editor="$candidate_command"
+    name="$candidate_name"
+    glyph="$candidate_glyph"
+    break
+  fi
+done < <(editors)
+
+if [[ -z $editor ]]; then
   echo "Usage: omarchy-default-editor <code|cursor|zed|sublime_text|helix|vim|emacs|nvim>"
   exit 1
-  ;;
-esac
+fi
 
 if omarchy-cmd-missing "$editor"; then
   echo "$name is not installed." >&2

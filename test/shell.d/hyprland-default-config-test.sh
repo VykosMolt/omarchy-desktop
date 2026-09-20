@@ -141,20 +141,32 @@ no_bindings_output=$(run_omarchy_bindings "$no_bindings_home" 'omarchy_default_b
 [[ -z $no_bindings_output ]] || fail "default binding variable disables all Omarchy bindings" "$no_bindings_output"
 pass "default binding variable disables all Omarchy bindings"
 
-# The Grave shortcuts are aliases, so the original SUPER + S pair has to keep
-# working alongside them.
+# SUPER + S and SUPER + W open the settings panel and the wallpaper picker, so
+# the scratchpad toggle and closing a window each fall back to the second chord
+# they already had. A key bound twice fires both bindings, so the old chords
+# have to be gone rather than shadowed.
 scratchpad_home="$tmpdir/scratchpad-home"
 mkdir -p "$scratchpad_home"
 scratchpad_output=$(run_omarchy_bindings "$scratchpad_home")
-grep -Fqx $'SUPER + S	Toggle scratchpad' <<<"$scratchpad_output" ||
-  fail "scratchpad keeps its existing toggle binding"
 grep -Fqx $'SUPER + grave	Toggle scratchpad' <<<"$scratchpad_output" ||
-  fail "scratchpad supports a Quake-style toggle binding"
+  fail "scratchpad keeps its Quake-style toggle binding"
 grep -Fqx $'SUPER + ALT + S	Move window to scratchpad' <<<"$scratchpad_output" ||
   fail "scratchpad keeps its existing move binding"
 grep -Fqx $'SUPER + SHIFT + grave	Move window to scratchpad' <<<"$scratchpad_output" ||
   fail "scratchpad supports a Quake-style move binding"
-pass "scratchpad retains existing bindings and adds Grave shortcuts"
+grep -Fqx $'SUPER + Q	Close window' <<<"$scratchpad_output" ||
+  fail "closing a window keeps its second chord"
+pass "the scratchpad and closing a window keep a chord of their own"
+
+grep -Fqx $'SUPER + S	Settings' <<<"$scratchpad_output" ||
+  fail "SUPER + S opens the settings panel"
+grep -Fqx $'SUPER + W	Wallpaper' <<<"$scratchpad_output" ||
+  fail "SUPER + W opens the wallpaper picker"
+for chord in "SUPER + S" "SUPER + W"; do
+  claims=$(cut -f1 <<<"$scratchpad_output" | grep -cFx "$chord" || true)
+  (( claims == 1 )) || fail "only one binding claims $chord" "$claims"
+done
+pass "SUPER + S and SUPER + W each open one thing"
 
 # The panel hotkeys claim a row of keys that workspace switching already uses
 # under other modifiers, so the count matters as much as the bindings: a tenth

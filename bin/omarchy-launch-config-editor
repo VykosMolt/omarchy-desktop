@@ -2,13 +2,22 @@
 
 # omarchy:summary=Open a config file in the user's editor and surface a toast
 # omarchy:args=<path>
-# omarchy:examples=omarchy launch config-editor ~/.config/hypr/hyprland.lua
+# omarchy:examples=omarchy launch config-editor ~/.config/hypr/hyprland.lua | omarchy launch config-editor hypr/bindings.lua
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 path="${1-}"
 
 if [[ -z $path ]]; then
   echo "Usage: omarchy-launch-config-editor <path>" >&2
   exit 1
+fi
+
+# A relative path names one of the session's own config files. Callers that
+# have no shell to expand a variable in -- the settings panel builds argument
+# vectors, never strings -- can then say "hypr/bindings.lua" and mean it.
+if [[ $path != /* && $path != ~* ]]; then
+  path="$OMARCHY_SESSION_CONFIG_HOME/$path"
 fi
 
 omarchy-notification-send -u low "Editing config file" "$path"

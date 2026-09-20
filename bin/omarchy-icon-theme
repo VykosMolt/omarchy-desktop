@@ -5,6 +5,7 @@
 # omarchy:examples=omarchy icon theme list|omarchy icon theme set Papirus-Dark
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
 
 # This command writes account-wide files -- the GTK, Qt, and KDE configs under
 # the user's own ~/.config -- which a theme switch deliberately never touches.
@@ -24,89 +25,6 @@ ICON_ROOTS=(
 
 usage() {
   echo "Usage: omarchy-icon-theme [get|list|set <name>]"
-}
-
-ini_value() {
-  local file="$1"
-  local section="$2"
-  local key="$3"
-
-  [[ -r $file ]] || return 1
-
-  awk -v section="$section" -v key="$key" '
-    /^[[:space:]]*\[/ {
-      in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
-      next
-    }
-    in_section && index($0, key) == 1 {
-      line = $0
-      sub("^" key "[[:space:]]*=[[:space:]]*", "", line)
-      if (line != $0) {
-        print line
-        exit
-      }
-    }
-  ' "$file"
-}
-
-# Writes one key into one section, creating the file and the section when they
-# are missing and leaving every other line exactly as it was.
-set_ini_value() {
-  local file="$1"
-  local section="$2"
-  local key="$3"
-  local value="$4"
-  local temp_file
-
-  # A config kept in a dotfiles repo is a symlink; writing the file it points at
-  # keeps the link, where replacing the link with a regular file would quietly
-  # detach the user's config from the repo that manages it.
-  if [[ -L $file ]]; then
-    file=$(readlink -f "$file") || return 1
-    [[ -n $file ]] || return 1
-  fi
-
-  mkdir -p "${file%/*}" || return 1
-  temp_file=$(mktemp "$file.XXXXXX") || return 1
-
-  if [[ -f $file ]]; then
-    chmod --reference="$file" "$temp_file" 2>/dev/null
-    awk -v section="$section" -v key="$key" -v value="$value" '
-      /^[[:space:]]*\[/ {
-        if (in_section && !done) {
-          print key "=" value
-          done = 1
-        }
-        in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
-        print
-        next
-      }
-      in_section && index($0, key) == 1 && $0 ~ "^" key "[[:space:]]*=" {
-        if (!done) {
-          print key "=" value
-          done = 1
-        }
-        next
-      }
-      { print }
-      END {
-        if (!done) {
-          if (!in_section) print "[" section "]"
-          print key "=" value
-        }
-      }
-    ' "$file" >"$temp_file" || {
-      rm -f "$temp_file"
-      return 1
-    }
-  else
-    printf '[%s]\n%s=%s\n' "$section" "$key" "$value" >"$temp_file" || {
-      rm -f "$temp_file"
-      return 1
-    }
-  fi
-
-  mv -f "$temp_file" "$file"
 }
 
 # A cursor theme also ships an index.theme, and offering one as an icon theme
@@ -182,9 +100,9 @@ get_theme() {
   fi
 
   for value in \
-    "$(ini_value "$CONFIG_HOME/gtk-3.0/settings.ini" Settings gtk-icon-theme-name)" \
-    "$(ini_value "$CONFIG_HOME/gtk-4.0/settings.ini" Settings gtk-icon-theme-name)" \
-    "$(ini_value "$CONFIG_HOME/kdeglobals" Icons Theme)"; do
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-3.0/settings.ini" Settings gtk-icon-theme-name)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/gtk-4.0/settings.ini" Settings gtk-icon-theme-name)" \
+    "$(omarchy_ini_get "$CONFIG_HOME/kdeglobals" Icons Theme)"; do
     if [[ -n $value ]]; then
       printf '%s\n' "$value"
       return 0
@@ -214,7 +132,7 @@ set_theme() {
   fi
 
   for file in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
-    if set_ini_value "$file" Settings gtk-icon-theme-name "$name"; then
+    if omarchy_ini_set "$file" Settings gtk-icon-theme-name "$name"; then
       updated+=("$file")
     fi
   done
@@ -226,12 +144,12 @@ set_theme() {
     file="$CONFIG_HOME/$tool/$tool.conf"
     [[ -f $file ]] || omarchy-cmd-present "$tool" || continue
 
-    if set_ini_value "$file" Appearance icon_theme "$name"; then
+    if omarchy_ini_set "$file" Appearance icon_theme "$name"; then
       updated+=("$file")
     fi
   done
 
-  if set_ini_value "$CONFIG_HOME/kdeglobals" Icons Theme "$name"; then
+  if omarchy_ini_set "$CONFIG_HOME/kdeglobals" Icons Theme "$name"; then
     updated+=("$CONFIG_HOME/kdeglobals")
   fi
 

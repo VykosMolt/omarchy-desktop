@@ -1,4 +1,3 @@
-o.bind("SUPER + W", "Close window", hl.dsp.window.close())
 o.bind("SUPER + Q", "Close window", hl.dsp.window.close())
 o.bind("CTRL + ALT + DELETE", "Close all windows", "omarchy-hyprland-window-close-all")
 
@@ -25,7 +24,6 @@ for workspace = 1, 10 do
   o.bind("SUPER + SHIFT + ALT + " .. key, "Move window silently to workspace " .. workspace, hl.dsp.window.move({ workspace = tostring(workspace), follow = false }))
 end
 
-o.bind("SUPER + S", "Toggle scratchpad", hl.dsp.workspace.toggle_special("scratchpad"))
 o.bind("SUPER + ALT + S", "Move window to scratchpad", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
 o.bind("SUPER + grave", "Toggle scratchpad", hl.dsp.workspace.toggle_special("scratchpad"))
 o.bind("SUPER + SHIFT + grave", "Move window to scratchpad", hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))

@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# omarchy:summary=List the backgrounds the picker would offer
+# omarchy:group=theme
+# omarchy:name=bg-list
+# omarchy:examples=omarchy theme bg list
+
+# The same folders and the same one-level scan omarchy-menu-images uses, so the
+# settings panel and the picker never disagree about what is available. Each
+# line is the image's path, a tab, and the name the picker shows for it.
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-backgrounds.sh"
+
+while IFS= read -r dir; do
+  [[ -d $dir ]] || continue
+
+  while IFS= read -r -d '' image; do
+    printf '%s\t%s\n' "$image" "$(omarchy_background_label "$image")"
+  done < <(find -L "$dir" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) \
+    -print0 2>/dev/null | sort -z)
+done < <(omarchy_background_dirs) | awk -F '\t' '!seen[$1]++'

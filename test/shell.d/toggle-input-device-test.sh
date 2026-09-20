@@ -121,6 +121,9 @@ hl = {
   device = function(opts)
     table.insert(seen, opts)
   end,
+  -- toggles.lua loads the settings replay last, and that hands Hyprland
+  -- whatever the settings panel recorded.
+  config = function() end,
 }
 
 dofile(os.getenv("OMARCHY_PATH") .. "/default/hypr/bootstrap.lua")
@@ -152,6 +155,7 @@ hl = {
   device = function(opts)
     table.insert(seen, opts)
   end,
+  config = function() end,
 }
 os.execute = function()
   executed = true

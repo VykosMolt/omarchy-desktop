@@ -29,3 +29,9 @@ omarchy_background_dirs() {
     done < <(omarchy-theme-bg-dir list)
   } | awk 'length > 0 && !seen[$0]++'
 }
+
+# The name a person reads for a background file: no extension, no ordering
+# prefix, dashes as spaces, words capitalised.
+omarchy_background_label() {
+  basename -- "$1" | perl -pe 's/\.[^.]+$//; s/^\d+-//; s/-/ /g; s/\b(\w)/\U$1/g'
+}
