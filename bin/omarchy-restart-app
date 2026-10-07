@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# omarchy:summary=Restart an application by killing it and relaunching via uwsm.
+# omarchy:summary=Restart this Omarchy session's application via uwsm
 # omarchy:args=<application-name> [application-args...]
 
-pkill -x $1
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-process.sh"
+[[ -n ${1:-} ]] || exit 1
+omarchy_signal_session_processes "${1##*/}" TERM
 setsid uwsm-app -- "$@" >/dev/null 2>&1 &

@@ -3,6 +3,39 @@
 # Process identities for private runtime records. Callers own their record paths.
 # All control goes through a recorded kernel identity. The pidfd pins the
 # target across the stat check and signal; an exited/reused PID is inactive.
+omarchy_signal_session_processes() {
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} && -n ${OMARCHY_PATH:-} && -n ${OMARCHY_SESSION_CONFIG_HOME:-} ]] || return 0
+  python3 - "$1" "$2" <<'PYTHON'
+import os
+import signal
+import sys
+from pathlib import Path
+
+name, requested_signal = sys.argv[1:]
+required = ("OMARCHY_PATH", "OMARCHY_SESSION_CONFIG_HOME", "HYPRLAND_INSTANCE_SIGNATURE")
+if name == "kitty":
+    required += ("KITTY_CONFIG_DIRECTORY",)
+if any(not os.environ.get(key) for key in required):
+    sys.exit(0)
+for entry in Path("/proc").iterdir():
+    if not entry.name.isdecimal():
+        continue
+    fd = None
+    try:
+        fd = os.pidfd_open(int(entry.name))
+        if (entry / "comm").read_text().strip() != name:
+            continue
+        environment = dict(item.split(b"=", 1) for item in (entry / "environ").read_bytes().split(b"\0") if b"=" in item)
+        if all(environment.get(os.fsencode(key)) == os.fsencode(os.environ[key]) for key in required):
+            signal.pidfd_send_signal(fd, getattr(signal, "SIG" + requested_signal))
+    except (OSError, ValueError, ProcessLookupError):
+        pass
+    finally:
+        if fd is not None:
+            os.close(fd)
+PYTHON
+}
+
 omarchy_process_record() {
   python3 - "$1" "$2" <<'PYTHON'
 import json, os, select, sys, tempfile
@@ -59,4 +92,3 @@ finally:
         os.close(fd)
 PYTHON
 }
-

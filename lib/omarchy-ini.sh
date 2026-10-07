@@ -1,7 +1,6 @@
-# Read and write one key in one section of an INI-style file, leaving every
-# other line exactly as it was. The GTK, Qt and KDE configs the desktop has to
-# touch are all this shape, and they belong to the user: a setter that rewrote
-# the file would take their unrelated keys with it.
+# Read or update one INI-style key while retaining neighbouring settings.
+# Host GTK/Qt/KDE files are read-only defaults; desktop controls write through
+# the confined private preference wrappers at the end of this file.
 #
 # Source lib/omarchy-paths.sh before this file.
 
@@ -84,4 +83,24 @@ omarchy_ini_set() {
   fi
 
   mv -f "$temp_file" "$file"
+}
+
+# Desktop preferences belong to this session. Host toolkit files are useful
+# read-only defaults, but a picker must never modify them.
+omarchy_preference_get() {
+  omarchy_ini_get "$OMARCHY_CONFIG_HOME/appearance.ini" "$1" "$2"
+}
+
+omarchy_preference_set() {
+  local file lock preference_fd
+  [[ $3 != *[[:cntrl:]]* ]] || return 1
+  file=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/appearance.ini") || return 1
+  lock=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/appearance.ini.lock") || return 1
+  mkdir -p -- "$OMARCHY_CONFIG_HOME" || return 1
+  exec {preference_fd}>"$lock" || return 1
+  flock "$preference_fd" || return 1
+  omarchy_ini_set "$file" "$1" "$2" "$3"
+  local status=$?
+  exec {preference_fd}>&-
+  return "$status"
 }

@@ -1,51 +1,22 @@
 #!/bin/bash
 
-# omarchy:summary=Set the default terminal used by xdg-terminal-exec
+# omarchy:summary=Select the terminal used by Omarchy
 # omarchy:args=[kitty]
 # omarchy:examples=omarchy default terminal | omarchy default terminal kitty
 
-# Read the preference file rather than asking xdg-terminal-exec to resolve it.
-# The list below is the one this command writes, kitty is the only terminal the
-# setter accepts, and shelling out to a resolver that may not be installed --
-# or may be a local shim that only knows how to exec a terminal -- returned an
-# empty string on exactly the machines where the answer was obvious.
-if (($# == 0)); then
-  desktop_id=""
-  if [[ -r ${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list ]]; then
-    while IFS= read -r line; do
-      [[ -z $line || $line == \#* ]] && continue
-      desktop_id=${line%%:*}
-      break
-    done <"${XDG_CONFIG_HOME:-$HOME/.config}/xdg-terminals.list"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+terminal_file="$OMARCHY_STATE_HOME/defaults/terminal"
+if (( $# == 0 )); then
+  if [[ -r $terminal_file ]]; then
+    cat "$terminal_file"
+  else
+    echo kitty
   fi
-
-  case "$desktop_id" in
-  kitty.desktop) echo "kitty" ;;
-  "") omarchy-cmd-missing kitty || echo "kitty" ;;
-  *) echo "$desktop_id" ;;
-  esac
   exit 0
 fi
-
-case "$1" in
-kitty) terminal="kitty"; desktop_id="kitty.desktop"; name="Kitty"; glyph= ;;
-*)
-  echo "Usage: omarchy-default-terminal <kitty>"
-  exit 1
-  ;;
-esac
-
-if omarchy-cmd-missing "$terminal"; then
-  echo "$name is not installed." >&2
+if [[ $1 != "kitty" ]] || omarchy-cmd-missing kitty; then
+  echo "Omarchy supports the installed Kitty terminal." >&2
   exit 1
 fi
-
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}"
-mkdir -p "$config_dir" || exit 1
-cat >"$config_dir/xdg-terminals.list" <<EOF
-# Terminal emulator preference order for xdg-terminal-exec
-# The first found and valid terminal will be used
-$desktop_id
-EOF
-
-omarchy-notification-send -g $glyph "$name is now the default terminal"
+printf '%s\n' kitty | omarchy_write_private_file "$OMARCHY_STATE_HOME" "$terminal_file" || exit 1
+omarchy-notification-send "Kitty is now the Omarchy terminal"

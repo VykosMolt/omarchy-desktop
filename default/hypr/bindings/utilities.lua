@@ -40,7 +40,7 @@ o.bind("SUPER + SHIFT + S", "Screenshot", "omarchy-capture-screenshot")
 o.bind("ALT + PRINT", "Screenrecording", "omarchy-capture-screenrecording --stop-recording || omarchy-capture-screenrecording")
 o.bind("SUPER + ALT + code:34", "Make webcam overlay smaller", "omarchy-capture-webcam-resize smaller")
 o.bind("SUPER + ALT + code:35", "Make webcam overlay larger", "omarchy-capture-webcam-resize larger")
-o.bind("SUPER + PRINT", "Color picker", "pkill hyprpicker || hyprpicker -a")
+o.bind("SUPER + PRINT", "Color picker", "omarchy-restart-app hyprpicker -a")
 o.bind("SUPER + CTRL + PRINT", "Extract text (OCR) from screenshot", "omarchy-capture-text")
 
 -- Keyboard control for the slurp region picker (see omarchy-capture-region).

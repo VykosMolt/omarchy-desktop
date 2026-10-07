@@ -49,19 +49,27 @@ export PATH="$tmp_dir/bin:$PATH"
 export XDG_DATA_HOME="$tmp_dir/data"
 export XDG_DATA_DIRS="$tmp_dir/system"
 
+export OMARCHY_CONFIG_HOME="$tmp_dir/omarchy-config"
+cp "$tmp_dir/data/applications/aliens.desktop" "$tmp_dir/aliens.before"
+cp "$tmp_dir/system/applications/native.desktop" "$tmp_dir/native.before"
 "$ROOT/bin/omarchy-remove-launcher-entry" aliens.desktop Aliens
+"$ROOT/bin/omarchy-remove-launcher-entry" native.desktop Native
+"$ROOT/bin/omarchy-remove-launcher-entry" aliens.desktop Aliens
+cmp "$tmp_dir/aliens.before" "$tmp_dir/data/applications/aliens.desktop" || fail "user desktop entry remains unchanged"
+cmp "$tmp_dir/native.before" "$tmp_dir/system/applications/native.desktop" || fail "system desktop entry remains unchanged"
+[[ $(cat "$OMARCHY_CONFIG_HOME/launcher.hides") == $'aliens\nnative' ]] || fail "private hide list stores each normalized ID once"
+[[ ! -s $TEST_LOG ]] || fail "hiding invokes no package manager or global desktop update"
+pass "hiding an app preserves all desktop files and changes only the Omarchy list"
 
-[[ ! -e $tmp_dir/data/applications/aliens.desktop ]] || fail "launcher remove deletes user-owned desktop files"
-pass "launcher remove deletes user-owned desktop files"
-
-if "$ROOT/bin/omarchy-remove-launcher-entry" native.desktop Native 2>"$tmp_dir/err"; then
-  fail "launcher remove refuses a system launcher entry"
+for bad in ../escape $'bad\nentry' ''; do
+  if "$ROOT/bin/omarchy-remove-launcher-entry" "$bad" >/dev/null 2>&1; then
+    fail "invalid launcher ID is refused"
+  fi
+done
+rm "$OMARCHY_CONFIG_HOME/launcher.hides"
+ln -s "$tmp_dir/data/applications/aliens.desktop" "$OMARCHY_CONFIG_HOME/launcher.hides"
+if "$ROOT/bin/omarchy-remove-launcher-entry" another.desktop >/dev/null 2>&1; then
+  fail "launcher hide refuses an external destination symlink"
 fi
-grep -q 'remove the package that owns it instead' "$tmp_dir/err" ||
-  fail "launcher remove explains why a system entry was left alone" "$(<"$tmp_dir/err")"
-[[ -e $tmp_dir/system/applications/native.desktop ]] || fail "launcher remove leaves system desktop files in place"
-pass "launcher remove refuses a system launcher entry"
-
-[[ ! -s $TEST_LOG ]] ||
-  fail "launcher remove never reaches for a package manager or notifies" "$(<"$TEST_LOG")"
-pass "launcher remove never reaches for a package manager"
+cmp "$tmp_dir/aliens.before" "$tmp_dir/data/applications/aliens.desktop" || fail "escaping symlink leaves host desktop entry unchanged"
+pass "launcher IDs and preference symlinks cannot escape the private list"

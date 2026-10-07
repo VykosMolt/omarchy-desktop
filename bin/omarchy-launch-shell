@@ -3,6 +3,10 @@
 # omarchy:summary=Launch the Omarchy shell with its log kept in the journal
 # omarchy:hidden=true
 
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+# Older installed launchers did not export the private terminal directory.
+export KITTY_CONFIG_DIRECTORY="$OMARCHY_SESSION_CONFIG_HOME/kitty"
+
 # Quickshell only logs to its instance runtime dir (tmpfs), so when the shell
 # dies the idle/lock event trail is gone after a reboot. The journal keeps it
 # across sessions, bounded and timestamped, under the omarchy-shell tag.
@@ -100,11 +104,8 @@ stop() {
 }
 trap stop HUP INT TERM
 
-# The shell finds the default sink by name, and after a trip through the
-# login screen WirePlumber can be carrying several nodes by that name, only
-# one of them real. Clear that before the shell binds to the wrong one. Once,
-# not per relaunch: a crash loop is not a login.
-omarchy-audio-repair-nodes >/dev/null 2>&1 || true
+# Audio services are shared with other desktops. Repair remains an explicit
+# user action; starting this shell never restarts WirePlumber.
 
 attempts=0
 window_started=$SECONDS

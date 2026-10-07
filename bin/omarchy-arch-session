@@ -16,8 +16,10 @@ fi
 source "$ENV_FILE"
 
 SESSION_RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$SESSION_RUNTIME/bus"
 SESSION_ENV_FILE="$SESSION_RUNTIME/omarchy-arch-session.env"
 SESSION_LOCK_FILE="$SESSION_RUNTIME/omarchy-arch-session.lock"
+export KITTY_CONFIG_DIRECTORY="$OMARCHY_SESSION_CONFIG_HOME/kitty"
 
 HYPR_CONFIG="$OMARCHY_SESSION_CONFIG_HOME/hypr/hyprland.lua"
 START_HYPRLAND_BIN=$(type -P start-hyprland || true)
@@ -37,6 +39,7 @@ write_systemd_env() {
     OMARCHY_CACHE_HOME \
     OMARCHY_DATA_HOME \
     OMARCHY_SLEEP_LOCK_UNIT \
+    KITTY_CONFIG_DIRECTORY \
     PATH
   do
     value=${!name}
@@ -72,7 +75,23 @@ if [[ ${1:-} == "--dry-run" ]]; then
   shift
 fi
 
+ensure_no_graphical_desktop() {
+  local desktop_status=0
+  pgrep -u "$UID" -x 'kwin_wayland|plasmashell|Hyprland|sway|gnome-shell' >/dev/null || desktop_status=$?
+  if (( desktop_status == 0 )); then
+    echo "A graphical desktop is already running. Log out before starting Omarchy Arch." >&2
+    return 1
+  elif (( desktop_status != 1 )); then
+    echo "Could not verify whether a graphical desktop is running; refusing to change session state." >&2
+    return 1
+  fi
+}
+
 if (( ! dry_run )); then
+  # This is an alternative login session. Never tear down or borrow the user
+  # manager of a desktop that is still running for this account.
+  ensure_no_graphical_desktop
+
   # Take ownership before changing state or shared runtime files. A second
   # launcher must leave the running session's environment and units untouched.
   exec 9> "$SESSION_LOCK_FILE"
@@ -81,7 +100,24 @@ if (( ! dry_run )); then
     exit 1
   fi
 
-  wm_dropin="$SESSION_RUNTIME/systemd/user/wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf"
+  # A crashed standalone compositor may leave its session target holding the
+  # shared target active. Recover only after proving no desktop is running;
+  # UWSM still performs its own final exclusivity check before startup.
+  graphical_state=$(systemctl --user show graphical-session.target --property=ActiveState --value)
+  case $graphical_state in
+    active|activating)
+      ensure_no_graphical_desktop
+      systemctl --user stop graphical-session.target
+      ;;
+    inactive|failed|deactivating) ;;
+    *)
+      echo "Unexpected graphical session state: $graphical_state" >&2
+      exit 1
+      ;;
+  esac
+
+  wm_instance=$(systemd-escape "${START_HYPRLAND_BIN##*/}")
+  wm_dropin="$SESSION_RUNTIME/systemd/user/wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf"
   session_pid=""
   terminating=0
   cleanup() {

@@ -23,6 +23,42 @@ export \
   OMARCHY_CACHE_HOME \
   OMARCHY_DATA_HOME
 
+# A private preference must stay inside its owned directory, even when a
+# directory or the destination is a symlink into the host's configuration.
+omarchy_private_path() {
+  local root=$1 path=$2 resolved_root lexical_root resolved
+  lexical_root=$(realpath -ms -- "$root") || return 1
+  resolved_root=$(realpath -m -- "$root") || return 1
+  resolved=$(realpath -m -- "$path") || return 1
+  if [[ $lexical_root != "$resolved_root" || $resolved != "$resolved_root"/* ]]; then
+    echo "Refusing a preference outside its private directory: $path" >&2
+    return 1
+  fi
+  printf '%s\n' "$resolved"
+}
+
+omarchy_write_private_file() {
+  local root=$1 path temp
+  path=$(omarchy_private_path "$root" "$2") || return 1
+  mkdir -p -- "${path%/*}" || return 1
+  temp=$(mktemp "$path.XXXXXX") || return 1
+  if cat >"$temp" && mv -f -- "$temp" "$path"; then
+    return 0
+  fi
+  rm -f -- "$temp"
+  return 1
+}
+
+omarchy_kitty_config() {
+  local host_config=${XDG_CONFIG_HOME:-$HOME/.config}
+  if [[ $(realpath -m -- "$OMARCHY_SESSION_CONFIG_HOME") == "$(realpath -m -- "$host_config")" ]]; then
+    echo "Omarchy requires a private session directory for Kitty settings." >&2
+    return 1
+  fi
+  omarchy_private_path "$OMARCHY_SESSION_CONFIG_HOME" \
+    "${KITTY_CONFIG_DIRECTORY:-$OMARCHY_SESSION_CONFIG_HOME/kitty}/kitty.conf"
+}
+
 # Runtime locks and handshakes must not fall back to predictable files directly
 # in /tmp. Respect the session runtime directory, or create a private fallback
 # under this session's cache when running from a stripped environment.

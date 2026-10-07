@@ -52,7 +52,7 @@ pass "start limits are declared where systemd reads them"
 # appear. A login once produced a bare compositor because Hyprland read another
 # session's config, so autostart.lua never ran and nothing started.
 launcher="$ROOT/bin/omarchy-arch-session"
-grep -F 'wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf' "$launcher" >/dev/null ||
+grep -F 'wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf' "$launcher" >/dev/null ||
   fail "the session target is not pulled in by the compositor unit"
 grep -F 'Wants=omarchy-arch-session.target' "$launcher" >/dev/null ||
   fail "the compositor drop-in does not want the session target"
@@ -109,6 +109,18 @@ ENV
 cat > "$tmpdir/bin/systemctl" <<'STUB'
 #!/bin/bash
 printf '%s\n' "$*" >> "$OMARCHY_LAUNCH_TEST/calls"
+if [[ $* == "--user show graphical-session.target --property=ActiveState --value" ]]; then
+  [[ ${OMARCHY_LAUNCH_QUERY_ERROR:-0} == 1 ]] && exit 2
+  printf '%s\n' "${OMARCHY_LAUNCH_TARGET_STATE:-inactive}"
+fi
+if [[ $* == "--user stop graphical-session.target" && ${OMARCHY_LAUNCH_STOP_ERROR:-0} == 1 ]]; then exit 2; fi
+exit 0
+STUB
+cat > "$tmpdir/bin/pgrep" <<'STUB'
+#!/bin/bash
+[[ ${OMARCHY_LAUNCH_PGREP_ERROR:-0} == 1 ]] && exit 2
+if [[ ${OMARCHY_LAUNCH_DESKTOP_RACE:-0} == 1 && -e $OMARCHY_LAUNCH_TEST/calls ]]; then exit 0; fi
+[[ ${OMARCHY_LAUNCH_ACTIVE_DESKTOP:-0} == 1 ]]
 STUB
 cat > "$tmpdir/bin/omarchy-hw-recover-internal-monitor" <<'STUB'
 #!/bin/bash
@@ -142,6 +154,10 @@ if flock -n "$XDG_RUNTIME_DIR/omarchy-arch-session.lock" true; then exit 90; fi
 [[ -s $XDG_RUNTIME_DIR/omarchy-arch-session.env ]] || exit 91
 [[ $(stat -c %a "$XDG_RUNTIME_DIR/omarchy-arch-session.env") == 600 ]] || exit 92
 [[ $(umask) == 0022 ]] || exit 93
+grep -Fx "KITTY_CONFIG_DIRECTORY=\"$OMARCHY_LAUNCH_TEST/config/kitty\"" "$XDG_RUNTIME_DIR/omarchy-arch-session.env" >/dev/null || exit 94
+[[ $DBUS_SESSION_BUS_ADDRESS == "unix:path=$XDG_RUNTIME_DIR/bus" ]] || exit 95
+wm_instance=$(systemd-escape start-hyprland)
+[[ -f $XDG_RUNTIME_DIR/systemd/user/wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf ]] || exit 96
 printf '%s\n' "$@" > "$OMARCHY_LAUNCH_TEST/argv"
 exit 17
 STUB
@@ -152,6 +168,14 @@ run_launcher() {
 }
 
 printf '%s\n' untouched > "$tmpdir/omarchy-arch-session.env"
+if OMARCHY_LAUNCH_ACTIVE_DESKTOP=1 run_launcher > "$tmpdir/out" 2>&1; then fail "a live desktop must prevent an Omarchy launch"; fi
+grep -F 'A graphical desktop is already running' "$tmpdir/out" >/dev/null || fail "live desktop rejection is explained"
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "a live desktop rejection touched session state"
+pass "a live desktop is left untouched by a rejected Omarchy launch"
+if OMARCHY_LAUNCH_PGREP_ERROR=1 run_launcher > "$tmpdir/out" 2>&1; then fail "a failed process check must prevent launch"; fi
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "a failed process check touched session state"
+pass "a failed process check cannot authorize session startup"
+
 exec 8> "$tmpdir/omarchy-arch-session.lock"
 flock -n 8
 if run_launcher > "$tmpdir/out" 2>&1; then fail "a second session is rejected"; fi
@@ -163,15 +187,40 @@ run_launcher --dry-run >/dev/null || fail "dry-run reaches uwsm"
 [[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "dry-run mutated session state"
 pass "dry-run leaves session runtime files untouched"
 
+if OMARCHY_LAUNCH_QUERY_ERROR=1 run_launcher > "$tmpdir/out" 2>&1; then fail "a failed target query must prevent startup"; fi
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched ]] || fail "query failure changed the environment"
+! grep -Eq 'stop|recovery|link' "$tmpdir/calls" || fail "query failure changed session state"
+rm "$tmpdir/calls"
+if OMARCHY_LAUNCH_DESKTOP_RACE=1 OMARCHY_LAUNCH_TARGET_STATE=active run_launcher > "$tmpdir/out" 2>&1; then fail "a newly running desktop must prevent stale recovery"; fi
+[[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched ]] || fail "desktop race changed the environment"
+! grep -Eq 'stop|recovery|link' "$tmpdir/calls" || fail "desktop race stopped a live session"
+rm "$tmpdir/calls"
+pass "stale recovery refuses failed queries and a newly running desktop"
+
 launcher_status=0
 run_launcher --verbose || launcher_status=$?
 (( launcher_status == 17 )) || fail "launcher preserves uwsm status and holds its lock" "$launcher_status"
 [[ ! -e $tmpdir/omarchy-arch-session.env ]] || fail "launcher leaves stale session environment"
-[[ ! -e $tmpdir/systemd/user/wayland-wm@Hyprland.service.d/20-omarchy-arch-session.conf ]] || fail "launcher leaves compositor drop-in"
+wm_instance=$(systemd-escape start-hyprland)
+[[ ! -e $tmpdir/systemd/user/wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf ]] || fail "launcher leaves compositor drop-in"
 flock -n "$tmpdir/omarchy-arch-session.lock" true || fail "launcher retains lock after exit"
 grep -Fx -- "$tmpdir/config/hypr/hyprland.lua" "$tmpdir/argv" >/dev/null || fail "launcher loses isolated compositor config"
 grep -Fx -- '--verbose' "$tmpdir/argv" >/dev/null || fail "launcher loses compositor arguments"
 pass "session launcher holds ownership through uwsm and cleans up after exit"
+! grep -F -- '--user stop graphical-session.target' "$tmpdir/calls" >/dev/null || fail "an inactive target was stopped"
+
+rm "$tmpdir/calls"
+launcher_status=0
+OMARCHY_LAUNCH_TARGET_STATE=active run_launcher || launcher_status=$?
+(( launcher_status == 17 )) || fail "stale recovery did not reach uwsm" "$launcher_status"
+[[ $(grep -Fc -- '--user stop graphical-session.target' "$tmpdir/calls") == 1 ]] || fail "stale recovery must stop only the shared stale target once"
+! grep -F -- 'uwsm stop' "$tmpdir/calls" >/dev/null || fail "stale recovery used blanket UWSM teardown"
+rm "$tmpdir/calls"
+launcher_status=0
+OMARCHY_LAUNCH_TARGET_STATE=active OMARCHY_LAUNCH_STOP_ERROR=1 run_launcher > "$tmpdir/out" 2>&1 || launcher_status=$?
+(( launcher_status == 2 )) || fail "stale target stop failure was ignored" "$launcher_status"
+! grep -Eq 'recovery|link' "$tmpdir/calls" || fail "startup continued after failed stale recovery"
+pass "only stale targets are recovered and stop failures prevent startup"
 
 # Real signals exercise Bash's interrupted wait. Only processes owned by this
 # fixture receive them; the stubs never reach systemd or the compositor.

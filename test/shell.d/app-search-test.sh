@@ -163,6 +163,22 @@ assert(
   openMatch[1].includes('root.appLibrary.refreshIcons()'),
   'menu refreshes the shared icon index when opened'
 )
+// A private hide list supplements shipped defaults and never overwrites them.
+function libraryFunction(name, state) {
+  const match = appLibraryQml.match(new RegExp('function ' + name + '\\(([^)]*)\\) \\{([\\s\\S]*?)\\n  \\}'))
+  assert(match, 'app library exposes ' + name)
+  return new Function('root', 'return function(' + match[1] + ') {' + match[2] + '}')(state)
+}
+const library = { configuredHiddenEntryIds: {}, shippedHiddenEntryIds: {}, desktopHiddenEntryIds: {}, appsChanged() {} }
+library.normalizeDesktopId = libraryFunction('normalizeDesktopId', library)
+library.loadConfiguredHides = libraryFunction('loadConfiguredHides', library)
+library.isHiddenEntry = libraryFunction('isHiddenEntry', library)
+library.loadConfiguredHides('shipped.desktop\n', true)
+library.loadConfiguredHides('personal.desktop\n', false)
+assert(library.isHiddenEntry({id: 'shipped'}) && library.isHiddenEntry({id: 'personal'}), 'private and shipped hides are merged')
+library.loadConfiguredHides('', false)
+assert(library.isHiddenEntry({id: 'shipped'}) && !library.isHiddenEntry({id: 'personal'}), 'clearing private hides leaves shipped defaults intact')
+
 JS
 
 fixture=$(mktemp -d)

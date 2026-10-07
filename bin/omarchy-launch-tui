@@ -14,4 +14,7 @@ fi
   echo "Usage: omarchy-launch-tui [--app-id=<app-id>] <command> [args...]" >&2
   exit 1
 }
-exec setsid uwsm-app -- xdg-terminal-exec "--app-id=$APP_ID" -e "$@"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+kitty=$(omarchy_kitty_config) || exit 1
+export KITTY_CONFIG_DIRECTORY=${kitty%/*}
+exec setsid uwsm-app -- kitty --config "$kitty" --class "$APP_ID" "$@"

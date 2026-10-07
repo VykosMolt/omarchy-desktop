@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Select the icon theme used by GTK, Qt, and KDE apps
+# omarchy:summary=Select the icons used by the Omarchy application list
 
 set -e
 

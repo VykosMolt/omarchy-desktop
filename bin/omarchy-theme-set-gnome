@@ -1,26 +1,8 @@
 #!/bin/bash
 
-# omarchy:summary=Tell GTK apps whether the current theme is light or dark
+# omarchy:summary=Keep host GTK appearance independent of Omarchy palettes
 # omarchy:hidden=true
 
-source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
-
-# gsettings needs a user DBus session; without one there is nothing to tell.
-if [[ -z ${DBUS_SESSION_BUS_ADDRESS:-} ]]; then
-  exit 0
-fi
-
-# color-scheme is the only thing a desktop theme gets to say here. The GTK
-# theme, the icon theme and the cursor theme are the user's own choice, set
-# once in ~/.config/gtk-3.0/settings.ini and in gsettings, and an Omarchy theme
-# does not get to overwrite them on every switch -- which is exactly what it
-# used to do, replacing whatever was there with Adwaita and a Yaru icon set.
-COLORS_FILE="$OMARCHY_STATE_HOME/current/theme/colors.toml"
-
-# omarchy-theme-color resolves mode from colors.toml (`mode = "light"`), a
-# legacy light.mode marker beside it, or background luminance for user themes.
-if [[ $(omarchy-theme-color --file "$COLORS_FILE" mode) == "light" ]]; then
-  gsettings set org.gnome.desktop.interface color-scheme "prefer-light"
-else
-  gsettings set org.gnome.desktop.interface color-scheme "prefer-dark"
-fi
+# The isolated desktop owns its shell and terminal palette. GTK's gsettings
+# database is shared with Plasma, so theme switching must leave it untouched.
+exit 0

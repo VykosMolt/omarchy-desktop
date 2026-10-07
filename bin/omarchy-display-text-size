@@ -1,37 +1,28 @@
 #!/bin/bash
 
-# omarchy:summary=Scale text everywhere — omarchy shell, GTK apps, and terminals
+# omarchy:summary=Scale text in the Omarchy shell and its terminals
 # omarchy:args=[size|reset]
 # omarchy:examples=omarchy display text size | omarchy display text size 16 | omarchy display text size reset
 
-# One knob for apparent text size across the desktop. It drives three settings
-# in lockstep, all anchored to the shell default of 12px:
-#   • the omarchy shell's font base-size ($OMARCHY_CONFIG_HOME/shell.toml [font])
-#   • GNOME/GTK's text-scaling-factor    (12px -> 1.0, quantized so the GTK
-#     interface font lands on a whole point size, so 16 -> 15pt/11pt = 1.3636)
-#   • the terminal font point size       (12px -> 9pt, so terminal_pt = px * 9/12)
-# The shell override layers on top of the active theme (so the size survives
-# theme switches) and the shell watches the file, so shell text re-flows live.
-# Accepts an integer from 9 to 20 (px).
+# Scale the private shell and Kitty settings together. GTK scaling belongs to
+# the host desktop and is never changed here.
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 
 MIN=9
 MAX=20
-GKEY_SCHEMA="org.gnome.desktop.interface"
-GKEY_NAME="text-scaling-factor"
 
 # Anchors: 12px shell base == factor 1.0 == 9pt terminal font.
 TERM_DEFAULT_PT=9
 SHELL_DEFAULT_PX=12
 
-shell_config="$OMARCHY_CONFIG_HOME/shell.toml"
+shell_config=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/shell.toml") || exit 1
 
 usage() {
   echo "Usage: omarchy-display-text-size [size|reset]"
-  echo "  (no args)   print the current text size, GTK factor, and terminal size"
-  echo "  <size>      set text size in px ($MIN–$MAX); shell + GTK + terminals together"
-  echo "  reset       return all three to their defaults (12px / 1.0 / 9pt)"
+  echo "  (no args)   print the current shell and terminal size"
+  echo "  <size>      set text size in px ($MIN–$MAX); shell + Omarchy terminals together"
+  echo "  reset       return to the defaults (12px / 9pt)"
 }
 
 # ---- shell base-size: the rem root every shell type size derives from ----
@@ -103,26 +94,6 @@ reset_base_size() {
   mv "$tmp" "$shell_config"
 }
 
-# ---- GTK text-scaling-factor ----
-
-# Point size of the GTK interface font (font-name), used to quantize the
-# scaling factor. Falls back to the GNOME default when unreadable.
-gtk_font_pt() {
-  local name pt
-  name="$(gsettings get "$GKEY_SCHEMA" font-name 2>/dev/null)"
-  pt="${name%\'}"
-  pt="${pt##* }"
-  if [[ $pt =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "$pt"
-  else
-    echo 11
-  fi
-}
-
-set_factor() {
-  gsettings set "$GKEY_SCHEMA" "$GKEY_NAME" "$1" 2>/dev/null || true
-}
-
 # ---- terminal font point size ----
 
 # px base-size -> terminal point size, rounded to the nearest integer.
@@ -131,30 +102,26 @@ term_pt_for() {
     'BEGIN { printf "%d", int(s * p / b + 0.5) }'
 }
 
-# Set the font point size in kitty's config. Family is left untouched -- that is
-# omarchy-font-set's job. kitty is configured wherever KITTY_CONFIG_DIRECTORY
-# points, which is not always ~/.config/kitty: a session that launches
-# `kitty --config <path>` sets it, and writing the default path then edits a file
-# kitty never reads.
+# The terminal profile must be inside the isolated session directory.
 kitty_conf() {
-  printf '%s/kitty.conf' "${KITTY_CONFIG_DIRECTORY:-$HOME/.config/kitty}"
+  omarchy_kitty_config
 }
 
 set_terminal_size() {
   local pt="$1"
   local conf
-  conf=$(kitty_conf)
+  conf=$(kitty_conf) || return 1
 
   if [[ -f $conf ]]; then
     sed -i -E "s/^font_size[[:space:]]+.*/font_size $pt.0/" "$conf"
-    pkill -USR1 -x kitty 2>/dev/null || true
+    omarchy-restart-terminal
   fi
 }
 
 # Report the current terminal point size.
 term_current_pt() {
   local conf
-  conf=$(kitty_conf)
+  conf=$(kitty_conf) || return 1
 
   if [[ -f $conf ]]; then
     grep -oP '^font_size[[:space:]]+\K[0-9.]+' "$conf" | head -1
@@ -169,15 +136,14 @@ case "${1:-}" in
   "")
     cur="$(current_base_size)"
     size="${cur:-12 (default)}"
-    factor="$(gsettings get "$GKEY_SCHEMA" "$GKEY_NAME" 2>/dev/null)"
     term="$(term_current_pt)"
-    printf 'text size: %s px\ngtk text-scaling-factor: %s\nterminal font: %s pt\n' \
-      "$size" "$factor" "${term:-n/a}"
+    printf 'text size: %s px\nterminal font: %s pt\n' \
+      "$size" "${term:-n/a}"
     exit 0
     ;;
   reset | default)
+    kitty_conf >/dev/null || exit 1
     reset_base_size
-    gsettings reset "$GKEY_SCHEMA" "$GKEY_NAME" 2>/dev/null || true
     set_terminal_size "$TERM_DEFAULT_PT"
     exit 0
     ;;
@@ -190,15 +156,11 @@ if [[ ! $size =~ ^[0-9]+$ ]] || ((size < MIN || size > MAX)); then
   exit 1
 fi
 
+# Validate the terminal destination before changing either preference.
+kitty_conf >/dev/null || exit 1
+
 # Shell side: base-size in px (the omarchy shell's rem root).
 set_base_size "$size"
-
-# GTK side: multiplier anchored so 12px == 1.0, quantized so the interface
-# font renders at a whole point size. Raw ratios yield fractional point sizes,
-# which GTK4 menus clip at the ascenders on scale-1 monitors.
-factor="$(awk -v s="$size" -v b="$SHELL_DEFAULT_PX" -v f="$(gtk_font_pt)" \
-  'BEGIN { printf "%.4f", int(f * s / b + 0.5) / f }')"
-set_factor "$factor"
 
 # Terminal side: point size anchored so 12px == 9pt.
 set_terminal_size "$(term_pt_for "$size")"

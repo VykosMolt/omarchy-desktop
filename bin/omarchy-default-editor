@@ -69,7 +69,6 @@ if omarchy-cmd-missing "$editor"; then
   exit 1
 fi
 
-mkdir -p "$(dirname "$editor_file")"
-printf '%s\n' "$editor" >"$editor_file"
+printf '%s\n' "$editor" | omarchy_write_private_file "$OMARCHY_STATE_HOME" "$editor_file" || exit 1
 
 omarchy-notification-send -g $glyph "$name is now the default editor"

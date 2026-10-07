@@ -1166,8 +1166,8 @@ Item {
           anchors.fill: parent
           opened: root.deleteConfirmOpen
           z: 10
-          message: "Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?"
-          confirmText: "Uninstall"
+          message: "Hide " + ((root.deleteTarget && root.deleteTarget.label) || "") + " from Omarchy?"
+          confirmText: "Hide"
           background: root.background
           foreground: root.foreground
           scrim: root.scrim

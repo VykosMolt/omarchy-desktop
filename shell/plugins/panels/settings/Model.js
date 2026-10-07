@@ -109,7 +109,7 @@ var ROWS = [
     section: "appearance",
     kind: "search",
     label: "Icon theme",
-    hint: "GTK, Qt, and KDE apps together.",
+    hint: "Icons in the Omarchy application list.",
     owner: "system",
     writeVia: "command"
   },
@@ -118,7 +118,7 @@ var ROWS = [
     section: "appearance",
     kind: "search",
     label: "Cursor theme",
-    hint: "Apps already running keep the pointer they were handed.",
+    hint: "Hyprland pointer; new sessions pass the choice to their apps.",
     owner: "system",
     writeVia: "command"
   },
@@ -135,6 +135,7 @@ var ROWS = [
     section: "appearance",
     kind: "search",
     label: "Monospace font",
+    hint: "Omarchy shell and Omarchy terminals.",
     owner: "system",
     writeVia: "command"
   },
@@ -143,7 +144,7 @@ var ROWS = [
     section: "appearance",
     kind: "choice",
     label: "Text size",
-    hint: "Shell, GTK apps, and terminals together.",
+    hint: "Omarchy shell and Omarchy terminals.",
     owner: "system",
     writeVia: "command"
   },

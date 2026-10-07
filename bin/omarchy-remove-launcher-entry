@@ -1,77 +1,21 @@
 #!/bin/bash
 
-# omarchy:summary=Remove the selected launcher entry
+# omarchy:summary=Hide an application from the Omarchy launcher
 # omarchy:args=<desktop-id> <name>
 # omarchy:hidden=true
 
 set -e
-
-desktop_id="${1-}"
-
-if [[ -z $desktop_id ]]; then
-  echo "Usage: omarchy-remove-launcher-entry <desktop-id> <name>" >&2
-  exit 1
-fi
-
-desktop_file_name="$desktop_id"
-if [[ $desktop_file_name != *.desktop ]]; then
-  desktop_file_name="$desktop_file_name.desktop"
-fi
-
-user_desktop_dirs=()
-desktop_dirs=()
-if [[ -n ${XDG_DATA_HOME-} ]]; then
-  user_desktop_dirs+=("$XDG_DATA_HOME/applications")
-else
-  user_desktop_dirs+=("$HOME/.local/share/applications")
-fi
-desktop_dirs+=("${user_desktop_dirs[@]}")
-
-if [[ -n ${XDG_DATA_DIRS-} ]]; then
-  IFS=: read -ra data_dirs <<<"$XDG_DATA_DIRS"
-  for data_dir in "${data_dirs[@]}"; do
-    desktop_dirs+=("$data_dir/applications")
-  done
-else
-  desktop_dirs+=("/usr/local/share/applications" "/usr/share/applications")
-fi
-
-desktop_file=""
-for dir in "${desktop_dirs[@]}"; do
-  candidate="$dir/$desktop_file_name"
-  if [[ -f $candidate ]]; then
-    desktop_file="$candidate"
-    break
-  fi
-done
-
-if [[ -z $desktop_file ]]; then
-  echo "Could not find launcher entry: $desktop_file_name" >&2
-  exit 1
-fi
-
-is_user_desktop_file() {
-  local dir desktop_dir
-
-  desktop_dir="${desktop_file%/*}"
-  for dir in "${user_desktop_dirs[@]}"; do
-    [[ $desktop_dir == $dir ]] && return 0
-  done
-
-  return 1
-}
-
-desktop_name="${desktop_file##*/}"
-desktop_name="${desktop_name%.desktop}"
-
-# A launcher entry the user owns is the user's to delete. A system one belongs
-# to whatever installed it, and removing software is not this desktop's job:
-# say so rather than reaching for pacman or flatpak.
-if is_user_desktop_file; then
-  rm -f "$desktop_file"
-  update-desktop-database "${desktop_file%/*}" &>/dev/null || true
-  exit 0
-fi
-
-echo "$desktop_file_name is a system launcher entry; remove the package that owns it instead." >&2
-exit 1
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+desktop_id=${1:-}
+desktop_id=${desktop_id%.desktop}
+omarchy_require_flat_name "$desktop_id" "desktop ID" || exit 1
+[[ $desktop_id != *[[:cntrl:]]* ]] || exit 1
+hidden_file=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/launcher.hides") || exit 1
+lock_file=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/launcher.hides.lock") || exit 1
+mkdir -p -- "$OMARCHY_CONFIG_HOME"
+exec 9>"$lock_file"
+flock 9
+{
+  [[ ! -f $hidden_file ]] || cat "$hidden_file"
+  printf '%s\n' "$desktop_id"
+} | awk 'NF && !seen[$0]++' | omarchy_write_private_file "$OMARCHY_CONFIG_HOME" "$hidden_file"

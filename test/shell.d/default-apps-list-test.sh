@@ -71,3 +71,31 @@ chmod +x "$tmp/stub-bin/zeditor"
 omarchy-default-editor zeditor >/dev/null 2>&1
 [[ $(omarchy-default-editor) == "zeditor" ]] || fail "the package name reaches the same editor as the short one"
 pass "the package name and the short name name the same editor"
+
+# Browser/terminal preferences are session-owned; MIME and terminal defaults
+# for Plasma remain byte-for-byte unchanged.
+mkdir -p "$HOME/.config"
+printf '[Default Applications]\nx-scheme-handler/https=host.desktop\n' >"$HOME/.config/mimeapps.list"
+printf 'org.kde.konsole.desktop\n' >"$HOME/.config/xdg-terminals.list"
+cp "$HOME/.config/mimeapps.list" "$tmp/mime.before"
+cp "$HOME/.config/xdg-terminals.list" "$tmp/terminal.before"
+cat >"$tmp/stub-bin/xdg-settings" <<'STUB'
+#!/bin/bash
+if [[ $1 == set ]]; then
+  touch "$DEFAULTS_MUTATED"
+  exit 1
+fi
+printf 'host.desktop\n'
+STUB
+printf '#!/bin/bash\nexit 0\n' >"$tmp/stub-bin/kitty"
+chmod +x "$tmp/stub-bin/xdg-settings" "$tmp/stub-bin/kitty"
+export DEFAULTS_MUTATED="$tmp/defaults-mutated"
+omarchy-default-browser firefox >/dev/null
+[[ $(omarchy-default-browser) == firefox ]] || fail "browser getter returns private selection"
+[[ $(omarchy-default-browser --desktop) == firefox.desktop ]] || fail "browser launcher can read private desktop ID"
+omarchy-default-terminal kitty >/dev/null
+[[ $(omarchy-default-terminal) == kitty ]] || fail "terminal getter returns private selection"
+cmp "$tmp/mime.before" "$HOME/.config/mimeapps.list" || fail "host MIME defaults are unchanged"
+cmp "$tmp/terminal.before" "$HOME/.config/xdg-terminals.list" || fail "host terminal preference is unchanged"
+[[ ! -e $DEFAULTS_MUTATED ]] || fail "default selection never invokes xdg-settings set"
+pass "browser and terminal defaults change only for Omarchy"

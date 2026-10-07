@@ -523,8 +523,8 @@ EOF
 chmod +x "$FAKE_BIN/gsettings"
 
 GSETTINGS_LOG="$PI_TMPDIR/gsettings.log" DBUS_SESSION_BUS_ADDRESS="unix:path=$PI_TMPDIR/bus" PATH="$FAKE_BIN:$ROOT/bin:$PATH" HOME="$PI_TMPDIR" "$ROOT/bin/omarchy-theme-set-gnome"
-grep -q 'org.gnome.desktop.interface color-scheme prefer-light' "$PI_TMPDIR/gsettings.log" || fail "gnome sync reads mode from colors.toml"
-pass "gnome sync reads mode from colors.toml"
+[[ ! -s $PI_TMPDIR/gsettings.log ]] || fail "Omarchy palettes leave host GTK preferences untouched"
+pass "Omarchy theme switching leaves host GTK settings untouched"
 
 for binary in \
   omarchy-theme-set \

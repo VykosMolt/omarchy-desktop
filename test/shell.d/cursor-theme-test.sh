@@ -1,9 +1,7 @@
 #!/bin/bash
 
-# The cursor theme is the user's own, and a colour theme never touches it. When
-# the user does pick one the choice has to reach every toolkit at once, so what
-# matters here is which directories count as a cursor theme, that every config
-# a toolkit reads is written, and that nothing else in those files moves.
+# Cursor choices persist privately and reach the active Hyprland compositor.
+# Host GTK/KDE/Xcursor defaults must remain unchanged.
 
 set -euo pipefail
 
@@ -17,6 +15,9 @@ export OMARCHY_PATH="$ROOT"
 export PATH="$tmp/stub-bin:$ROOT/bin:$PATH"
 
 mkdir -p "$HOME/.config" "$tmp/stub-bin"
+
+export OMARCHY_SESSION_CONFIG_HOME="$HOME/.config/omarchy-arch"
+export OMARCHY_CONFIG_HOME="$OMARCHY_SESSION_CONFIG_HOME/omarchy"
 
 config_home="$HOME/.config"
 icons="$HOME/.icons"
@@ -75,56 +76,42 @@ omarchy-cursor-theme set ../../etc >/dev/null 2>&1 &&
   fail "a name that climbs out of the cursor roots is refused"
 pass "only an installed cursor theme can be set"
 
-# Something the user put in gtk-3.0/settings.ini themselves, which a cursor
-# change has no business touching.
-mkdir -p "$config_home/gtk-3.0"
-printf '[Settings]\ngtk-theme-name=Breeze\ngtk-cursor-theme-name=Old\n' >"$config_home/gtk-3.0/settings.ini"
+mkdir -p "$config_home/gtk-3.0" "$config_home/gtk-4.0" "$HOME/.icons/default"
+printf '[Settings]\ngtk-theme-name=Breeze\ngtk-cursor-theme-name=Host-Cursor\ngtk-cursor-theme-size=18\n' >"$config_home/gtk-3.0/settings.ini"
+printf '[Settings]\ngtk-cursor-theme-name=Host-Cursor\n' >"$config_home/gtk-4.0/settings.ini"
+printf '[Mouse]\ncursorTheme=Host-Cursor\ncursorSize=18\n' >"$config_home/kcminputrc"
+printf '[Icon Theme]\nInherits=Host-Cursor\n' >"$HOME/.icons/default/index.theme"
+cp -a "$config_home" "$tmp/host-before"
+cp -a "$HOME/.icons/default" "$tmp/cursor-before"
+printf 'Host-Cursor\n' >"$GSETTINGS_STORE.cursor-theme"
+printf '18\n' >"$GSETTINGS_STORE.cursor-size"
+[[ $(omarchy-cursor-theme get) == Host-Cursor ]] || fail "new session reads host cursor theme"
+[[ $(omarchy-cursor-theme size) == 18 ]] || fail "new session reads host cursor size"
 
+cat >"$tmp/stub-bin/hyprctl" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$CURSOR_IPC"
+STUB
+chmod +x "$tmp/stub-bin/hyprctl"
+export HYPRLAND_INSTANCE_SIGNATURE=fixture CURSOR_IPC="$tmp/ipc"
 omarchy-cursor-theme set Fixture-Cursors >/dev/null
-
-[[ $(cat "$GSETTINGS_STORE.cursor-theme") == "Fixture-Cursors" ]] ||
-  fail "set tells gsettings, which is what GTK apps watch"
-grep -qxF 'gtk-cursor-theme-name=Fixture-Cursors' "$config_home/gtk-3.0/settings.ini" ||
-  fail "set writes the GTK 3 config" "$(cat "$config_home/gtk-3.0/settings.ini")"
-grep -qxF 'gtk-cursor-theme-name=Fixture-Cursors' "$config_home/gtk-4.0/settings.ini" ||
-  fail "set writes the GTK 4 config"
-grep -qxF 'cursorTheme=Fixture-Cursors' "$config_home/kcminputrc" ||
-  fail "set writes the KDE config"
-grep -qxF 'Inherits=Fixture-Cursors' "$HOME/.icons/default/index.theme" ||
-  fail "set writes the Xcursor default that Xwayland reads"
-grep -qxF 'gtk-theme-name=Breeze' "$config_home/gtk-3.0/settings.ini" ||
-  fail "set preserves every key it was not asked to change"
-pass "set reaches every toolkit and leaves the rest of each file alone"
-
-[[ $(omarchy-cursor-theme get) == "Fixture-Cursors" ]] || fail "get reports the cursor theme in effect"
-pass "get reports the cursor theme in effect"
-
-# "default" is Xcursor's placeholder, not a theme anybody picked, so it does
-# not get to answer for the toolkit configs that do name one.
-printf 'default\n' >"$GSETTINGS_STORE.cursor-theme"
-[[ $(omarchy-cursor-theme get) == "Fixture-Cursors" ]] ||
-  fail "the Xcursor placeholder does not shadow a theme the configs name"
-pass "the Xcursor placeholder does not shadow a theme the configs name"
-
 omarchy-cursor-theme size 32 >/dev/null
-[[ $(omarchy-cursor-theme size) == "32" ]] || fail "the cursor size round-trips"
-grep -qxF 'gtk-cursor-theme-size=32' "$config_home/gtk-3.0/settings.ini" ||
-  fail "the cursor size reaches GTK too"
-grep -qxF 'cursorTheme=Fixture-Cursors' "$config_home/kcminputrc" ||
-  fail "changing the size keeps the theme"
-pass "the size is a setting of its own and keeps the theme it was set against"
+[[ $(omarchy-cursor-theme get) == Fixture-Cursors ]] || fail "private cursor theme round-trips"
+[[ $(omarchy-cursor-theme size) == 32 ]] || fail "private cursor size round-trips"
+grep -qxF 'setcursor Fixture-Cursors 32' "$CURSOR_IPC" || fail "cursor change reaches Hyprland"
+[[ $(cat "$GSETTINGS_STORE.cursor-theme") == Host-Cursor ]] || fail "cursor setter leaves gsettings theme unchanged"
+[[ $(cat "$GSETTINGS_STORE.cursor-size") == 18 ]] || fail "cursor setter leaves gsettings size unchanged"
+for entry in gtk-3.0 gtk-4.0 kcminputrc; do
+  diff -r "$tmp/host-before/$entry" "$config_home/$entry" >/dev/null || fail "host $entry remains identical"
+done
+diff -r "$tmp/cursor-before" "$HOME/.icons/default" >/dev/null || fail "Xcursor defaults remain identical"
+pass "cursor settings change Hyprland without changing host appearance"
 
 for bad in 4 200 huge ""; do
-  omarchy-cursor-theme size "$bad" >/dev/null 2>&1 &&
-    fail "a cursor size outside what a theme ships is refused" "$bad"
+  omarchy-cursor-theme size "$bad" >/dev/null 2>&1 && fail "invalid cursor size is refused" "$bad"
 done
-[[ $(omarchy-cursor-theme size) == "32" ]] || fail "a refused size changes nothing"
-pass "a cursor size outside the accepted range is refused"
+[[ $(omarchy-cursor-theme size) == 32 ]] || fail "invalid size changes nothing"
 
-# Without a session bus there is no gsettings to tell, and the answer still has
-# to come from the files that carry the choice into the next login.
-env -u DBUS_SESSION_BUS_ADDRESS HOME="$HOME" OMARCHY_PATH="$ROOT" PATH="$PATH" \
-  omarchy-cursor-theme set Fixture-Other-Cursors >/dev/null
-[[ $(env -u DBUS_SESSION_BUS_ADDRESS HOME="$HOME" OMARCHY_PATH="$ROOT" PATH="$PATH" omarchy-cursor-theme get) == "Fixture-Other-Cursors" ]] ||
-  fail "set and get work without a session bus"
-pass "set and get work without a session bus"
+env -u DBUS_SESSION_BUS_ADDRESS -u HYPRLAND_INSTANCE_SIGNATURE omarchy-cursor-theme set Fixture-Other-Cursors >/dev/null
+[[ $(omarchy-cursor-theme get) == Fixture-Other-Cursors ]] || fail "offline cursor preference persists"
+pass "cursor preferences also work outside a running compositor"

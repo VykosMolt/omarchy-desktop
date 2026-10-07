@@ -1,8 +1,11 @@
 #!/bin/bash
 
-# omarchy:summary=Set the default browser for Omarchy and XDG handlers
+# omarchy:summary=Set the browser opened by Omarchy
 # omarchy:args=[--list|chromium|chrome|brave|brave-origin|edge|firefox|zen]
 # omarchy:examples=omarchy default browser --list | omarchy default browser firefox
+
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+browser_file="$OMARCHY_STATE_HOME/defaults/browser"
 
 # One table, read by both the picker and the setter, so a browser can never be
 # offered in a list it cannot then be set from: id, command, desktop id, name,
@@ -29,7 +32,7 @@ if [[ ${1:-} == "--list" ]]; then
   exit 0
 fi
 
-if (($# == 0)); then
+if (($# == 0)) || [[ ${1:-} == "--desktop" ]]; then
   # Read the answer where xdg-settings writes it before paying for
   # xdg-settings. That is a shell script that probes several desktops and
   # validates what it finds, and it costs 27ms -- the single most expensive
@@ -44,14 +47,22 @@ if (($# == 0)); then
   # again -- and the unmatched arm is the common one, since a browser that
   # registers itself gets a generated id rather than its packaged one.
   current=""
+  [[ ! -r $browser_file ]] || read -r current <"$browser_file"
   for _mimeapps in "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" \
     "${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeapps.list"; do
+    [[ -z $current ]] || break
     [[ -r $_mimeapps ]] || continue
     current=$(awk -F= '/^x-scheme-handler\/https?=/ { sub(/;.*/, "", $2); print $2; exit }' "$_mimeapps")
     [[ -n $current ]] && break
   done
 
   [[ -n $current ]] || current=$(env -u BROWSER xdg-settings get default-web-browser)
+
+  [[ -n $current ]] || current=$(xdg-mime query default x-scheme-handler/https)
+  if [[ ${1:-} == "--desktop" ]]; then
+    printf '%s\n' "$current"
+    exit 0
+  fi
 
   case "$current" in
   chromium.desktop) echo "chromium" ;;
@@ -95,6 +106,6 @@ if omarchy-cmd-missing "$command"; then
   exit 1
 fi
 
-env -u BROWSER xdg-settings set default-web-browser "$desktop_id" || exit 1
+printf '%s\n' "$desktop_id" | omarchy_write_private_file "$OMARCHY_STATE_HOME" "$browser_file" || exit 1
 
-omarchy-notification-send -g $glyph "$name is now the default browser"
+omarchy-notification-send -g $glyph "$name is now the Omarchy browser"

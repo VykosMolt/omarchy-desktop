@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Set the system monospace font
+# omarchy:summary=Set the font used by the Omarchy shell and its terminals
 # omarchy:args=<font-name>
 # omarchy:examples=omarchy font list | omarchy font set "CaskaydiaMono Nerd Font"
 
@@ -29,82 +29,46 @@ if [[ $font_name == *[[:cntrl:]]* ]] || ! fc-list -f '%{family}\n' |
   exit 1
 fi
 
-# Change only this preference, preserving the user's other fontconfig rules
-# and kitty settings. XML and replacement metacharacters are plain data.
-python3 - "$font_name" <<'PYTHON' || exit 1
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
+
+# Validate both destinations before changing either preference.
+kitty=$(omarchy_kitty_config) || exit 1
+omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/appearance.ini" >/dev/null || exit 1
+
+if [[ -f $kitty ]]; then
+  python3 - "$font_name" "$kitty" <<'PYTHON'
 import os
-import tempfile
-import xml.etree.ElementTree as ET
-from pathlib import Path
 import sys
-
-family = sys.argv[1]
-config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-fontconfig = (config / "fontconfig/fonts.conf").resolve()
-kitty = (Path(os.environ.get("KITTY_CONFIG_DIRECTORY", str(config / "kitty"))) / "kitty.conf").resolve()
-parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+import tempfile
+from pathlib import Path
+family, filename = sys.argv[1:]
+path = Path(filename)
+lines = path.read_text().splitlines()
+updated = []
+found = False
+for line in lines:
+    if line.split(maxsplit=1)[:1] == ["font_family"]:
+        if not found:
+            updated.append("font_family " + family)
+            found = True
+    else:
+        updated.append(line)
+if not found:
+    updated.append("font_family " + family)
+fd, temporary = tempfile.mkstemp(prefix=".font-", dir=path.parent)
 try:
-    tree = ET.parse(fontconfig, parser=parser) if fontconfig.exists() else ET.ElementTree(ET.Element("fontconfig"))
-except ET.ParseError as error:
-    sys.exit(f"Cannot update invalid fontconfig file: {error}")
-root = tree.getroot()
-if root.tag != "fontconfig":
-    sys.exit("Cannot update a file without a fontconfig root")
-match = None
-for candidate in root.findall("match"):
-    children = list(candidate)
-    if len(children) != 2 or candidate.get("target") != "pattern":
-        continue
-    test, edit = children
-    if (test.tag == "test" and test.get("name") == "family"
-            and test.findtext("string") == "monospace" and len(test) == 1
-            and test.get("compare", "eq") == "eq" and test.get("qual", "any") == "any"
-            and edit.tag == "edit" and edit.get("name") == "family"
-            and edit.get("mode") == "prepend_first" and len(edit) == 1
-            and edit[0].tag == "string"):
-        match = edit[0]
-        break
-if match is None:
-    rule = ET.SubElement(root, "match", target="pattern")
-    test = ET.SubElement(rule, "test", name="family", qual="any")
-    ET.SubElement(test, "string").text = "monospace"
-    edit = ET.SubElement(rule, "edit", name="family", mode="prepend_first", binding="strong")
-    match = ET.SubElement(edit, "string")
-match.text = family
-
-
-def publish(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
-    try:
-        if path.exists():
-            os.fchmod(fd, path.stat().st_mode & 0o777)
-        with os.fdopen(fd, "w") as output:
-            output.write(data)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-
-
-publish(fontconfig, '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
-        + ET.tostring(root, encoding="unicode") + "\n")
-if kitty.is_file():
-    lines = kitty.read_text().splitlines()
-    updated = []
-    found = False
-    for line in lines:
-        if line.split(maxsplit=1)[:1] == ["font_family"]:
-            if not found:
-                updated.append("font_family " + family)
-                found = True
-        else:
-            updated.append(line)
-    if not found:
-        updated.append("font_family " + family)
-    publish(kitty, "\n".join(updated) + "\n")
+    os.fchmod(fd, path.stat().st_mode & 0o777)
+    with os.fdopen(fd, "w") as output:
+        output.write("\n".join(updated) + "\n")
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
 PYTHON
+  (( $? == 0 )) || exit 1
+fi
 
+omarchy_preference_set Font Family "$font_name" || exit 1
 omarchy-restart-terminal
-omarchy-restart-shell
 omarchy-hook font-set "$font_name"

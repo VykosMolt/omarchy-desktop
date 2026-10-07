@@ -79,3 +79,15 @@ grep -Fx '^chromium.*$' "$focus_log" >/dev/null ||
   fail "browser launcher focuses the browser resolved from the HTTPS handler"
 
 pass "browser launcher follows opened links to the browser workspace"
+
+# An Omarchy preference takes priority without changing the host handler.
+mkdir -p "$test_home/.local/state/omarchy/defaults"
+printf 'firefox.desktop\n' >"$test_home/.local/state/omarchy/defaults/browser"
+printf '[Desktop Entry]\nExec=firefox %%U\n' >"$test_home/.local/share/applications/firefox.desktop"
+printf '#!/bin/bash\nexit 0\n' >"$mock_bin/firefox"
+chmod +x "$mock_bin/firefox"
+HOME="$test_home" PATH="$mock_bin:$PATH" OMARCHY_TEST_BROWSER_LAUNCH="$launch_log" \
+  bash "$ROOT/bin/omarchy-launch-browser" https://example.test/private-selection
+grep -F 'uwsm-app -- firefox https://example.test/private-selection' "$launch_log" >/dev/null ||
+  fail "browser launcher actually uses the private browser selection"
+pass "private browser selection controls launch without changing host defaults"

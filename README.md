@@ -21,6 +21,9 @@ The corresponding variables are `OMARCHY_SESSION_{CONFIG,STATE,CACHE,DATA}_HOME`
 
 The session takes an advisory lock before changing runtime state. Its systemd user services require that lock and read a private session environment file. The launcher removes its environment and compositor drop-in when the session ends. Services are linked at runtime, not enabled permanently.
 
+Desktop preference controls write only the Omarchy roots. `appearance.ini` stores application-list icons, the Hyprland cursor, and the shell font; terminal controls use the private Kitty profile. GTK, Qt, KDE, fontconfig, MIME and host terminal preferences remain unchanged. The browser choice is local to Omarchy, and hiding an application changes `launcher.hides` instead of deleting its desktop entry. Shared application data, hardware and explicitly requested network/audio actions still use the host services. Starting the shell does not automatically repair or restart shared audio.
+
+
 ## Desktop controls
 
 - The bar contains workspaces, clock, keyboard layout, weather, hardware sensors, system monitor, Bluetooth, network, audio, display, and power controls.

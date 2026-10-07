@@ -32,6 +32,14 @@ chmod +x "$stub_bin/systemd-cat"
 printf '#!/bin/bash\nexit 0\n' >"$stub_bin/hyprctl"
 chmod +x "$stub_bin/hyprctl"
 
+# The shell must not repair shared audio services automatically at startup.
+cat >"$stub_bin/omarchy-audio-repair-nodes" <<'STUB'
+#!/bin/bash
+touch "$AUDIO_REPAIR_CALLED"
+STUB
+chmod +x "$stub_bin/omarchy-audio-repair-nodes"
+export AUDIO_REPAIR_CALLED="$tmpdir/audio-repair-called"
+
 vendor_json="$tmpdir/50_mesa.json"
 printf '{}\n' >"$vendor_json"
 
@@ -90,3 +98,6 @@ output=$(run_launcher "$intel_drm" "$tmpdir/absent.json")
 grep -Fx "__EGL_VENDOR_LIBRARY_FILENAMES=unset" <<<"$output" >/dev/null ||
   fail "a missing Mesa vendor file pins nothing" "$output"
 pass "a missing Mesa vendor file pins nothing"
+
+[[ ! -e $AUDIO_REPAIR_CALLED ]] || fail "shell startup never repairs shared WirePlumber automatically"
+pass "shell startup leaves shared audio services alone"

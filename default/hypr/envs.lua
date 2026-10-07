@@ -13,6 +13,26 @@ end
 env_default("XCURSOR_SIZE", "24")
 env_default("HYPRCURSOR_SIZE", "24")
 
+-- Preferences belong to Omarchy. The helpers only read host settings when
+-- the private session has not chosen its own cursor yet.
+local function cursor_preference(argument)
+  local executable = paths.omarchy_path .. "/bin/omarchy-cursor-theme"
+  local quoted = "'" .. executable:gsub("'", "'\\''") .. "'"
+  local pipe = io.popen(quoted .. " " .. argument .. " 2>/dev/null")
+  if not pipe then return nil end
+  local value = pipe:read("*l")
+  pipe:close()
+  return value
+end
+local cursor_theme = cursor_preference("get")
+local cursor_size = cursor_preference("size")
+for _, prefix in ipairs({ "XCURSOR", "HYPRCURSOR" }) do
+  if cursor_theme and cursor_theme ~= "" then hl.env(prefix .. "_THEME", cursor_theme) end
+  if cursor_size and cursor_size:match("^%d+$") then hl.env(prefix .. "_SIZE", cursor_size) end
+end
+
+hl.env("KITTY_CONFIG_DIRECTORY", paths.config_home .. "/kitty")
+
 -- Force all apps to use Wayland.
 hl.env("GDK_BACKEND", "wayland,x11,*")
 hl.env("QT_QPA_PLATFORM", "wayland;xcb")

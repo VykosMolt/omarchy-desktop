@@ -14,6 +14,7 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
 
   property var configuredHiddenEntryIds: ({})
+  property var shippedHiddenEntryIds: ({})
   property var desktopHiddenEntryIds: ({})
 
   // Maps an icon name to a file on disk (e.g. "omacut" -> ".../apps/omacut.svg").
@@ -52,7 +53,7 @@ Item {
 
   function isHiddenEntry(entry) {
     var id = String((entry && entry.id) || "")
-    return root.configuredHiddenEntryIds[id] === true || root.desktopHiddenEntryIds[id] === true
+    return root.configuredHiddenEntryIds[id] === true || root.shippedHiddenEntryIds[id] === true || root.desktopHiddenEntryIds[id] === true
   }
 
   function sortedEntries(query) {
@@ -139,14 +140,15 @@ Item {
     return value
   }
 
-  function loadConfiguredHides(rawText) {
+  function loadConfiguredHides(rawText, shipped) {
     var next = ({})
     var lines = String(rawText || "").split(/\n/)
     for (var i = 0; i < lines.length; i++) {
       var id = root.normalizeDesktopId(lines[i])
       if (id.length > 0) next[id] = true
     }
-    root.configuredHiddenEntryIds = next
+    if (shipped) root.shippedHiddenEntryIds = next
+    else root.configuredHiddenEntryIds = next
     root.appsChanged()
   }
 
@@ -283,9 +285,25 @@ Item {
     path: root.omarchyPath + "/default/omarchy/launcher.hides"
     watchChanges: true
     printErrors: false
+    onLoaded: root.loadConfiguredHides(text(), true)
+    onFileChanged: reload()
+    onLoadFailed: root.loadConfiguredHides("", true)
+  }
+
+  FileView {
+    path: Paths.omarchyConfig + "/launcher.hides"
+    watchChanges: true
+    printErrors: false
     onLoaded: root.loadConfiguredHides(text())
     onFileChanged: reload()
     onLoadFailed: root.loadConfiguredHides("")
+  }
+
+  FileView {
+    path: Paths.omarchyConfig + "/appearance.ini"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.refreshIcons(true)
   }
 
   Connections {

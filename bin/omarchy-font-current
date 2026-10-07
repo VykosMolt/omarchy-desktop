@@ -1,9 +1,13 @@
 #!/bin/bash
 
-# omarchy:summary=Show current monospace font
+# omarchy:summary=Show the font used by the Omarchy shell
 # omarchy:examples=omarchy font current
 
-# fontconfig is the source of truth. fc-match returns a comma-separated
-# alias list (e.g. "JetBrainsMono Nerd Font,JetBrainsMono NF") so take
-# the first entry.
-fc-match monospace -f '%{family}\n' | head -n1 | cut -d, -f1
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
+family=$(omarchy_preference_get Font Family) || family=""
+if [[ -n $family ]]; then
+  printf '%s\n' "$family"
+else
+  fc-match monospace -f '%{family}\n' | head -n1 | cut -d, -f1
+fi

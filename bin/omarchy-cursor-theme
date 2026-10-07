@@ -1,14 +1,11 @@
 #!/bin/bash
 
-# omarchy:summary=Show, list, or set the cursor theme and size used by the session and its apps
+# omarchy:summary=Show, list, or set the Hyprland cursor theme and size
 # omarchy:args=[get|list|set <name>|size [pixels]]
 # omarchy:examples=omarchy cursor theme list|omarchy cursor theme set Breeze_Light|omarchy cursor theme size 24
 
-# Same bargain as omarchy-icon-theme: the cursor is the user's own choice and a
-# colour theme never touches it, but when the user picks one here it has to
-# reach every toolkit, which means writing the files each of them reads. The
-# running compositor is told directly so the pointer changes now rather than at
-# the next login. Nothing outside $HOME is written.
+# Only the Hyprland session's cursor changes. GTK and KDE preferences remain
+# the host's; they are read only as the initial value for a new session.
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
@@ -66,6 +63,11 @@ gsettings_value() {
 
 get_theme() {
   local value
+  value=$(omarchy_preference_get Cursor Theme) || value=""
+  if [[ -n $value ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
 
   # "default" is Xcursor's own placeholder, not a theme anybody picked, so it
   # does not settle the question -- the toolkit configs below still can.
@@ -90,6 +92,11 @@ get_theme() {
 
 get_size() {
   local value
+  value=$(omarchy_preference_get Cursor Size) || value=""
+  if [[ $value =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
 
   value=$(gsettings_value cursor-size) || value=""
   if [[ $value =~ ^[0-9]+$ ]]; then
@@ -109,16 +116,6 @@ get_size() {
 
   # What default/hypr/envs.lua hands the session when nothing has been chosen.
   echo 24
-}
-
-# Xwayland and anything reading Xcursor directly go through ~/.icons/default,
-# which names the theme by inheritance rather than by a key.
-write_xcursor_default() {
-  local name="$1"
-  local file="$HOME/.icons/default/index.theme"
-
-  omarchy_ini_set "$file" "Icon Theme" Name "Default" || return 1
-  omarchy_ini_set "$file" "Icon Theme" Inherits "$name"
 }
 
 tell_compositor() {
@@ -142,42 +139,11 @@ tell_compositor() {
 }
 
 apply() {
-  local name="$1"
-  local size="$2"
-  local updated=()
-  local file
-
-  if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
-    if gsettings set org.gnome.desktop.interface cursor-theme "$name" 2>/dev/null &&
-      gsettings set org.gnome.desktop.interface cursor-size "$size" 2>/dev/null; then
-      updated+=("gsettings org.gnome.desktop.interface cursor-theme")
-    fi
-  fi
-
-  for file in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
-    if omarchy_ini_set "$file" Settings gtk-cursor-theme-name "$name" &&
-      omarchy_ini_set "$file" Settings gtk-cursor-theme-size "$size"; then
-      updated+=("$file")
-    fi
-  done
-
-  if omarchy_ini_set "$CONFIG_HOME/kcminputrc" Mouse cursorTheme "$name" &&
-    omarchy_ini_set "$CONFIG_HOME/kcminputrc" Mouse cursorSize "$size"; then
-    updated+=("$CONFIG_HOME/kcminputrc")
-  fi
-
-  if write_xcursor_default "$name"; then
-    updated+=("$HOME/.icons/default/index.theme")
-  fi
-
-  if (( ${#updated[@]} == 0 )); then
-    echo "Nothing accepted the cursor theme: $name" >&2
-    return 1
-  fi
-
+  local name="$1" size="$2"
+  omarchy_preference_set Cursor Theme "$name" || return 1
+  omarchy_preference_set Cursor Size "$size" || return 1
   tell_compositor "$name" "$size"
-
-  printf '%s\n' "${updated[@]}"
+  printf '%s\n' "$OMARCHY_CONFIG_HOME/appearance.ini"
 }
 
 set_theme() {

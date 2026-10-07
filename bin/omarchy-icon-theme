@@ -1,20 +1,14 @@
 #!/bin/bash
 
-# omarchy:summary=Show, list, or set the icon theme used by GTK, Qt, and KDE apps
+# omarchy:summary=Show, list, or set the icons used in the Omarchy application list
 # omarchy:args=[get|list|set <name>]
 # omarchy:examples=omarchy icon theme list|omarchy icon theme set Papirus-Dark
 
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
 source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-ini.sh"
 
-# This command writes account-wide files -- the GTK, Qt, and KDE configs under
-# the user's own ~/.config -- which a theme switch deliberately never touches.
-# The difference is who asked. An Omarchy colour theme used to replace the icon
-# set behind the user's back on every switch, so omarchy-theme-set-gnome now
-# leaves the icon theme alone; here the user picked an icon theme and expects it
-# to take effect everywhere on this machine, which is only possible by writing
-# the files each toolkit reads. Nothing outside $HOME is touched, and every
-# neighbouring key in those files is preserved.
+# The preference controls Omarchy's application icons. Host toolkit settings
+# supply the initial value but are never modified by this session.
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 ICON_ROOTS=(
   /usr/share/icons
@@ -88,6 +82,12 @@ theme_is_installed() {
 get_theme() {
   local value
 
+  value=$(omarchy_preference_get Icons Theme) || value=""
+  if [[ -n $value ]]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
   if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
     value=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null)
     value=${value#\'}
@@ -115,50 +115,12 @@ get_theme() {
 
 set_theme() {
   local name="$1"
-  local updated=()
-  local file tool
-
   if ! theme_is_installed "$name"; then
     echo "Icon theme is not installed: $name" >&2
     return 1
   fi
-
-  # gsettings needs a user DBus session; without one there is nothing to tell,
-  # and the files below still carry the choice into the next login.
-  if [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] && omarchy-cmd-present gsettings; then
-    if gsettings set org.gnome.desktop.interface icon-theme "$name" 2>/dev/null; then
-      updated+=("gsettings org.gnome.desktop.interface icon-theme")
-    fi
-  fi
-
-  for file in "$CONFIG_HOME/gtk-3.0/settings.ini" "$CONFIG_HOME/gtk-4.0/settings.ini"; do
-    if omarchy_ini_set "$file" Settings gtk-icon-theme-name "$name"; then
-      updated+=("$file")
-    fi
-  done
-
-  # Only where that toolkit is actually configured on this machine. Creating a
-  # qt5ct config for a machine with no qt5ct would leave a file the user never
-  # asked for and nothing ever reads.
-  for tool in qt5ct qt6ct; do
-    file="$CONFIG_HOME/$tool/$tool.conf"
-    [[ -f $file ]] || omarchy-cmd-present "$tool" || continue
-
-    if omarchy_ini_set "$file" Appearance icon_theme "$name"; then
-      updated+=("$file")
-    fi
-  done
-
-  if omarchy_ini_set "$CONFIG_HOME/kdeglobals" Icons Theme "$name"; then
-    updated+=("$CONFIG_HOME/kdeglobals")
-  fi
-
-  if (( ${#updated[@]} == 0 )); then
-    echo "Nothing accepted the icon theme: $name" >&2
-    return 1
-  fi
-
-  printf '%s\n' "${updated[@]}"
+  omarchy_preference_set Icons Theme "$name" || return 1
+  printf '%s\n' "$OMARCHY_CONFIG_HOME/appearance.ini"
 }
 
 case "${1:-get}" in

@@ -6,4 +6,4 @@
 cmd="$*"
 presentation_script="$cmd; if (( \$? != 130 )); then omarchy-show-done; fi"
 
-exec setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.terminal --title=Omarchy -e bash -c "$presentation_script"
+exec omarchy-launch-tui --app-id=org.omarchy.terminal bash -c "$presentation_script"

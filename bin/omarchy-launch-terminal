@@ -3,4 +3,7 @@
 # omarchy:summary=Launch a terminal in the active terminal's current directory
 # omarchy:args=[command...]
 
-exec setsid uwsm-app -- xdg-terminal-exec --dir="$(omarchy-cmd-terminal-cwd)" "$@"
+source "${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}/lib/omarchy-paths.sh"
+kitty=$(omarchy_kitty_config) || exit 1
+export KITTY_CONFIG_DIRECTORY=${kitty%/*}
+exec setsid uwsm-app -- kitty --config "$kitty" --directory "$(omarchy-cmd-terminal-cwd)" "$@"
