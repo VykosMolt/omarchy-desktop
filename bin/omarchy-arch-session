@@ -116,6 +116,8 @@ if (( ! dry_run )); then
       ;;
   esac
 
+  "$OMARCHY_PATH/bin/omarchy-arch-session-init"
+
   wm_instance=$(systemd-escape "${START_HYPRLAND_BIN##*/}")
   wm_dropin="$SESSION_RUNTIME/systemd/user/wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf"
   session_pid=""

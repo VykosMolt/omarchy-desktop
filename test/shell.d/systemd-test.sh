@@ -134,6 +134,19 @@ cat > "$tmpdir/bin/start-hyprland" <<'STUB'
 #!/bin/bash
 exit 99
 STUB
+# Initial preferences are read from deterministic host stubs, never the live
+# account's settings bus. The launcher still runs the real initializer.
+cat > "$tmpdir/bin/gsettings" <<'STUB'
+#!/bin/bash
+[[ $1 == get ]] || exit 99
+case $3 in
+  icon-theme) echo "'Fixture Icons'" ;;
+  cursor-theme) echo "'Fixture Cursor'" ;;
+  cursor-size) echo 24 ;;
+esac
+STUB
+printf '#!/bin/bash\nprintf "Fixture Mono\\n"\n' > "$tmpdir/bin/fc-match"
+printf '#!/bin/bash\nprintf "fixture.desktop\\n"\n' > "$tmpdir/bin/xdg-settings"
 cat > "$tmpdir/bin/uwsm" <<'STUB'
 #!/bin/bash
 if [[ " $* " == *" -n "* ]]; then
@@ -156,6 +169,8 @@ if flock -n "$XDG_RUNTIME_DIR/omarchy-arch-session.lock" true; then exit 90; fi
 [[ $(umask) == 0022 ]] || exit 93
 grep -Fx "KITTY_CONFIG_DIRECTORY=\"$OMARCHY_LAUNCH_TEST/config/kitty\"" "$XDG_RUNTIME_DIR/omarchy-arch-session.env" >/dev/null || exit 94
 [[ $DBUS_SESSION_BUS_ADDRESS == "unix:path=$XDG_RUNTIME_DIR/bus" ]] || exit 95
+[[ -s $KITTY_CONFIG_DIRECTORY/kitty.conf && -s $OMARCHY_CONFIG_HOME/appearance.ini ]] || exit 97
+[[ $(cat "$OMARCHY_STATE_HOME/defaults/browser") == fixture.desktop ]] || exit 98
 wm_instance=$(systemd-escape start-hyprland)
 [[ -f $XDG_RUNTIME_DIR/systemd/user/wayland-wm@${wm_instance}.service.d/20-omarchy-arch-session.conf ]] || exit 96
 printf '%s\n' "$@" > "$OMARCHY_LAUNCH_TEST/argv"
@@ -164,7 +179,7 @@ STUB
 chmod +x "$tmpdir/bin/"*
 run_launcher() {
   (umask 022; HOME="$tmpdir/home" XDG_RUNTIME_DIR="$tmpdir" \
-    OMARCHY_LAUNCH_TEST="$tmpdir" PATH="$tmpdir/bin:$PATH" "$launcher" "$@")
+    OMARCHY_LAUNCH_TEST="$tmpdir" PATH="$tmpdir/bin:$ROOT/bin:$PATH" "$launcher" "$@")
 }
 
 printf '%s\n' untouched > "$tmpdir/omarchy-arch-session.env"
@@ -186,6 +201,8 @@ pass "a competing launcher cannot mutate the active session"
 run_launcher --dry-run >/dev/null || fail "dry-run reaches uwsm"
 [[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched && ! -e $tmpdir/calls ]] || fail "dry-run mutated session state"
 pass "dry-run leaves session runtime files untouched"
+[[ ! -e $tmpdir/config/omarchy && ! -e $tmpdir/config/kitty && ! -e $tmpdir/state ]] || fail "a blocked or dry-run startup initialized preferences"
+pass "blocked and dry-run startup never initialize private preferences"
 
 if OMARCHY_LAUNCH_QUERY_ERROR=1 run_launcher > "$tmpdir/out" 2>&1; then fail "a failed target query must prevent startup"; fi
 [[ $(cat "$tmpdir/omarchy-arch-session.env") == untouched ]] || fail "query failure changed the environment"
@@ -230,7 +247,7 @@ from pathlib import Path
 root = Path(os.environ["FIXTURE"])
 env = os.environ.copy()
 env.update(HOME=str(root / "home"), XDG_RUNTIME_DIR=str(root),
-           OMARCHY_LAUNCH_TEST=str(root), PATH=str(root / "bin") + ":" + env["PATH"])
+           OMARCHY_LAUNCH_TEST=str(root), PATH=str(root / "bin") + ":" + env["ROOT"] + "/bin:" + env["PATH"])
 
 
 def await_file(path, proc):

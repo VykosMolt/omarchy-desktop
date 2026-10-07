@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# omarchy:summary=Initialize missing private desktop preferences
+# omarchy:hidden=true
+
+set -euo pipefail
+
+source "$OMARCHY_PATH/lib/omarchy-paths.sh"
+source "$OMARCHY_PATH/lib/omarchy-ini.sh"
+
+# Validate every destination before creating anything. In particular, setting
+# an owned root itself to a symlink must not authorize writes through it.
+if [[ $(realpath -m -- "$OMARCHY_SESSION_STATE_HOME") == "$(realpath -m -- "${XDG_STATE_HOME:-$HOME/.local/state}")" ]]; then
+  echo "Omarchy requires a private session directory for desktop state." >&2
+  exit 1
+fi
+omarchy_private_path "$OMARCHY_SESSION_CONFIG_HOME" "$OMARCHY_CONFIG_HOME" >/dev/null
+omarchy_private_path "$OMARCHY_SESSION_STATE_HOME" "$OMARCHY_STATE_HOME" >/dev/null
+kitty_config=$(omarchy_kitty_config)
+appearance=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/appearance.ini")
+appearance_lock=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/appearance.ini.lock")
+init_lock=$(omarchy_private_path "$OMARCHY_CONFIG_HOME" "$OMARCHY_CONFIG_HOME/session-init.lock")
+browser=$(omarchy_private_path "$OMARCHY_STATE_HOME" "$OMARCHY_STATE_HOME/defaults/browser")
+terminal=$(omarchy_private_path "$OMARCHY_STATE_HOME" "$OMARCHY_STATE_HOME/defaults/terminal")
+omarchy_private_path "$OMARCHY_STATE_HOME" "$OMARCHY_STATE_HOME/current/theme/kitty.conf" >/dev/null
+for file in "$kitty_config" "$appearance" "$appearance_lock" "$init_lock" "$browser" "$terminal"; do
+  if [[ -e $file && ( ! -f $file || ! -r $file ) ]]; then
+    echo "Invalid private preference file: $file" >&2
+    exit 1
+  fi
+done
+
+mkdir -p -- "$OMARCHY_CONFIG_HOME"
+exec {init_fd}>"$init_lock"
+flock "$init_fd"
+
+# Share the ordinary preference writer's lock. Each completed key survives a
+# later failure; retry only fills missing keys, never resets a user's edits.
+exec {appearance_fd}>"$appearance_lock"
+flock "$appearance_fd"
+seed_preference() {
+  local section=$1 key=$2 value
+  shift 2
+  if ! omarchy_ini_has "$appearance" "$section" "$key"; then
+    value=$("$@")
+    if [[ -z $value || $value == *[[:cntrl:]]* ]]; then
+      echo "Cannot initialize $section $key from an empty or invalid value." >&2
+      return 1
+    fi
+    omarchy_ini_set "$appearance" "$section" "$key" "$value"
+  fi
+}
+seed_preference Icons Theme "$OMARCHY_PATH/bin/omarchy-icon-theme" get
+seed_preference Cursor Theme "$OMARCHY_PATH/bin/omarchy-cursor-theme" get
+seed_preference Cursor Size "$OMARCHY_PATH/bin/omarchy-cursor-theme" size
+seed_preference Font Family "$OMARCHY_PATH/bin/omarchy-font-current"
+font_family=$("$OMARCHY_PATH/bin/omarchy-font-current")
+exec {appearance_fd}>&-
+
+if [[ ! -e $browser ]]; then
+  value=$("$OMARCHY_PATH/bin/omarchy-default-browser" --desktop)
+  printf '%s\n' "$value" | omarchy_seed_private_file "$OMARCHY_STATE_HOME" "$browser"
+fi
+if [[ ! -e $terminal ]]; then
+  value=$("$OMARCHY_PATH/bin/omarchy-default-terminal")
+  printf '%s\n' "$value" | omarchy_seed_private_file "$OMARCHY_STATE_HOME" "$terminal"
+fi
+if [[ ! -e $kitty_config ]]; then
+  [[ -n $font_family && $font_family != *[[:cntrl:]]* ]] || exit 1
+  # Complete rendering before publishing: a missing/unreadable template must
+  # not leave an empty profile that the next login would correctly preserve.
+  kitty_contents=$(
+    while IFS= read -r line || [[ -n $line ]]; do
+      if [[ $line == 'font_family {{ font_family }}' ]]; then
+        printf 'font_family %s\n' "$font_family"
+      else
+        printf '%s\n' "$line"
+      fi
+    done <"$OMARCHY_PATH/config/kitty/kitty.conf"
+  )
+  printf '%s\n' "$kitty_contents" |
+    omarchy_seed_private_file "$OMARCHY_SESSION_CONFIG_HOME" "$kitty_config"
+fi

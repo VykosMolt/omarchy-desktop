@@ -47,18 +47,21 @@ if (($# == 0)) || [[ ${1:-} == "--desktop" ]]; then
   # again -- and the unmatched arm is the common one, since a browser that
   # registers itself gets a generated id rather than its packaged one.
   current=""
-  [[ ! -r $browser_file ]] || read -r current <"$browser_file"
-  for _mimeapps in "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" \
-    "${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeapps.list"; do
-    [[ -z $current ]] || break
-    [[ -r $_mimeapps ]] || continue
-    current=$(awk -F= '/^x-scheme-handler\/https?=/ { sub(/;.*/, "", $2); print $2; exit }' "$_mimeapps")
-    [[ -n $current ]] && break
-  done
-
-  [[ -n $current ]] || current=$(env -u BROWSER xdg-settings get default-web-browser)
-
-  [[ -n $current ]] || current=$(xdg-mime query default x-scheme-handler/https)
+  if [[ -e $browser_file ]]; then
+    # An empty snapshot means no browser was selected. It must not start
+    # following another desktop's MIME settings after the first login.
+    [[ -f $browser_file && -r $browser_file ]] || exit 1
+    IFS= read -r current <"$browser_file" || true
+  else
+    for _mimeapps in "${XDG_CONFIG_HOME:-$HOME/.config}/mimeapps.list" \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/applications/mimeapps.list"; do
+      [[ -r $_mimeapps ]] || continue
+      current=$(awk -F= '/^x-scheme-handler\/https?=/ { sub(/;.*/, "", $2); print $2; exit }' "$_mimeapps")
+      [[ -n $current ]] && break
+    done
+    [[ -n $current ]] || current=$(env -u BROWSER xdg-settings get default-web-browser)
+    [[ -n $current ]] || current=$(xdg-mime query default x-scheme-handler/https)
+  fi
   if [[ ${1:-} == "--desktop" ]]; then
     printf '%s\n' "$current"
     exit 0

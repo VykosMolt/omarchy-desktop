@@ -4,7 +4,11 @@
 # omarchy:args=[url]
 
 omarchy_root="${OMARCHY_PATH:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
-default_browser=$("$omarchy_root/bin/omarchy-default-browser" --desktop)
+default_browser=$("$omarchy_root/bin/omarchy-default-browser" --desktop) || exit 1
+if [[ -z $default_browser ]]; then
+  echo "No Omarchy browser is selected. Choose one in the Defaults menu." >&2
+  exit 1
+fi
 browser_exec=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/$default_browser 2>/dev/null | head -1)
 
 if [[ -z $browser_exec ]]; then

@@ -49,6 +49,25 @@ omarchy_write_private_file() {
   return 1
 }
 
+# Publish a first-use default without replacing a concurrently saved choice.
+omarchy_seed_private_file() {
+  local root=$1 path temp status=0
+  path=$(omarchy_private_path "$root" "$2") || return 1
+  if [[ -e $path ]]; then
+    [[ -f $path && -r $path ]]
+    return
+  fi
+  mkdir -p -- "${path%/*}" || return 1
+  temp=$(mktemp "$path.XXXXXX") || return 1
+  if ! cat >"$temp"; then
+    status=1
+  elif ! ln -T -- "$temp" "$path" 2>/dev/null; then
+    [[ -f $path && -r $path ]] || status=1
+  fi
+  rm -f -- "$temp"
+  return "$status"
+}
+
 omarchy_kitty_config() {
   local host_config=${XDG_CONFIG_HOME:-$HOME/.config}
   if [[ $(realpath -m -- "$OMARCHY_SESSION_CONFIG_HOME") == "$(realpath -m -- "$host_config")" ]]; then

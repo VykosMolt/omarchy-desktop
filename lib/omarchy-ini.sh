@@ -27,6 +27,19 @@ omarchy_ini_get() {
   ' "$file"
 }
 
+# Presence is distinct from an empty value when filling first-use defaults.
+omarchy_ini_has() {
+  [[ -r $1 ]] || return 1
+  awk -v section="$2" -v key="$3" '
+    /^[[:space:]]*\[/ {
+      in_section = ($0 ~ "^[[:space:]]*\\[" section "\\][[:space:]]*$")
+      next
+    }
+    in_section && $0 ~ "^" key "[[:space:]]*=" { found = 1; exit }
+    END { exit !found }
+  ' "$1"
+}
+
 omarchy_ini_set() {
   local file="$1"
   local section="$2"
@@ -47,7 +60,8 @@ omarchy_ini_set() {
 
   if [[ -f $file ]]; then
     chmod --reference="$file" "$temp_file" 2>/dev/null
-    awk -v section="$section" -v key="$key" -v value="$value" '
+    OMARCHY_INI_VALUE="$value" awk -v section="$section" -v key="$key" '
+      BEGIN { value = ENVIRON["OMARCHY_INI_VALUE"] }
       /^[[:space:]]*\[/ {
         if (in_section && !done) {
           print key "=" value
